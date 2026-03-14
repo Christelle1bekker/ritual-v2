@@ -1528,8 +1528,10 @@ export default function RitualApp() {
   useEffect(() => {
     if (!family || !mounted) return;
     const params = new URLSearchParams(window.location.search);
-    const tileUID = params.get("tile");
-    if (!tileUID) return;
+    const raw = params.get("tile");
+    if (!raw) return;
+    // Normalize UID: strip colons, uppercase — handles both "04:96:9E:5A" and "04969E5A" formats
+    const tileUID = raw.replace(/:/g, "").toUpperCase();
     // Prevent handling the same tile URL twice within this page load
     if (tileHandled.current === tileUID) return;
     tileHandled.current = tileUID;
