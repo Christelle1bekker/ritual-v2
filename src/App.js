@@ -72,7 +72,7 @@ function normalizeHabit(h) {
     color: h.color, location: h.location,
     target: h.target || 1, streak: h.streak || 0,
     isKid: h.is_kid || false, isCustom: h.is_custom || false,
-    tileConfigured: h.tile_configured || false,
+    tileUid: h.tile_uid || null,
   };
 }
 
@@ -86,12 +86,13 @@ function normalizeCompletion(c) {
 // ─── SUPABASE FETCH HELPERS ───────────────────────────────────────
 async function fetchFamilyData(pin) {
   if (!supabase) return null;
+  console.log("🔄 fetchFamilyData PIN:", pin);
   const { data, error } = await supabase
     .from("families")
     .select("*, members(*), habits(*), rewards(*)")
     .eq("pin", pin)
     .single();
-  if (error || !data) return null;
+  if (error || !data) { console.error("❌ fetchFamilyData error:", error); return null; }
   return {
     id: data.id, name: data.name, pin: data.pin,
     members: (data.members || []).map(normalizeMember),
@@ -102,9 +103,12 @@ async function fetchFamilyData(pin) {
 
 async function fetchTodayCompletions(familyId) {
   if (!supabase) return [];
-  const { data } = await supabase
+  console.log("📊 fetchTodayCompletions for family:", familyId);
+  const { data, error } = await supabase
     .from("completions").select("*")
     .eq("family_id", familyId).eq("date", todayKey());
+  if (error) console.error("❌ fetchTodayCompletions error:", error);
+  console.log("✅ Loaded", (data || []).length, "completions");
   return (data || []).map(normalizeCompletion);
 }
 
@@ -558,6 +562,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>
               {habit.location ? `Tile at: ${habit.location}` : habit.category} · 🔥 {habit.streak || 0}
+              {habit.tileUid && <span style={{ color: C.accent, marginLeft: 6 }}>· 🏷️ {habit.tileUid.slice(-4).toUpperCase()}</span>}
             </div>
             {isMulti && taps > 0 && (
               <div style={{ marginTop: 6 }}>
@@ -809,91 +814,128 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember }) {
   );
 }
 
+// ─── MANAGE TILES SCREEN ──────────────────────────────────────────
+function ManageTilesScreen({ family, habits, onAssignTile, onRemoveTile, onBack }) {
+  const [unassignedTiles, setUnassignedTiles] = useState([]);
+  const [showHabitPicker, setShowHabitPicker] = useState(null);
+
+  useEffect(() => {
+    const key = `ritual_unassigned_tiles_${family.id}`;
+    setUnassignedTiles(JSON.parse(localStorage.getItem(key) || "[]"));
+  }, [family.id]);
+
+  const assignedHabits = habits.filter(h => h.tileUid);
+
+  const doAssign = async (tileUID, habitId) => {
+    await onAssignTile(tileUID, habitId);
+    const key = `ritual_unassigned_tiles_${family.id}`;
+    const remaining = unassignedTiles.filter(t => t !== tileUID);
+    localStorage.setItem(key, JSON.stringify(remaining));
+    setUnassignedTiles(remaining);
+    setShowHabitPicker(null);
+  };
+
+  return (
+    <div style={{ padding: "0 20px 110px" }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Manage Tiles</div>
+      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20, lineHeight: 1.6 }}>
+        Tap a tile on your phone to detect it, then assign it to a habit here.
+      </div>
+
+      {unassignedTiles.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>New Tiles Detected</div>
+          {unassignedTiles.map(uid => (
+            <div key={uid} style={{ background: `${C.accent}10`, borderRadius: 16, padding: 16, marginBottom: 10, border: `1.5px dashed ${C.accent}50`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: C.slate }}>🏷️ Tile …{uid.slice(-4).toUpperCase()}</div>
+                <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>Not assigned yet</div>
+              </div>
+              <button onClick={() => setShowHabitPicker({ tileUID: uid })} style={{ padding: "9px 16px", background: C.accent, color: C.white, border: "none", borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                Assign
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10, marginTop: unassignedTiles.length > 0 ? 20 : 0 }}>Assigned Tiles</div>
+      {assignedHabits.length === 0 ? (
+        <div style={{ background: C.white, borderRadius: 20, padding: 28, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🏷️</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: C.slate, marginBottom: 8 }}>No tiles assigned yet</div>
+          <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.7 }}>Program each tile with the URL:<br /><span style={{ fontFamily: "monospace", color: C.accent }}>{window.location.origin}?tile=YOUR_TILE_ID</span><br />Then tap it to detect and assign it here.</div>
+        </div>
+      ) : (
+        assignedHabits.map(habit => (
+          <div key={habit.id} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", border: `1px solid ${C.green}25` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{habit.icon}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
+                <div style={{ fontSize: 11, color: C.slateLight }}>🏷️ Tile …{habit.tileUid.slice(-4).toUpperCase()}{habit.location ? ` · at ${habit.location}` : ""}</div>
+              </div>
+              <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>✅ Active</span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setShowHabitPicker({ tileUID: habit.tileUid, currentHabitId: habit.id })} style={{ flex: 1, padding: "8px", background: C.offwhite, border: "none", borderRadius: 10, fontSize: 12, fontWeight: 600, color: C.slate, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Reassign</button>
+              <button onClick={() => { if (window.confirm("Remove tile assignment?")) onRemoveTile(habit.id); }} style={{ flex: 1, padding: "8px", background: `${C.error}12`, border: "none", borderRadius: 10, fontSize: 12, fontWeight: 600, color: C.error, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Remove</button>
+            </div>
+          </div>
+        ))
+      )}
+
+      {showHabitPicker && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000, animation: "fadeUp 0.2s ease" }} onClick={() => setShowHabitPicker(null)}>
+          <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>
+              Assign Tile …{showHabitPicker.tileUID.slice(-4).toUpperCase()}
+            </div>
+            <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Which habit should this tile trigger?</div>
+            {Object.entries(habits.reduce((acc, h) => {
+              const cat = h.category || "Other";
+              if (!acc[cat]) acc[cat] = [];
+              acc[cat].push(h);
+              return acc;
+            }, {})).map(([category, catHabits]) => (
+              <div key={category} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>{category}</div>
+                {catHabits.map(h => (
+                  <button key={h.id} onClick={() => doAssign(showHabitPicker.tileUID, h.id)} style={{ width: "100%", padding: "12px 14px", background: h.id === showHabitPicker.currentHabitId ? `${C.accent}15` : C.offwhite, border: "none", borderRadius: 12, marginBottom: 6, textAlign: "left", fontSize: 14, fontWeight: 500, color: C.slate, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>{h.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div>{h.name}</div>
+                      {h.tileUid && h.id !== showHabitPicker.currentHabitId && <div style={{ fontSize: 10, color: C.slateLight }}>Has: Tile …{h.tileUid.slice(-4).toUpperCase()}</div>}
+                    </div>
+                    {h.id === showHabitPicker.currentHabitId && <span style={{ fontSize: 10, color: C.accent }}>Current</span>}
+                  </button>
+                ))}
+              </div>
+            ))}
+            <button onClick={() => setShowHabitPicker(null)} style={{ width: "100%", padding: 13, background: C.offwhite, border: "none", borderRadius: 14, fontSize: 14, color: C.slateLight, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ADD SCREEN ───────────────────────────────────────────────────
-function AddScreen({ family, currentMember, onAddHabit, habits, onMarkTileConfigured }) {
+function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile }) {
   const [view, setView] = useState("menu");
   const [selectedCat, setSelectedCat] = useState(null);
   const [selectedHabit, setSelectedHabit] = useState(null);
   const [targetCount, setTargetCount] = useState(1);
-  const [copiedId, setCopiedId] = useState(null);
-  const [shownUrls, setShownUrls] = useState({});
-
-  // FIX 8: Custom ritual state
+  // Custom ritual state
   const [customEmoji, setCustomEmoji] = useState("🎯");
   const [customName, setCustomName] = useState("");
   const [customLocation, setCustomLocation] = useState("");
   const [customTarget, setCustomTarget] = useState(1);
   const [customCatId, setCustomCatId] = useState("family");
 
-  // FIX 9 + FIX 5: Tile Setup view (renamed from NFC)
   if (view === "tile") {
-    const grouped = CATEGORIES.map(cat => ({
-      ...cat,
-      activeHabits: (habits || []).filter(h => h.categoryId === cat.id),
-    })).filter(cat => cat.activeHabits.length > 0);
-
-    return (
-      <div style={{ padding: "0 20px 110px" }}>
-        <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
-        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Tile Setup</div>
-        <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20, lineHeight: 1.6 }}>
-          Program each tile with its URL. When tapped, the app opens and logs that habit instantly.
-        </div>
-        {grouped.length === 0 ? (
-          <div style={{ background: C.white, borderRadius: 20, padding: 36, textAlign: "center" }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🪄</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: C.slate, marginBottom: 6 }}>No habits yet</div>
-            <div style={{ fontSize: 13, color: C.slateLight, lineHeight: 1.6 }}>Add some habits first, then come back here to get your tile URLs.</div>
-          </div>
-        ) : (
-          grouped.map(cat => (
-            <div key={cat.id} style={{ marginBottom: 24 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 16 }}>{cat.icon}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 1.5, textTransform: "uppercase" }}>{cat.name}</span>
-              </div>
-              {cat.activeHabits.map(habit => {
-                const url = `${window.location.origin}?habit=${habit.id}`;
-                const copied = copiedId === habit.id;
-                const configured = habit.tileConfigured;
-                const showingUrl = shownUrls[habit.id];
-                return (
-                  <div key={habit.id} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", border: configured ? `1px solid ${C.green}30` : "1px solid rgba(0,0,0,0.04)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 10, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{habit.icon}</div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
-                        {habit.location && <div style={{ fontSize: 11, color: C.slateLight }}>at {habit.location}</div>}
-                      </div>
-                      {configured && <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>✅ Configured</span>}
-                    </div>
-                    {/* FIX 9: Hide URL after configured, show it only if user clicks "Show URL" */}
-                    {configured && !showingUrl ? (
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <div style={{ flex: 1, padding: "9px 12px", borderRadius: 10, background: `${C.green}10`, fontSize: 12, color: C.green, fontWeight: 600 }}>✅ Tile configured for {habit.location || "this location"}</div>
-                        <button onClick={() => setShownUrls(s => ({ ...s, [habit.id]: true }))} style={{ padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.sandDark}`, background: C.offwhite, fontSize: 11, color: C.slateLight, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>Show URL</button>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ fontFamily: "monospace", fontSize: 10, color: C.slateLight, background: C.offwhite, borderRadius: 8, padding: "8px 10px", marginBottom: 8, wordBreak: "break-all", lineHeight: 1.6 }}>{url}</div>
-                        <button onClick={() => {
-                          navigator.clipboard.writeText(url).catch(() => {});
-                          setCopiedId(habit.id); setTimeout(() => setCopiedId(null), 2000);
-                          onMarkTileConfigured(habit.id);
-                          setShownUrls(s => ({ ...s, [habit.id]: false }));
-                        }} style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: copied ? `${C.green}18` : `${C.accent}15`, color: copied ? C.green : C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s ease" }}>
-                          {copied ? "✓ Copied!" : "Copy URL"}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))
-        )}
-      </div>
-    );
+    return <ManageTilesScreen family={family} habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={() => setView("menu")} />;
   }
 
   // FIX 8: Custom ritual creation view
@@ -986,7 +1028,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onMarkTileConfig
         { id: "habits", icon: "◈", label: "Add a Ritual Habit", desc: "Choose from templates — ready to tap", color: C.slate },
         { id: "custom", icon: "✏️", label: "Create Custom Ritual", desc: "Design your own habit with any emoji", color: C.warm },
         { id: "rewards", icon: "🎁", label: "Manage Rewards", desc: "Set up points rewards for your family", color: C.accent },
-        { id: "tile", icon: "🪄", label: "Tile Setup", desc: "Program your tiles with habit URLs", color: C.kidsBlue },
+        { id: "tile", icon: "🏷️", label: "Manage Tiles", desc: "Assign tiles to habits, detect new tiles", color: C.kidsBlue },
       ].map(item => (
         <div key={item.id} onClick={() => setView(item.id)} style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", cursor: "pointer", border: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ width: 50, height: 50, borderRadius: 15, background: `${item.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{item.icon}</div>
@@ -1114,8 +1156,8 @@ function InsightsScreen({ habits, family }) {
   );
 }
 
-// ─── SETTINGS SCREEN (FIX 7) ──────────────────────────────────────
-function SettingsScreen({ family, onLogout }) {
+// ─── SETTINGS SCREEN ──────────────────────────────────────────────
+function SettingsScreen({ family, onLogout, onRefresh, onManageTiles }) {
   return (
     <div style={{ padding: "0 20px 110px" }}>
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -1142,6 +1184,15 @@ function SettingsScreen({ family, onLogout }) {
         ))}
       </div>
 
+      <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+        <button onClick={onManageTiles} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.accent}30`, background: `${C.accent}10`, color: C.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+          🏷️ Manage Tiles
+        </button>
+        <button onClick={async () => { await onRefresh(); }} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.green}30`, background: `${C.green}10`, color: C.green, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+          🔄 Refresh Data
+        </button>
+      </div>
+
       <button onClick={() => {
         if (window.confirm(`Sign out of ${family.name}? You'll need your PIN to log back in.`)) {
           onLogout();
@@ -1164,7 +1215,7 @@ export default function RitualApp() {
   const [flashData, setFlashData] = useState(null);
   const [whoDidThis, setWhoDidThis] = useState(null);
   const [mounted, setMounted] = useState(false);
-  const nfcHandled = useRef(false);
+  const tileHandled = useRef(false);
 
   const todayIndex = getTodayIndex();
 
@@ -1222,13 +1273,20 @@ export default function RitualApp() {
   // ─── Auto-login on mount ─────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
-      const savedPin = localStorage.getItem("ritual_savedPin");
-      if (savedPin && supabase) {
-        const familyData = await fetchFamilyData(savedPin);
-        if (familyData) { await loadDataForFamily(familyData); return; }
-        localStorage.removeItem("ritual_savedPin");
+      try {
+        const savedPin = localStorage.getItem("ritual_savedPin");
+        if (savedPin && supabase) {
+          console.log("🔄 Auto-login with saved PIN");
+          const familyData = await fetchFamilyData(savedPin);
+          if (familyData) { await loadDataForFamily(familyData); return; }
+          console.warn("⚠️ Saved PIN invalid, clearing");
+          localStorage.removeItem("ritual_savedPin");
+        }
+      } catch (e) {
+        console.error("❌ Auto-login error:", e);
+      } finally {
+        setMounted(true);
       }
-      setMounted(true);
     };
     init();
   }, []);
@@ -1249,7 +1307,7 @@ export default function RitualApp() {
     localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_currentMemberId");
   };
 
-  const handleComplete = (habitId, member, fromDigital) => {
+  const handleComplete = async (habitId, member, fromDigital) => {
     const habit = habitsWithTaps.find(h => h.id === habitId);
     if (!habit) return;
     if (habit.isKid && !member) { setWhoDidThis(habit); return; }
@@ -1258,7 +1316,7 @@ export default function RitualApp() {
     const currentTaps = habit.taps || 0;
     const newTaps = currentTaps + 1;
 
-    // Optimistic update
+    // Optimistic update first (instant UI feedback)
     setTodayCompletions(prev => {
       const existing = prev.find(c => c.habitId === habitId && c.memberId === resolvedMember?.id);
       if (existing) return prev.map(c => c.habitId === habitId && c.memberId === resolvedMember?.id ? { ...c, taps: c.taps + 1 } : c);
@@ -1270,14 +1328,20 @@ export default function RitualApp() {
     setWhoDidThis(null);
     setFlashData({ habit: { ...habit, taps: newTaps }, member: resolvedMember });
 
-    // Background Supabase sync
+    // Await Supabase sync (ensures multi-device consistency)
     if (supabase && resolvedMember) {
-      supabase.from("completions").upsert({ habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: newTaps }, { onConflict: "habit_id,member_id,date" });
-      supabase.from("members").update({ points: (resolvedMember.points || 0) + 10 }).eq("id", resolvedMember.id);
+      console.log("✅ Syncing completion to Supabase:", habitId, "taps:", newTaps);
+      const { error } = await supabase.from("completions").upsert(
+        { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: newTaps },
+        { onConflict: "habit_id,member_id,date" }
+      );
+      if (error) console.error("❌ Completion sync failed:", error);
+      const { error: pe } = await supabase.from("members").update({ points: (resolvedMember.points || 0) + 10 }).eq("id", resolvedMember.id);
+      if (pe) console.error("❌ Points sync failed:", pe);
     }
   };
 
-  const handleUndo = (habitId) => {
+  const handleUndo = async (habitId) => {
     const habit = habitsWithTaps.find(h => h.id === habitId);
     if (!habit) return;
     const completedById = habit.completedById;
@@ -1292,8 +1356,15 @@ export default function RitualApp() {
     }
 
     if (supabase && completedById) {
-      supabase.from("completions").upsert({ habit_id: habitId, member_id: completedById, family_id: family.id, date: todayKey(), taps: newTaps }, { onConflict: "habit_id,member_id,date" });
-      if (memberToDeduct) supabase.from("members").update({ points: Math.max((memberToDeduct.points || 0) - 10, 0) }).eq("id", memberToDeduct.id);
+      const { error } = await supabase.from("completions").upsert(
+        { habit_id: habitId, member_id: completedById, family_id: family.id, date: todayKey(), taps: newTaps },
+        { onConflict: "habit_id,member_id,date" }
+      );
+      if (error) console.error("❌ Undo sync failed:", error);
+      if (memberToDeduct) {
+        const { error: pe } = await supabase.from("members").update({ points: Math.max((memberToDeduct.points || 0) - 10, 0) }).eq("id", memberToDeduct.id);
+        if (pe) console.error("❌ Points undo failed:", pe);
+      }
     }
   };
 
@@ -1303,7 +1374,7 @@ export default function RitualApp() {
       id: tempId, familyId: family?.id, name: h.name, icon: h.icon,
       category: h.category, categoryId: h.categoryId, color: h.color,
       location: h.location, target: h.target || 1, streak: 0,
-      isKid: h.isKid || false, isCustom: h.isCustom || false, tileConfigured: false,
+      isKid: h.isKid || false, isCustom: h.isCustom || false, tileUid: null,
     };
     setHabits(prev => [...prev, tempHabit]);
     setTab("today");
@@ -1312,15 +1383,38 @@ export default function RitualApp() {
         family_id: family.id, name: h.name, icon: h.icon,
         category: h.category, category_id: h.categoryId, color: h.color,
         location: h.location || null, target: h.target || 1, streak: 0,
-        is_kid: h.isKid || false, is_custom: h.isCustom || false, tile_configured: false,
+        is_kid: h.isKid || false, is_custom: h.isCustom || false,
       }).select().single();
       if (data) setHabits(prev => prev.map(x => x.id === tempId ? normalizeHabit(data) : x));
     }
   };
 
-  const handleMarkTileConfigured = (habitId) => {
-    setHabits(prev => prev.map(h => h.id === habitId ? { ...h, tileConfigured: true } : h));
-    if (supabase) supabase.from("habits").update({ tile_configured: true }).eq("id", habitId);
+  const handleAssignTile = async (tileUID, habitId) => {
+    if (!supabase) return;
+    // Clear tile from any other habit that currently has it
+    await supabase.from("habits").update({ tile_uid: null }).eq("tile_uid", tileUID).neq("id", habitId);
+    // Assign to new habit
+    const { error } = await supabase.from("habits").update({ tile_uid: tileUID }).eq("id", habitId);
+    if (error) { console.error("❌ Assign tile failed:", error); return; }
+    setHabits(prev => prev.map(h => {
+      if (h.tileUid === tileUID && h.id !== habitId) return { ...h, tileUid: null };
+      if (h.id === habitId) return { ...h, tileUid: tileUID };
+      return h;
+    }));
+    console.log("✅ Tile", tileUID, "assigned to habit", habitId);
+  };
+
+  const handleRemoveTile = async (habitId) => {
+    if (!supabase) return;
+    const { error } = await supabase.from("habits").update({ tile_uid: null }).eq("id", habitId);
+    if (error) { console.error("❌ Remove tile failed:", error); return; }
+    setHabits(prev => prev.map(h => h.id === habitId ? { ...h, tileUid: null } : h));
+  };
+
+  const handleRefreshData = async () => {
+    if (!supabase || !family) return;
+    const fresh = await fetchTodayCompletions(family.id);
+    setTodayCompletions(fresh);
   };
 
   const handleAddMember = async (memberData) => {
@@ -1350,16 +1444,28 @@ export default function RitualApp() {
     if (supabase) await supabase.from("members").delete().eq("id", memberId);
   };
 
-  // ─── Tile URL trigger (NFC tap) ──────────────────────────────────
+  // ─── Tile URL trigger ────────────────────────────────────────────
   useEffect(() => {
-    if (!family || !mounted || nfcHandled.current) return;
+    if (!family || !mounted || tileHandled.current) return;
     const params = new URLSearchParams(window.location.search);
-    const habitId = params.get("habit");
-    if (habitId) {
-      nfcHandled.current = true;
-      const habit = habitsWithTaps.find(h => h.id === habitId);
-      if (habit) { handleComplete(habit.id, currentMember, false); }
-      window.history.replaceState({}, "", "/");
+    const tileUID = params.get("tile");
+    if (!tileUID) return;
+    tileHandled.current = true;
+    window.history.replaceState({}, "", "/");
+    console.log("🏷️ Tile detected:", tileUID);
+    const assignedHabit = habitsWithTaps.find(h => h.tileUid === tileUID);
+    if (assignedHabit) {
+      console.log("✅ Tile assigned to habit:", assignedHabit.name);
+      if (assignedHabit.isKid) { setWhoDidThis(assignedHabit); }
+      else { handleComplete(assignedHabit.id, currentMember, false); }
+    } else {
+      console.log("⚠️ Unassigned tile:", tileUID);
+      const key = `ritual_unassigned_tiles_${family.id}`;
+      const existing = JSON.parse(localStorage.getItem(key) || "[]");
+      if (!existing.includes(tileUID)) {
+        localStorage.setItem(key, JSON.stringify([...existing, tileUID]));
+      }
+      setTab("add");
     }
   }, [family, mounted, habitsWithTaps]);
 
@@ -1468,9 +1574,9 @@ export default function RitualApp() {
             />
           )}
           {tab === "family" && <FamilyScreen family={family} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} />}
-          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onMarkTileConfigured={handleMarkTileConfigured} />}
+          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} />}
-          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} />}
+          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => setTab("add")} />}
         </div>
 
         {/* Tab bar */}
