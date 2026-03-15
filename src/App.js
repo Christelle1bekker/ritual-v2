@@ -80,7 +80,7 @@ function normalizeHabit(h) {
     isKid: h.is_kid || false, isCustom: h.is_custom || false,
     tileUid: h.tile_uid || null,
     isShared: h.is_shared ?? true,
-    assignedMemberId: h.assigned_member_id || null,
+    assignedMemberIds: h.assigned_member_ids || null,
     daysActive: h.days_active || null,
   };
 }
@@ -1076,7 +1076,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 // ─── MANAGE HABITS SCREEN ─────────────────────────────────────────
 function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBack }) {
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberId: null, daysActive: null });
+  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null });
 
   useEffect(() => {
     if (!editing) return;
@@ -1111,13 +1111,36 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
         </div>
         <div style={{ background: C.white, borderRadius: 20, padding: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
-          <div onClick={() => setForm(f => ({ ...f, assignedMemberId: null, isShared: true }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: !form.assignedMemberId ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${!form.assignedMemberId ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>👥 Everyone in the family</div>
-          {(family?.members || []).map(m => (
-            <div key={m.id} onClick={() => setForm(f => ({ ...f, assignedMemberId: m.id, isShared: false }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: form.assignedMemberId === m.id ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${form.assignedMemberId === m.id ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
-              {m.id === currentMember?.id ? `Just me (${m.name})` : `${m.name} only`}
-            </div>
-          ))}
+          {/* Everyone checkbox */}
+          <div onClick={() => setForm(f => ({ ...f, assignedMemberIds: null, isShared: true }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: !form.assignedMemberIds ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${!form.assignedMemberIds ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!form.assignedMemberIds ? C.accent : C.sandDark}`, background: !form.assignedMemberIds ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{!form.assignedMemberIds && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+            👥 Everyone in the family
+          </div>
+          {/* Individual member checkboxes */}
+          {(family?.members || []).map(m => {
+            const isSelected = form.assignedMemberIds?.includes(m.id) || false;
+            return (
+              <div key={m.id} onClick={() => {
+                const current = form.assignedMemberIds || [];
+                let next;
+                if (isSelected) {
+                  next = current.filter(id => id !== m.id);
+                } else {
+                  next = [...current, m.id];
+                }
+                // If all members selected, treat as "everyone"
+                const everyone = next.length === 0 || next.length === (family?.members?.length || 0);
+                setForm(f => ({ ...f, assignedMemberIds: everyone ? null : next, isShared: everyone }));
+              }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: isSelected && form.assignedMemberIds ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${isSelected && form.assignedMemberIds ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected && form.assignedMemberIds ? C.accent : C.sandDark}`, background: isSelected && form.assignedMemberIds ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && form.assignedMemberIds && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+                <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+                {m.name}
+              </div>
+            );
+          })}
+          {form.assignedMemberIds && form.assignedMemberIds.length > 0 && (
+            <div style={{ fontSize: 11, color: C.accent, marginTop: 4, fontWeight: 600 }}>{form.assignedMemberIds.length} {form.assignedMemberIds.length === 1 ? "person" : "people"} selected</div>
+          )}
         </div>
         <div style={{ background: C.white, borderRadius: 20, padding: 16, marginTop: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Which days?</div>
@@ -1136,7 +1159,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
             })}
           </div>
         </div>
-        <button onClick={() => { onEditHabit(editing.id, form); setEditing(null); }} style={{ ...btnPrimary, marginTop: 12 }}>Save Changes</button>
+        <button onClick={() => { onEditHabit(editing.id, { ...form, assignedMemberIds: form.assignedMemberIds || null }); setEditing(null); }} style={{ ...btnPrimary, marginTop: 12 }}>Save Changes</button>
         <button onClick={() => { if (window.confirm(`Delete "${editing.name}"? This removes all completion history.`)) { onDeleteHabit(editing.id); setEditing(null); } }} style={{ ...btnPrimary, background: `${C.error}18`, color: C.error, boxShadow: "none" }}>Delete Habit</button>
       </div>
     </div>
@@ -1153,13 +1176,18 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           <div style={{ fontSize: 14, color: C.slateLight }}>No habits yet</div>
         </div>
       ) : Array.from(new Map(habits.map(h => [h.id, h])).values()).map(h => (
-        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberId: h.assignedMemberId || null, daysActive: h.daysActive || null }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: `${h.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{h.icon}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>
               {h.location || h.category}{h.tileUid ? ` · 🏷️ ${tileLabel(h.tileUid)}` : ""}
-              {h.assignedMemberId ? (() => { const m = family?.members?.find(x => x.id === h.assignedMemberId); return m ? ` · 👤 ${m.name}` : " · 👤 Personal"; })() : " · 👥 Everyone"}
+              {!h.assignedMemberIds || h.assignedMemberIds.length === 0 ? " · 👥 Everyone" : (() => {
+                const assigned = (family?.members || []).filter(m => h.assignedMemberIds.includes(m.id));
+                if (assigned.length === 0) return " · 👤 Personal";
+                if (assigned.length === 1) return ` · 👤 ${assigned[0].name}`;
+                return ` · 👤 ${assigned.map(m => m.name).join(", ")}`;
+              })()}
             </div>
           </div>
           <div style={{ color: C.sandDark, fontSize: 18 }}>›</div>
@@ -1177,7 +1205,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   const [selectedHabit, setSelectedHabit] = useState(null);
   const [targetCount, setTargetCount] = useState(1);
   const [habitIsShared, setHabitIsShared] = useState(true);
-  const [habitAssignedTo, setHabitAssignedTo] = useState("everyone");
+  const [habitSelectedMembers, setHabitSelectedMembers] = useState([]);
   const [habitDays, setHabitDays] = useState(null);
   // Custom ritual state
   const [customEmoji, setCustomEmoji] = useState("🎯");
@@ -1185,7 +1213,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   const [customLocation, setCustomLocation] = useState("");
   const [customTarget, setCustomTarget] = useState(1);
   const [customIsShared, setCustomIsShared] = useState(true);
-  const [customAssignedTo, setCustomAssignedTo] = useState("everyone");
+  const [customSelectedMembers, setCustomSelectedMembers] = useState([]);
   const [customDays, setCustomDays] = useState(null);
   const [customCatId, setCustomCatId] = useState("family");
 
@@ -1262,13 +1290,28 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
 
         <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
-          <div onClick={() => setCustomAssignedTo("everyone")} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customAssignedTo === "everyone" ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customAssignedTo === "everyone" ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>👥 Everyone in the family</div>
-          {(family.members || []).map(m => (
-            <div key={m.id} onClick={() => setCustomAssignedTo(m.id)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customAssignedTo === m.id ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customAssignedTo === m.id ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
-              {m.id === currentMember?.id ? `Just me (${m.name})` : `${m.name} only`}
-            </div>
-          ))}
+          <div onClick={() => { setCustomSelectedMembers([]); setCustomIsShared(true); }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customSelectedMembers.length === 0 ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customSelectedMembers.length === 0 ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${customSelectedMembers.length === 0 ? C.accent : C.sandDark}`, background: customSelectedMembers.length === 0 ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{customSelectedMembers.length === 0 && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+            👥 Everyone in the family
+          </div>
+          {(family.members || []).map(m => {
+            const isSelected = customSelectedMembers.includes(m.id);
+            return (
+              <div key={m.id} onClick={() => {
+                let next;
+                if (isSelected) { next = customSelectedMembers.filter(id => id !== m.id); }
+                else { next = [...customSelectedMembers, m.id]; }
+                const everyone = next.length === 0 || next.length === (family.members?.length || 0);
+                setCustomSelectedMembers(everyone ? [] : next);
+                setCustomIsShared(everyone);
+              }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: isSelected ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${isSelected ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected ? C.accent : C.sandDark}`, background: isSelected ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+                <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+                {m.name}
+              </div>
+            );
+          })}
+          {customSelectedMembers.length > 0 && <div style={{ fontSize: 11, color: C.accent, marginTop: 4, fontWeight: 600 }}>{customSelectedMembers.length} {customSelectedMembers.length === 1 ? "person" : "people"} selected</div>}
         </div>
 
         <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -1293,17 +1336,17 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           onClick={() => {
             if (!customName.trim()) return;
             const selectedCategory = CATEGORIES.find(c => c.id === customCatId) || CATEGORIES[0];
-            const assignedMemberId = customAssignedTo === "everyone" ? null : customAssignedTo;
+            const assignedMemberIds = customSelectedMembers.length === 0 ? null : customSelectedMembers;
             onAddHabit({
               name: customName.trim(), icon: customEmoji,
               category: selectedCategory.name, categoryId: customCatId,
               color: selectedCategory.color, location: customLocation.trim() || null,
               target: customTarget, isKid: selectedCategory.isKids || false, isCustom: true,
-              isShared: customAssignedTo === "everyone",
-              assignedMemberId,
+              isShared: customSelectedMembers.length === 0,
+              assignedMemberIds,
               daysActive: customDays,
             });
-            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomAssignedTo("everyone"); setCustomDays(null);
+            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomSelectedMembers([]); setCustomDays(null);
           }}
           style={{ ...btnPrimary, opacity: customName.trim() ? 1 : 0.5 }}
         >
@@ -1401,13 +1444,28 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       </div>
       <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
-        <div onClick={() => setHabitAssignedTo("everyone")} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitAssignedTo === "everyone" ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitAssignedTo === "everyone" ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>👥 Everyone in the family</div>
-        {(family.members || []).map(m => (
-          <div key={m.id} onClick={() => setHabitAssignedTo(m.id)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitAssignedTo === m.id ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitAssignedTo === m.id ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
-            {m.id === currentMember?.id ? `Just me (${m.name})` : `${m.name} only`}
-          </div>
-        ))}
+        <div onClick={() => { setHabitSelectedMembers([]); setHabitIsShared(true); }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitSelectedMembers.length === 0 ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitSelectedMembers.length === 0 ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${habitSelectedMembers.length === 0 ? C.accent : C.sandDark}`, background: habitSelectedMembers.length === 0 ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{habitSelectedMembers.length === 0 && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+          👥 Everyone in the family
+        </div>
+        {(family.members || []).map(m => {
+          const isSelected = habitSelectedMembers.includes(m.id);
+          return (
+            <div key={m.id} onClick={() => {
+              let next;
+              if (isSelected) { next = habitSelectedMembers.filter(id => id !== m.id); }
+              else { next = [...habitSelectedMembers, m.id]; }
+              const everyone = next.length === 0 || next.length === (family.members?.length || 0);
+              setHabitSelectedMembers(everyone ? [] : next);
+              setHabitIsShared(everyone);
+            }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: isSelected ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${isSelected ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected ? C.accent : C.sandDark}`, background: isSelected ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+              {m.name}
+            </div>
+          );
+        })}
+        {habitSelectedMembers.length > 0 && <div style={{ fontSize: 11, color: C.accent, marginTop: 4, fontWeight: 600 }}>{habitSelectedMembers.length} {habitSelectedMembers.length === 1 ? "person" : "people"} selected</div>}
       </div>
       <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Which days?</div>
@@ -1427,9 +1485,9 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         </div>
       </div>
       <button onClick={() => {
-        const assignedMemberId = habitAssignedTo === "everyone" ? null : habitAssignedTo;
-        onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitAssignedTo === "everyone", assignedMemberId, daysActive: habitDays });
-        setTargetCount(1); setHabitIsShared(true); setHabitAssignedTo("everyone"); setHabitDays(null); setView("menu");
+        const assignedMemberIds = habitSelectedMembers.length === 0 ? null : habitSelectedMembers;
+        onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays });
+        setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setView("menu");
       }} style={btnPrimary}>Add to My Rituals</button>
     </div>
   );
@@ -1592,7 +1650,7 @@ export default function RitualApp() {
     const todayConverted = (today + 6) % 7; // 0=Mon … 6=Sun
     return habits
       .filter(h => {
-        if (h.assignedMemberId && h.assignedMemberId !== currentMember.id) return false;
+        if (h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
         if (h.daysActive && h.daysActive.length > 0 && !h.daysActive.includes(todayConverted)) return false;
         return true;
       })
@@ -1775,7 +1833,7 @@ export default function RitualApp() {
       location: h.location, target: h.target || 1, streak: 0,
       isKid: h.isKid || false, isCustom: h.isCustom || false, tileUid: null,
       isShared: h.isShared ?? true,
-      assignedMemberId: h.assignedMemberId || null,
+      assignedMemberIds: h.assignedMemberIds || null,
       daysActive: h.daysActive || null,
     };
     setHabits(prev => [...prev, tempHabit]);
@@ -1786,7 +1844,7 @@ export default function RitualApp() {
         category: h.category, category_id: h.categoryId, color: h.color,
         location: h.location || null, target: h.target || 1, streak: 0,
         is_kid: h.isKid || false, is_custom: h.isCustom || false, is_shared: h.isShared ?? true,
-        assigned_member_id: h.assignedMemberId || null,
+        assigned_member_ids: h.assignedMemberIds || null,
         days_active: h.daysActive || null,
       }).select().single();
       if (data) {
@@ -1820,7 +1878,7 @@ export default function RitualApp() {
         name: updates.name, location: updates.location || null,
         target: updates.target, is_shared: updates.isShared,
       };
-      if ('assignedMemberId' in updates) dbUpdates.assigned_member_id = updates.assignedMemberId || null;
+      if ('assignedMemberIds' in updates) dbUpdates.assigned_member_ids = updates.assignedMemberIds || null;
       if ('daysActive' in updates) dbUpdates.days_active = updates.daysActive || null;
       await supabase.from("habits").update(dbUpdates).eq("id", habitId);
     }
@@ -1905,18 +1963,20 @@ export default function RitualApp() {
     const assignedHabit = habitsWithTaps.find(h => h.tileUid === tileUID);
     if (assignedHabit) {
       console.log("✅ Tile assigned to habit:", assignedHabit.name);
-      if (assignedHabit.isKid) {
+      const ids = assignedHabit.assignedMemberIds;
+      if (assignedHabit.isKid || !ids || ids.length === 0) {
+        // Kids habit or shared habit — ask who did it
         setWhoDidThis(assignedHabit);
-      } else if (!assignedHabit.assignedMemberId) {
-        // Shared habit — ask who did it
-        setWhoDidThis(assignedHabit);
-      } else if (assignedHabit.assignedMemberId === currentMemberRef.current?.id) {
-        // Personal habit for current member — auto-complete
+      } else if (ids.length === 1) {
+        // Single-person habit — auto-complete for that person
+        const assignedMember = family?.members?.find(m => m.id === ids[0]);
+        handleComplete(assignedHabit.id, assignedMember || currentMemberRef.current, false);
+      } else if (ids.includes(currentMemberRef.current?.id)) {
+        // Multi-person habit — current member is one of them, complete for them
         handleComplete(assignedHabit.id, currentMemberRef.current, false);
       } else {
-        // Personal habit assigned to someone else — complete for the assigned member
-        const assignedMember = family?.members?.find(m => m.id === assignedHabit.assignedMemberId);
-        handleComplete(assignedHabit.id, assignedMember || currentMemberRef.current, false);
+        // Current member is not in assigned list — show who it's for
+        setWhoDidThis(assignedHabit);
       }
     } else {
       console.log("⚠️ Unassigned tile:", tileUID);
