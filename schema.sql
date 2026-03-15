@@ -132,6 +132,26 @@ comment on column habits.tile_uid is
 comment on column habits.is_shared is
   'true = show "Who did this?" on tile tap (shared). false = auto-assign to current member (personal).';
 
+-- 7. Add assigned_member_id column (Option C: personal habits)
+alter table habits add column if not exists assigned_member_id uuid references members(id) on delete cascade;
+
+-- 8. Add days_active column (day-of-week filter: 0=Mon … 6=Sun)
+alter table habits add column if not exists days_active integer[];
+
+-- 9. Backfill: existing habits are shared (null = visible to everyone)
+update habits set assigned_member_id = null where assigned_member_id is null;
+update habits set days_active = null where days_active is null;
+
+-- 10. Index for assigned_member_id lookups
+create index if not exists idx_habits_assigned_member
+  on habits(assigned_member_id) where assigned_member_id is not null;
+
+-- 11. Comments
+comment on column habits.assigned_member_id is
+  'Member this habit is assigned to. NULL = shared (visible to everyone). Non-null = personal (only visible to assigned member).';
+comment on column habits.days_active is
+  'Days of week habit is active (0=Monday to 6=Sunday). NULL or empty = active daily. Example: [0,1,2,3,4] = weekdays only.';
+
 
 -- ═══════════════════════════════════════════════════════════════════
 -- NOTES

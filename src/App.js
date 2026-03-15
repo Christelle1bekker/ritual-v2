@@ -80,6 +80,8 @@ function normalizeHabit(h) {
     isKid: h.is_kid || false, isCustom: h.is_custom || false,
     tileUid: h.tile_uid || null,
     isShared: h.is_shared ?? true,
+    assignedMemberId: h.assigned_member_id || null,
+    daysActive: h.days_active || null,
   };
 }
 
@@ -666,7 +668,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>
-              {habit.location ? `${habit.tileUid ? "Tile at" : "At"}: ${habit.location}` : habit.category} · 🔥 {habit.streak || 0}
+              {habit.location ? `${habit.tileUid ? "Tile at" : "At"}: ${habit.location}` : habit.category}{habit.streak > 0 ? ` · 🔥 ${habit.streak}` : ""}
               {habit.tileUid && <span style={{ color: C.accent, marginLeft: 6 }}>· 🏷️ {tileLabel(habit.tileUid)}</span>}
             </div>
             {isMulti && taps > 0 && (
@@ -758,7 +760,6 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>This Week</div>
-            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>{todayPct}% today</div>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 60 }}>
             {weekData.map((v, i) => {
@@ -1073,9 +1074,9 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 }
 
 // ─── MANAGE HABITS SCREEN ─────────────────────────────────────────
-function ManageHabitsScreen({ habits, onEditHabit, onDeleteHabit, onBack }) {
+function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBack }) {
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true });
+  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberId: null, daysActive: null });
 
   useEffect(() => {
     if (!editing) return;
@@ -1109,12 +1110,33 @@ function ManageHabitsScreen({ habits, onEditHabit, onDeleteHabit, onBack }) {
           </div>
         </div>
         <div style={{ background: C.white, borderRadius: 20, padding: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who can complete this?</div>
-          {[{ label: "Anyone in the family", val: true }, { label: "Just me", val: false }].map(opt => (
-            <div key={String(opt.val)} onClick={() => setForm(f => ({ ...f, isShared: opt.val }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: form.isShared === opt.val ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${form.isShared === opt.val ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>{opt.label}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
+          <div onClick={() => setForm(f => ({ ...f, assignedMemberId: null, isShared: true }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: !form.assignedMemberId ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${!form.assignedMemberId ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>👥 Everyone in the family</div>
+          {(family?.members || []).map(m => (
+            <div key={m.id} onClick={() => setForm(f => ({ ...f, assignedMemberId: m.id, isShared: false }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: form.assignedMemberId === m.id ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${form.assignedMemberId === m.id ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+              {m.id === currentMember?.id ? `Just me (${m.name})` : `${m.name} only`}
+            </div>
           ))}
         </div>
-        <button onClick={() => { onEditHabit(editing.id, form); setEditing(null); }} style={btnPrimary}>Save Changes</button>
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginTop: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Which days?</div>
+          <div onClick={() => setForm(f => ({ ...f, daysActive: null }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: !form.daysActive ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${!form.daysActive ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📅 Every day</div>
+          <div onClick={() => setForm(f => ({ ...f, daysActive: [0,1,2,3,4] }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(form.daysActive) && form.daysActive.length === 5 && [0,1,2,3,4].every(d => form.daysActive.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(form.daysActive) && form.daysActive.length === 5 && [0,1,2,3,4].every(d => form.daysActive.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📚 Weekdays only (Mon–Fri)</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day, idx) => {
+              const sel = Array.isArray(form.daysActive) && form.daysActive.includes(idx);
+              return (
+                <div key={idx} onClick={() => {
+                  if (!Array.isArray(form.daysActive)) { setForm(f => ({ ...f, daysActive: [idx] })); }
+                  else if (sel) { const nd = form.daysActive.filter(d => d !== idx); setForm(f => ({ ...f, daysActive: nd.length === 0 ? null : nd })); }
+                  else { setForm(f => ({ ...f, daysActive: [...form.daysActive, idx].sort() })); }
+                }} style={{ padding: "7px 11px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, background: sel ? C.accent : C.offwhite, color: sel ? C.white : C.slate, border: `1.5px solid ${sel ? C.accent : C.sandDark}` }}>{day}</div>
+              );
+            })}
+          </div>
+        </div>
+        <button onClick={() => { onEditHabit(editing.id, form); setEditing(null); }} style={{ ...btnPrimary, marginTop: 12 }}>Save Changes</button>
         <button onClick={() => { if (window.confirm(`Delete "${editing.name}"? This removes all completion history.`)) { onDeleteHabit(editing.id); setEditing(null); } }} style={{ ...btnPrimary, background: `${C.error}18`, color: C.error, boxShadow: "none" }}>Delete Habit</button>
       </div>
     </div>
@@ -1130,12 +1152,15 @@ function ManageHabitsScreen({ habits, onEditHabit, onDeleteHabit, onBack }) {
           <div style={{ fontSize: 40, marginBottom: 12 }}>◈</div>
           <div style={{ fontSize: 14, color: C.slateLight }}>No habits yet</div>
         </div>
-      ) : habits.map(h => (
-        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+      ) : Array.from(new Map(habits.map(h => [h.id, h])).values()).map(h => (
+        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberId: h.assignedMemberId || null, daysActive: h.daysActive || null }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: `${h.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{h.icon}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
-            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>{h.location || h.category}{h.tileUid ? ` · 🏷️ ${tileLabel(h.tileUid)}` : ""}</div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>
+              {h.location || h.category}{h.tileUid ? ` · 🏷️ ${tileLabel(h.tileUid)}` : ""}
+              {h.assignedMemberId ? (() => { const m = family?.members?.find(x => x.id === h.assignedMemberId); return m ? ` · 👤 ${m.name}` : " · 👤 Personal"; })() : " · 👥 Everyone"}
+            </div>
           </div>
           <div style={{ color: C.sandDark, fontSize: 18 }}>›</div>
         </div>
@@ -1152,12 +1177,16 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   const [selectedHabit, setSelectedHabit] = useState(null);
   const [targetCount, setTargetCount] = useState(1);
   const [habitIsShared, setHabitIsShared] = useState(true);
+  const [habitAssignedTo, setHabitAssignedTo] = useState("everyone");
+  const [habitDays, setHabitDays] = useState(null);
   // Custom ritual state
   const [customEmoji, setCustomEmoji] = useState("🎯");
   const [customName, setCustomName] = useState("");
   const [customLocation, setCustomLocation] = useState("");
   const [customTarget, setCustomTarget] = useState(1);
   const [customIsShared, setCustomIsShared] = useState(true);
+  const [customAssignedTo, setCustomAssignedTo] = useState("everyone");
+  const [customDays, setCustomDays] = useState(null);
   const [customCatId, setCustomCatId] = useState("family");
 
   if (view === "tile") {
@@ -1165,7 +1194,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   }
 
   if (view === "habitsManage") {
-    return <ManageHabitsScreen habits={habits} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBack={() => setView("menu")} />;
+    return <ManageHabitsScreen habits={habits} family={family} currentMember={currentMember} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBack={() => setView("menu")} />;
   }
 
   // FIX 8: Custom ritual creation view
@@ -1231,25 +1260,50 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           </div>
         </div>
 
-        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who can complete this?</div>
-          {[{ label: "Anyone in the family", val: true }, { label: "Just me", val: false }].map(opt => (
-            <div key={String(opt.val)} onClick={() => setCustomIsShared(opt.val)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customIsShared === opt.val ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customIsShared === opt.val ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>{opt.label}</div>
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
+          <div onClick={() => setCustomAssignedTo("everyone")} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customAssignedTo === "everyone" ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customAssignedTo === "everyone" ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>👥 Everyone in the family</div>
+          {(family.members || []).map(m => (
+            <div key={m.id} onClick={() => setCustomAssignedTo(m.id)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customAssignedTo === m.id ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customAssignedTo === m.id ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+              {m.id === currentMember?.id ? `Just me (${m.name})` : `${m.name} only`}
+            </div>
           ))}
+        </div>
+
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Which days?</div>
+          <div onClick={() => setCustomDays(null)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customDays === null ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customDays === null ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📅 Every day</div>
+          <div onClick={() => setCustomDays([0,1,2,3,4])} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(customDays) && customDays.length === 5 && [0,1,2,3,4].every(d => customDays.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(customDays) && customDays.length === 5 && [0,1,2,3,4].every(d => customDays.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📚 Weekdays only (Mon–Fri)</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day, idx) => {
+              const sel = Array.isArray(customDays) && customDays.includes(idx);
+              return (
+                <div key={idx} onClick={() => {
+                  if (!Array.isArray(customDays)) { setCustomDays([idx]); }
+                  else if (sel) { const nd = customDays.filter(d => d !== idx); setCustomDays(nd.length === 0 ? null : nd); }
+                  else { setCustomDays([...customDays, idx].sort()); }
+                }} style={{ padding: "7px 11px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, background: sel ? C.accent : C.offwhite, color: sel ? C.white : C.slate, border: `1.5px solid ${sel ? C.accent : C.sandDark}` }}>{day}</div>
+              );
+            })}
+          </div>
         </div>
 
         <button
           onClick={() => {
             if (!customName.trim()) return;
             const selectedCategory = CATEGORIES.find(c => c.id === customCatId) || CATEGORIES[0];
+            const assignedMemberId = customAssignedTo === "everyone" ? null : customAssignedTo;
             onAddHabit({
               name: customName.trim(), icon: customEmoji,
               category: selectedCategory.name, categoryId: customCatId,
               color: selectedCategory.color, location: customLocation.trim() || null,
               target: customTarget, isKid: selectedCategory.isKids || false, isCustom: true,
-              isShared: customIsShared,
+              isShared: customAssignedTo === "everyone",
+              assignedMemberId,
+              daysActive: customDays,
             });
-            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true);
+            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomAssignedTo("everyone"); setCustomDays(null);
           }}
           style={{ ...btnPrimary, opacity: customName.trim() ? 1 : 0.5 }}
         >
@@ -1345,13 +1399,38 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         </div>
         {targetCount > 1 && <div style={{ marginTop: 16, padding: "10px 16px", borderRadius: 12, background: `${selectedHabit.color}10`, fontSize: 12, color: C.slate, textAlign: "center", lineHeight: 1.5 }}><strong>+{targetCount * 10} points</strong> on days you hit all {targetCount} taps</div>}
       </div>
-      <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who can complete this?</div>
-        {[{ label: "Anyone in the family", val: true }, { label: "Just me", val: false }].map(opt => (
-          <div key={String(opt.val)} onClick={() => setHabitIsShared(opt.val)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitIsShared === opt.val ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitIsShared === opt.val ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>{opt.label}</div>
+      <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
+        <div onClick={() => setHabitAssignedTo("everyone")} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitAssignedTo === "everyone" ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitAssignedTo === "everyone" ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>👥 Everyone in the family</div>
+        {(family.members || []).map(m => (
+          <div key={m.id} onClick={() => setHabitAssignedTo(m.id)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitAssignedTo === m.id ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitAssignedTo === m.id ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+            {m.id === currentMember?.id ? `Just me (${m.name})` : `${m.name} only`}
+          </div>
         ))}
       </div>
-      <button onClick={() => { onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitIsShared }); setTargetCount(1); setHabitIsShared(true); setView("menu"); }} style={btnPrimary}>Add to My Rituals</button>
+      <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Which days?</div>
+        <div onClick={() => setHabitDays(null)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitDays === null ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitDays === null ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📅 Every day</div>
+        <div onClick={() => setHabitDays([0,1,2,3,4])} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(habitDays) && habitDays.length === 5 && [0,1,2,3,4].every(d => habitDays.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(habitDays) && habitDays.length === 5 && [0,1,2,3,4].every(d => habitDays.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📚 Weekdays only (Mon–Fri)</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day, idx) => {
+            const sel = Array.isArray(habitDays) && habitDays.includes(idx);
+            return (
+              <div key={idx} onClick={() => {
+                if (!Array.isArray(habitDays)) { setHabitDays([idx]); }
+                else if (sel) { const nd = habitDays.filter(d => d !== idx); setHabitDays(nd.length === 0 ? null : nd); }
+                else { setHabitDays([...habitDays, idx].sort()); }
+              }} style={{ padding: "7px 11px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, background: sel ? C.accent : C.offwhite, color: sel ? C.white : C.slate, border: `1.5px solid ${sel ? C.accent : C.sandDark}` }}>{day}</div>
+            );
+          })}
+        </div>
+      </div>
+      <button onClick={() => {
+        const assignedMemberId = habitAssignedTo === "everyone" ? null : habitAssignedTo;
+        onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitAssignedTo === "everyone", assignedMemberId, daysActive: habitDays });
+        setTargetCount(1); setHabitIsShared(true); setHabitAssignedTo("everyone"); setHabitDays(null); setView("menu");
+      }} style={btnPrimary}>Add to My Rituals</button>
     </div>
   );
 
@@ -1505,6 +1584,30 @@ export default function RitualApp() {
       };
     });
   }, [habits, todayCompletions, family?.members]);
+
+  // ─── myHabitsWithTaps: habits visible to current member, per-member taps ────
+  const myHabitsWithTaps = useMemo(() => {
+    if (!currentMember) return habitsWithTaps;
+    const today = new Date().getDay();
+    const todayConverted = (today + 6) % 7; // 0=Mon … 6=Sun
+    return habits
+      .filter(h => {
+        if (h.assignedMemberId && h.assignedMemberId !== currentMember.id) return false;
+        if (h.daysActive && h.daysActive.length > 0 && !h.daysActive.includes(todayConverted)) return false;
+        return true;
+      })
+      .map(h => {
+        const myCompletions = todayCompletions.filter(c => c.habitId === h.id && c.memberId === currentMember.id);
+        const myTaps = myCompletions.reduce((sum, c) => sum + c.taps, 0);
+        const topCompletion = [...myCompletions].sort((a, b) => b.taps - a.taps)[0];
+        return {
+          ...h,
+          taps: myTaps,
+          completedById: topCompletion?.memberId || null,
+          completedBy: topCompletion ? family?.members?.find(m => m.id === topCompletion.memberId)?.name : null,
+        };
+      });
+  }, [habits, todayCompletions, currentMember, family?.members, habitsWithTaps]);
 
   // ─── weekData: compute from completions ─────────────────────────
   const weekData = useMemo(() => {
@@ -1672,6 +1775,8 @@ export default function RitualApp() {
       location: h.location, target: h.target || 1, streak: 0,
       isKid: h.isKid || false, isCustom: h.isCustom || false, tileUid: null,
       isShared: h.isShared ?? true,
+      assignedMemberId: h.assignedMemberId || null,
+      daysActive: h.daysActive || null,
     };
     setHabits(prev => [...prev, tempHabit]);
     setTab("today");
@@ -1681,6 +1786,8 @@ export default function RitualApp() {
         category: h.category, category_id: h.categoryId, color: h.color,
         location: h.location || null, target: h.target || 1, streak: 0,
         is_kid: h.isKid || false, is_custom: h.isCustom || false, is_shared: h.isShared ?? true,
+        assigned_member_id: h.assignedMemberId || null,
+        days_active: h.daysActive || null,
       }).select().single();
       if (data) {
         setHabits(prev => prev.map(x => x.id === tempId ? normalizeHabit(data) : x));
@@ -1709,10 +1816,13 @@ export default function RitualApp() {
   const handleEditHabit = async (habitId, updates) => {
     setHabits(prev => prev.map(h => h.id === habitId ? { ...h, ...updates } : h));
     if (supabase) {
-      await supabase.from("habits").update({
+      const dbUpdates = {
         name: updates.name, location: updates.location || null,
         target: updates.target, is_shared: updates.isShared,
-      }).eq("id", habitId);
+      };
+      if ('assignedMemberId' in updates) dbUpdates.assigned_member_id = updates.assignedMemberId || null;
+      if ('daysActive' in updates) dbUpdates.days_active = updates.daysActive || null;
+      await supabase.from("habits").update(dbUpdates).eq("id", habitId);
     }
   };
 
@@ -1795,8 +1905,19 @@ export default function RitualApp() {
     const assignedHabit = habitsWithTaps.find(h => h.tileUid === tileUID);
     if (assignedHabit) {
       console.log("✅ Tile assigned to habit:", assignedHabit.name);
-      if (assignedHabit.isKid || assignedHabit.isShared) { setWhoDidThis(assignedHabit); }
-      else { handleComplete(assignedHabit.id, currentMemberRef.current, false); }
+      if (assignedHabit.isKid) {
+        setWhoDidThis(assignedHabit);
+      } else if (!assignedHabit.assignedMemberId) {
+        // Shared habit — ask who did it
+        setWhoDidThis(assignedHabit);
+      } else if (assignedHabit.assignedMemberId === currentMemberRef.current?.id) {
+        // Personal habit for current member — auto-complete
+        handleComplete(assignedHabit.id, currentMemberRef.current, false);
+      } else {
+        // Personal habit assigned to someone else — complete for the assigned member
+        const assignedMember = family?.members?.find(m => m.id === assignedHabit.assignedMemberId);
+        handleComplete(assignedHabit.id, assignedMember || currentMemberRef.current, false);
+      }
     } else {
       console.log("⚠️ Unassigned tile:", tileUID);
       setUnassignedTileUID(tileUID);
@@ -1826,7 +1947,7 @@ export default function RitualApp() {
     settings: "Settings",
   };
 
-  const doneTodayCount = habitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
+  const doneTodayCount = myHabitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
 
   return (
     <>
@@ -1859,23 +1980,19 @@ export default function RitualApp() {
 
       <div className="ritual-root">
         {/* Header */}
-        <div style={{ padding: "20px 24px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          {/* FIX 3: Long name overflow */}
-          <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", letterSpacing: -0.3, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headings[tab]}</div>
+        <div style={{ padding: "20px 24px 12px" }}>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", letterSpacing: -0.3, lineHeight: 1.1 }}>{headings[tab]}</div>
             <div style={{ fontSize: 12, color: C.slateLight, marginTop: 3 }}>
-              {tab === "today" && `${new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })} · ${doneTodayCount} of ${habits.length} complete`}
-              {/* FIX 6: Removed PIN from family subtitle */}
+              {tab === "today" && `${new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })} · ${doneTodayCount} of ${myHabitsWithTaps.length} complete`}
               {tab === "family" && `${family.members?.length || 0} members`}
               {tab === "add" && "Habits, tiles & rewards"}
               {tab === "insights" && "Your habit data"}
               {tab === "settings" && family.name}
             </div>
           </div>
-          {/* FIX 2: Active member prominent, others faded */}
-          {/* FIX 7: Removed logout button from header */}
           {family.members?.length > 0 && (
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, maxWidth: 140, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               {family.members.map(m => {
                 const isActive = currentMember?.id === m.id;
                 return (
@@ -1885,7 +2002,6 @@ export default function RitualApp() {
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 12, fontWeight: 700, color: C.white, cursor: "pointer",
                     flexShrink: 0, transition: "all 0.2s ease",
-                    // FIX 2: active = larger + glow, inactive = faded
                     transform: isActive ? "scale(1.25)" : "scale(1)",
                     opacity: isActive ? 1 : 0.4,
                     boxShadow: isActive ? `0 0 0 2px ${C.white}, 0 0 16px ${m.color}, 0 4px 20px ${m.color}60` : "none",
@@ -1903,7 +2019,7 @@ export default function RitualApp() {
         <div key={tab} style={{ animation: "slideUp 0.3s ease" }}>
           {tab === "today" && (
             <TodayScreen
-              habits={habitsWithTaps} weekData={weekData}
+              habits={myHabitsWithTaps} weekData={weekData}
               currentMember={currentMember} allMembers={family.members || []}
               onComplete={handleComplete} onUndo={handleUndo}
               flashData={flashData} onFlashDone={() => setFlashData(null)}
@@ -1919,7 +2035,7 @@ export default function RitualApp() {
         </div>
 
         {/* Branding footer */}
-        <div style={{ position: "fixed", bottom: 78, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, textAlign: "center", fontSize: 10, color: `${C.slateLight}55`, letterSpacing: 0.5, zIndex: 49, pointerEvents: "none", fontFamily: "'DM Sans', sans-serif" }}>
+        <div style={{ position: "fixed", bottom: 8, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, textAlign: "center", fontSize: 10, color: `${C.slateLight}55`, letterSpacing: 0.5, zIndex: 49, pointerEvents: "none", fontFamily: "'DM Sans', sans-serif" }}>
           Ritual · Build better habits
         </div>
 
