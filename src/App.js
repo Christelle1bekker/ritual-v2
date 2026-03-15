@@ -558,7 +558,7 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
       playCompletionSound(type);
       triggerHaptic(type);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   useEffect(() => {
     const interval = setInterval(() => {
