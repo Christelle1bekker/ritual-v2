@@ -1527,8 +1527,16 @@ export default function RitualApp() {
   // ─── Tile URL trigger ────────────────────────────────────────────
   useEffect(() => {
     if (!family || !mounted) return;
-    const params = new URLSearchParams(window.location.search);
-    const raw = params.get("tile");
+    // Support both URL formats:
+    //   Path-based (production): /t/04:96:9E:5A:C2:2A:81  → ritual.app/t/{TAG-ID}
+    //   Query param (legacy):    ?tile=04:96:9E:5A:C2:2A:81
+    let raw = null;
+    const pathMatch = window.location.pathname.match(/^\/t\/(.+)$/);
+    if (pathMatch) {
+      raw = decodeURIComponent(pathMatch[1]);
+    } else {
+      raw = new URLSearchParams(window.location.search).get("tile");
+    }
     if (!raw) return;
     // Normalize UID: strip colons, uppercase — handles both "04:96:9E:5A" and "04969E5A" formats
     const tileUID = raw.replace(/:/g, "").toUpperCase();
