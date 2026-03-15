@@ -37,6 +37,12 @@ function todayKey() {
   return new Date().toISOString().split("T")[0];
 }
 
+function getYesterdayKey() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split("T")[0];
+}
+
 function getTodayIndex() {
   return (new Date().getDay() + 6) % 7;
 }
@@ -73,6 +79,7 @@ function normalizeHabit(h) {
     target: h.target || 1, streak: h.streak || 0,
     isKid: h.is_kid || false, isCustom: h.is_custom || false,
     tileUid: h.tile_uid || null,
+    isShared: h.is_shared ?? true,
   };
 }
 
@@ -144,6 +151,59 @@ function tileLabel(uid) {
   if (!uid) return "";
   const clean = uid.replace(/:/g, "");
   return clean.length <= 8 ? clean : "…" + clean.slice(-6);
+}
+
+// ─── SOUND + HAPTICS ──────────────────────────────────────────────
+function playCompletionSound(type = "regular") {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const note = (freq, t, dur, vol = 0.28) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.02);
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      osc.start(t); osc.stop(t + dur + 0.05);
+    };
+    const n = ctx.currentTime;
+    if (type === "kids") {
+      note(261.63, n, 0.15); note(329.63, n + 0.1, 0.15);
+      note(392, n + 0.2, 0.15); note(523.25, n + 0.3, 0.2);
+    } else if (type === "milestone") {
+      note(261.63, n, 0.15); note(329.63, n + 0.1, 0.15);
+      note(392, n + 0.2, 0.15); note(523.25, n + 0.3, 0.15);
+      note(392, n + 0.45, 0.25, 0.38);
+    } else if (type === "undo") {
+      note(392, n, 0.1, 0.18); note(329.63, n + 0.08, 0.1, 0.13);
+      note(261.63, n + 0.16, 0.15, 0.08);
+    } else {
+      note(261.63, n, 0.18); note(329.63, n + 0.06, 0.18); note(392, n + 0.12, 0.18);
+    }
+    setTimeout(() => ctx.close(), 900);
+  } catch (_) {}
+}
+
+function triggerHaptic(type = "regular") {
+  if (!navigator.vibrate) return;
+  if (type === "kids") navigator.vibrate([50, 100, 50]);
+  else if (type === "milestone") navigator.vibrate([30, 50, 50, 50, 80]);
+  else if (type === "undo") navigator.vibrate(30);
+  else navigator.vibrate(50);
+}
+
+// ─── GEAR ICON ────────────────────────────────────────────────────
+function GearIcon({ color, size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  );
 }
 
 // ─── CATEGORIES ───────────────────────────────────────────────────
@@ -266,6 +326,18 @@ function LoginScreen({ onLogin }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { const t = setTimeout(() => setMounted(true), 80); return () => clearTimeout(t); }, []);
+
+  useEffect(() => {
+    const handle = (e) => {
+      if (e.key !== "Enter") return;
+      if (view === "join") handleJoin();
+      else if (view === "create") handleCreate();
+      else if (view === "addMembers") { if (memberName.trim()) addMember(); else if (members.length > 0) finishSetup(); }
+    };
+    document.addEventListener("keydown", handle);
+    return () => document.removeEventListener("keydown", handle);
+  }, [view, familyName, pin, loading, memberName, members]);
+
 
   const darkInput = {
     ...inputStyle,
@@ -437,7 +509,14 @@ function LoginScreen({ onLogin }) {
 // ─── WHO DID THIS? ────────────────────────────────────────────────
 function WhoDidThis({ habit, members, onSelect, onCancel }) {
   const kids = members.filter(m => m.isKid);
-  const displayMembers = kids.length > 0 ? kids : members;
+  // Kids habits → show kids only; shared adult habits → show everyone
+  const displayMembers = habit.isKid ? (kids.length > 0 ? kids : members) : members;
+
+  useEffect(() => {
+    const handle = (e) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", handle);
+    return () => document.removeEventListener("keydown", handle);
+  }, [onCancel]);
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
       <div style={{ textAlign: "center", marginBottom: 28 }}>
@@ -466,11 +545,21 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
 }
 
 // ─── COMPLETION FLASH ─────────────────────────────────────────────
-function CompletionFlash({ habit, member, onDone, onUndo }) {
-  const [countdown, setCountdown] = useState(10);
+function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
+  const [countdown, setCountdown] = useState(5);
   const isKid = habit?.isKid || member?.isKid;
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
+
+  useEffect(() => {
+    if (soundEnabled) {
+      const newStreak = (habit?.streak || 0) + 1;
+      const type = isKid ? "kids" : newStreak >= 5 ? "milestone" : "regular";
+      playCompletionSound(type);
+      triggerHaptic(type);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const interval = setInterval(() => {
       setCountdown(c => { if (c <= 1) { clearInterval(interval); onDoneRef.current(); return 0; } return c - 1; });
@@ -496,7 +585,7 @@ function CompletionFlash({ habit, member, onDone, onUndo }) {
       {habit?.target > 1 && <div style={{ padding: "8px 20px", borderRadius: 20, background: "rgba(255,255,255,0.15)", fontSize: 14, color: C.white, fontWeight: 600 }}>{taps} / {target} today</div>}
       {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: "rgba(255,255,255,0.15)", fontSize: 13, color: C.white, fontWeight: 600 }}>🔥 {(habit?.streak || 0) + 1} day streak</div>}
       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>+10 points</div>
-      <button onClick={() => { onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
+      <button onClick={() => { if (soundEnabled) { playCompletionSound("undo"); triggerHaptic("undo"); } onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
         <span>↩</span> Undo tap · {countdown}s
       </button>
     </div>
@@ -520,12 +609,19 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
 
   useEffect(() => () => { clearInterval(holdInterval.current); clearInterval(longInterval.current); }, []);
 
+  useEffect(() => {
+    if (!expanded) return;
+    const handle = (e) => { if (e.key === "Escape") { setExpanded(false); setShowDigital(false); setHoldProgress(0); } };
+    document.addEventListener("keydown", handle);
+    return () => document.removeEventListener("keydown", handle);
+  }, [expanded]);
+
   const handleHoldStart = () => {
     holdInterval.current = setInterval(() => {
       setHoldProgress(p => {
         if (p >= 100) {
           clearInterval(holdInterval.current);
-          if (isKidsHabit) { onComplete(habit.id, null, true); }
+          if (isKidsHabit || habit.isShared) { onComplete(habit.id, null, true); }
           else { onComplete(habit.id, currentMember, false); }
           setExpanded(false); setShowDigital(false); setHoldProgress(0);
           return 100;
@@ -618,7 +714,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
 }
 
 // ─── TODAY SCREEN ─────────────────────────────────────────────────
-function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel }) {
+function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled }) {
   const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
   const total = habits.length;
   const todayPct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -629,7 +725,7 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
   return (
     <>
       {whoDidThis && <WhoDidThis habit={whoDidThis} members={allMembers} onSelect={(m) => onComplete(whoDidThis.id, m, false)} onCancel={onWhoCancel} />}
-      {flashData && <CompletionFlash habit={flashData.habit} member={flashData.member} onDone={onFlashDone} onUndo={onFlashUndo} />}
+      {flashData && <CompletionFlash habit={flashData.habit} member={flashData.member} onDone={onFlashDone} onUndo={onFlashUndo} soundEnabled={soundEnabled} />}
       <div style={{ padding: "0 20px 110px" }}>
         {/* Hero */}
         <div style={{ background: `linear-gradient(135deg, ${C.slateDark} 0%, ${C.slate} 100%)`, borderRadius: 24, padding: 24, marginBottom: 16, position: "relative", overflow: "hidden" }}>
@@ -660,9 +756,9 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
 
         {/* Week chart */}
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>This Week</div>
-            <div style={{ fontSize: 11, color: C.slateLight }}>{todayPct}% today</div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>{todayPct}% today</div>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 60 }}>
             {weekData.map((v, i) => {
@@ -825,6 +921,12 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember }) {
 
 // ─── ASSIGN TILE MODAL ────────────────────────────────────────────
 function AssignTileModal({ tileUID, habits, onAssign, onClose }) {
+  useEffect(() => {
+    const handle = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handle);
+    return () => document.removeEventListener("keydown", handle);
+  }, [onClose]);
+
   const byCategory = habits.reduce((acc, h) => {
     const cat = h.category || "Other";
     if (!acc[cat]) acc[cat] = [];
@@ -970,22 +1072,100 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
   );
 }
 
+// ─── MANAGE HABITS SCREEN ─────────────────────────────────────────
+function ManageHabitsScreen({ habits, onEditHabit, onDeleteHabit, onBack }) {
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true });
+
+  useEffect(() => {
+    if (!editing) return;
+    const handle = (e) => { if (e.key === "Escape") setEditing(null); };
+    document.addEventListener("keydown", handle);
+    return () => document.removeEventListener("keydown", handle);
+  }, [editing]);
+
+  if (editing) return (
+    <div style={{ padding: "0 20px 110px" }}>
+      <button onClick={() => setEditing(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 13, background: `${editing.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{editing.icon}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif" }}>Edit Habit</div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Name</div>
+          <input style={inputStyle} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Tile Location</div>
+          <input style={inputStyle} value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} />
+        </div>
+        <div style={{ background: C.white, borderRadius: 20, padding: 20, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 12 }}>Times per day</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24 }}>
+            <button onClick={() => setForm(f => ({ ...f, target: Math.max(1, f.target - 1) }))} style={{ width: 40, height: 40, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 20, cursor: "pointer", color: C.slate }}>−</button>
+            <div style={{ fontSize: 36, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", minWidth: 40, textAlign: "center" }}>{form.target}</div>
+            <button onClick={() => setForm(f => ({ ...f, target: Math.min(20, f.target + 1) }))} style={{ width: 40, height: 40, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 20, cursor: "pointer", color: C.slate }}>+</button>
+          </div>
+        </div>
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who can complete this?</div>
+          {[{ label: "Anyone in the family", val: true }, { label: "Just me", val: false }].map(opt => (
+            <div key={String(opt.val)} onClick={() => setForm(f => ({ ...f, isShared: opt.val }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: form.isShared === opt.val ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${form.isShared === opt.val ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>{opt.label}</div>
+          ))}
+        </div>
+        <button onClick={() => { onEditHabit(editing.id, form); setEditing(null); }} style={btnPrimary}>Save Changes</button>
+        <button onClick={() => { if (window.confirm(`Delete "${editing.name}"? This removes all completion history.`)) { onDeleteHabit(editing.id); setEditing(null); } }} style={{ ...btnPrimary, background: `${C.error}18`, color: C.error, boxShadow: "none" }}>Delete Habit</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "0 20px 110px" }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Manage Habits</div>
+      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Tap a habit to edit or delete it</div>
+      {habits.length === 0 ? (
+        <div style={{ background: C.white, borderRadius: 20, padding: 28, textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>◈</div>
+          <div style={{ fontSize: 14, color: C.slateLight }}>No habits yet</div>
+        </div>
+      ) : habits.map(h => (
+        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: `${h.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{h.icon}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>{h.location || h.category}{h.tileUid ? ` · 🏷️ ${tileLabel(h.tileUid)}` : ""}</div>
+          </div>
+          <div style={{ color: C.sandDark, fontSize: 18 }}>›</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── ADD SCREEN ───────────────────────────────────────────────────
-function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, initialView = "menu", onMounted }) {
+function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, initialView = "menu", onMounted }) {
   const [view, setView] = useState(initialView);
   useEffect(() => { onMounted?.(); }, []);
   const [selectedCat, setSelectedCat] = useState(null);
   const [selectedHabit, setSelectedHabit] = useState(null);
   const [targetCount, setTargetCount] = useState(1);
+  const [habitIsShared, setHabitIsShared] = useState(true);
   // Custom ritual state
   const [customEmoji, setCustomEmoji] = useState("🎯");
   const [customName, setCustomName] = useState("");
   const [customLocation, setCustomLocation] = useState("");
   const [customTarget, setCustomTarget] = useState(1);
+  const [customIsShared, setCustomIsShared] = useState(true);
   const [customCatId, setCustomCatId] = useState("family");
 
   if (view === "tile") {
     return <ManageTilesScreen habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={() => setView("menu")} />;
+  }
+
+  if (view === "habitsManage") {
+    return <ManageHabitsScreen habits={habits} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBack={() => setView("menu")} />;
   }
 
   // FIX 8: Custom ritual creation view
@@ -1051,6 +1231,13 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           </div>
         </div>
 
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who can complete this?</div>
+          {[{ label: "Anyone in the family", val: true }, { label: "Just me", val: false }].map(opt => (
+            <div key={String(opt.val)} onClick={() => setCustomIsShared(opt.val)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customIsShared === opt.val ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customIsShared === opt.val ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>{opt.label}</div>
+          ))}
+        </div>
+
         <button
           onClick={() => {
             if (!customName.trim()) return;
@@ -1060,8 +1247,9 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
               category: selectedCategory.name, categoryId: customCatId,
               color: selectedCategory.color, location: customLocation.trim() || null,
               target: customTarget, isKid: selectedCategory.isKids || false, isCustom: true,
+              isShared: customIsShared,
             });
-            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family");
+            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true);
           }}
           style={{ ...btnPrimary, opacity: customName.trim() ? 1 : 0.5 }}
         >
@@ -1079,6 +1267,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         { id: "custom", icon: "✏️", label: "Create Custom Ritual", desc: "Design your own habit with any emoji", color: C.warm },
         { id: "rewards", icon: "🎁", label: "Manage Rewards", desc: "Set up points rewards for your family", color: C.accent },
         { id: "tile", icon: "🏷️", label: "Manage Tiles", desc: "Assign tiles to habits, detect new tiles", color: C.kidsBlue },
+        { id: "habitsManage", icon: "✏️", label: "Manage Habits", desc: "Edit names, locations, targets or delete", color: C.slateLight },
       ].map(item => (
         <div key={item.id} onClick={() => setView(item.id)} style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", cursor: "pointer", border: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ width: 50, height: 50, borderRadius: 15, background: `${item.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{item.icon}</div>
@@ -1156,7 +1345,13 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         </div>
         {targetCount > 1 && <div style={{ marginTop: 16, padding: "10px 16px", borderRadius: 12, background: `${selectedHabit.color}10`, fontSize: 12, color: C.slate, textAlign: "center", lineHeight: 1.5 }}><strong>+{targetCount * 10} points</strong> on days you hit all {targetCount} taps</div>}
       </div>
-      <button onClick={() => { onAddHabit({ ...selectedHabit, target: targetCount }); setTargetCount(1); setView("menu"); }} style={btnPrimary}>Add to My Rituals</button>
+      <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who can complete this?</div>
+        {[{ label: "Anyone in the family", val: true }, { label: "Just me", val: false }].map(opt => (
+          <div key={String(opt.val)} onClick={() => setHabitIsShared(opt.val)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitIsShared === opt.val ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitIsShared === opt.val ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>{opt.label}</div>
+        ))}
+      </div>
+      <button onClick={() => { onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitIsShared }); setTargetCount(1); setHabitIsShared(true); setView("menu"); }} style={btnPrimary}>Add to My Rituals</button>
     </div>
   );
 
@@ -1213,7 +1408,7 @@ function InsightsScreen({ habits, family, weekCompletions = [] }) {
 }
 
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────
-function SettingsScreen({ family, onLogout, onRefresh, onManageTiles }) {
+function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound }) {
   return (
     <div style={{ padding: "0 20px 110px" }}>
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -1240,6 +1435,19 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles }) {
         ))}
       </div>
 
+      <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 14 }}>Preferences</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>Sound Effects</div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>Play sounds on habit completion</div>
+          </div>
+          <div onClick={onToggleSound} style={{ width: 46, height: 26, borderRadius: 13, cursor: "pointer", background: soundEnabled ? C.green : C.sandDark, position: "relative", transition: "background 0.2s ease", flexShrink: 0 }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", background: C.white, position: "absolute", top: 2, left: soundEnabled ? 22 : 2, transition: "left 0.2s ease", boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }} />
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
         <button onClick={onManageTiles} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.accent}30`, background: `${C.accent}10`, color: C.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
           🏷️ Manage Tiles
@@ -1248,6 +1456,9 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles }) {
           🔄 Refresh Data
         </button>
       </div>
+      <button onClick={onManageHabits} style={{ width: "100%", padding: "14px", borderRadius: 16, border: `1.5px solid ${C.slateLight}30`, background: `${C.slateLight}10`, color: C.slateLight, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 12 }}>
+        ✏️ Manage Habits
+      </button>
 
       <button onClick={() => {
         if (window.confirm(`Sign out of ${family.name}? You'll need your PIN to log back in.`)) {
@@ -1271,11 +1482,12 @@ export default function RitualApp() {
   const [flashData, setFlashData] = useState(null);
   const [whoDidThis, setWhoDidThis] = useState(null);
   const [mounted, setMounted] = useState(false);
-  const tileHandled = useRef(null); // stores the tileUID already handled this page load
+  const tileHandled = useRef(null);
   const [unassignedTileUID, setUnassignedTileUID] = useState(null);
   const currentMemberRef = useRef(currentMember);
   useEffect(() => { currentMemberRef.current = currentMember; }, [currentMember]);
   const [addInitialView, setAddInitialView] = useState("menu");
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("ritual_soundEnabled") !== "false");
 
   const todayIndex = getTodayIndex();
 
@@ -1369,7 +1581,8 @@ export default function RitualApp() {
   const handleComplete = async (habitId, member, fromDigital) => {
     const habit = habitsWithTaps.find(h => h.id === habitId);
     if (!habit) return;
-    if (habit.isKid && !member) { setWhoDidThis(habit); return; }
+    // Show "Who did this?" for kids habits OR shared habits when no member specified
+    if ((habit.isKid || habit.isShared) && !member) { setWhoDidThis(habit); return; }
     const resolvedMember = member || currentMember;
     const today = todayKey();
     const currentTaps = habit.taps || 0;
@@ -1400,6 +1613,23 @@ export default function RitualApp() {
       const freshPoints = freshMember?.points ?? (resolvedMember.points || 0);
       const { error: pe } = await supabase.from("members").update({ points: freshPoints + 10 }).eq("id", resolvedMember.id);
       if (pe) console.error("❌ Points sync failed:", pe);
+
+      // ── Streak logic: only on first tap of this habit today ──────
+      if (currentTaps === 0) {
+        const { data: yComp } = await supabase.from("completions").select("id").eq("habit_id", habitId).eq("date", getYesterdayKey()).maybeSingle();
+        const newHabitStreak = yComp ? (habit.streak || 0) + 1 : 1;
+        await supabase.from("habits").update({ streak: newHabitStreak }).eq("id", habitId);
+        setHabits(prev => prev.map(h => h.id === habitId ? { ...h, streak: newHabitStreak } : h));
+
+        // Member streak: only on their first completion of any habit today
+        const memberTodayCount = todayCompletions.filter(c => c.memberId === resolvedMember.id).length;
+        if (memberTodayCount <= 1) {
+          const { data: mYest } = await supabase.from("completions").select("id").eq("member_id", resolvedMember.id).eq("date", getYesterdayKey()).limit(1).maybeSingle();
+          const newMemberStreak = mYest ? (resolvedMember.streak || 0) + 1 : 1;
+          await supabase.from("members").update({ streak: newMemberStreak }).eq("id", resolvedMember.id);
+          setFamily(f => ({ ...f, members: f.members.map(m => m.id === resolvedMember.id ? { ...m, streak: newMemberStreak } : m) }));
+        }
+      }
     }
   };
 
@@ -1441,6 +1671,7 @@ export default function RitualApp() {
       category: h.category, categoryId: h.categoryId, color: h.color,
       location: h.location, target: h.target || 1, streak: 0,
       isKid: h.isKid || false, isCustom: h.isCustom || false, tileUid: null,
+      isShared: h.isShared ?? true,
     };
     setHabits(prev => [...prev, tempHabit]);
     setTab("today");
@@ -1449,7 +1680,7 @@ export default function RitualApp() {
         family_id: family.id, name: h.name, icon: h.icon,
         category: h.category, category_id: h.categoryId, color: h.color,
         location: h.location || null, target: h.target || 1, streak: 0,
-        is_kid: h.isKid || false, is_custom: h.isCustom || false,
+        is_kid: h.isKid || false, is_custom: h.isCustom || false, is_shared: h.isShared ?? true,
       }).select().single();
       if (data) {
         setHabits(prev => prev.map(x => x.id === tempId ? normalizeHabit(data) : x));
@@ -1473,6 +1704,22 @@ export default function RitualApp() {
       return h;
     }));
     console.log("✅ Tile", tileUID, "assigned to habit", habitId);
+  };
+
+  const handleEditHabit = async (habitId, updates) => {
+    setHabits(prev => prev.map(h => h.id === habitId ? { ...h, ...updates } : h));
+    if (supabase) {
+      await supabase.from("habits").update({
+        name: updates.name, location: updates.location || null,
+        target: updates.target, is_shared: updates.isShared,
+      }).eq("id", habitId);
+    }
+  };
+
+  const handleDeleteHabit = async (habitId) => {
+    setHabits(prev => prev.filter(h => h.id !== habitId));
+    setTodayCompletions(prev => prev.filter(c => c.habitId !== habitId));
+    if (supabase) await supabase.from("habits").delete().eq("id", habitId);
   };
 
   const handleRemoveTile = async (habitId) => {
@@ -1548,7 +1795,7 @@ export default function RitualApp() {
     const assignedHabit = habitsWithTaps.find(h => h.tileUid === tileUID);
     if (assignedHabit) {
       console.log("✅ Tile assigned to habit:", assignedHabit.name);
-      if (assignedHabit.isKid) { setWhoDidThis(assignedHabit); }
+      if (assignedHabit.isKid || assignedHabit.isShared) { setWhoDidThis(assignedHabit); }
       else { handleComplete(assignedHabit.id, currentMemberRef.current, false); }
     } else {
       console.log("⚠️ Unassigned tile:", tileUID);
@@ -1628,7 +1875,7 @@ export default function RitualApp() {
           {/* FIX 2: Active member prominent, others faded */}
           {/* FIX 7: Removed logout button from header */}
           {family.members?.length > 0 && (
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, maxWidth: 140, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {family.members.map(m => {
                 const isActive = currentMember?.id === m.id;
                 return (
@@ -1662,19 +1909,27 @@ export default function RitualApp() {
               flashData={flashData} onFlashDone={() => setFlashData(null)}
               onFlashUndo={() => { if (flashData) handleUndo(flashData.habit.id); }}
               whoDidThis={whoDidThis} onWhoCancel={() => setWhoDidThis(null)}
+              soundEnabled={soundEnabled}
             />
           )}
           {tab === "family" && <FamilyScreen family={family} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} />}
-          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
+          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} />}
-          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} />}
+          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} />}
+        </div>
+
+        {/* Branding footer */}
+        <div style={{ position: "fixed", bottom: 78, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, textAlign: "center", fontSize: 10, color: `${C.slateLight}55`, letterSpacing: 0.5, zIndex: 49, pointerEvents: "none", fontFamily: "'DM Sans', sans-serif" }}>
+          Ritual · Build better habits
         </div>
 
         {/* Tab bar */}
         <div className="tab-bar">
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 12px" }}>
-              <div style={{ fontSize: 20, color: tab === t.id ? C.accent : C.sandDark, transition: "all 0.2s ease", transform: tab === t.id ? "scale(1.2)" : "scale(1)" }}>{t.icon}</div>
+              <div style={{ fontSize: 20, color: tab === t.id ? C.accent : C.sandDark, transition: "all 0.2s ease", transform: tab === t.id ? "scale(1.2)" : "scale(1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {t.id === "settings" ? <GearIcon color={tab === t.id ? C.accent : C.sandDark} size={20} /> : t.icon}
+              </div>
               <div style={{ fontSize: 9, letterSpacing: 1.2, color: tab === t.id ? C.accent : C.sandDark, fontWeight: tab === t.id ? 700 : 400, textTransform: "uppercase" }}>{t.label}</div>
             </button>
           ))}
