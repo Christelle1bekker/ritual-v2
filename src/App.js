@@ -82,6 +82,7 @@ function normalizeHabit(h) {
     isShared: h.is_shared ?? true,
     assignedMemberIds: h.assigned_member_ids || null,
     daysActive: h.days_active || null,
+    completionType: h.completion_type || 'individual',
   };
 }
 
@@ -510,9 +511,20 @@ function LoginScreen({ onLogin }) {
 
 // ─── WHO DID THIS? ────────────────────────────────────────────────
 function WhoDidThis({ habit, members, onSelect, onCancel }) {
-  const kids = members.filter(m => m.isKid);
-  // Kids habits → show kids only; shared adult habits → show everyone
-  const displayMembers = habit.isKid ? (kids.length > 0 ? kids : members) : members;
+  // Filter to only show assigned members (if habit has specific assignments)
+  let displayMembers;
+  if (habit.assignedMemberIds && habit.assignedMemberIds.length > 0) {
+    displayMembers = members.filter(m => habit.assignedMemberIds.includes(m.id));
+    // Fallback: if assigned IDs are orphaned, show kids or all
+    if (displayMembers.length === 0) {
+      const kids = members.filter(m => m.isKid);
+      displayMembers = kids.length > 0 ? kids : members;
+    }
+  } else {
+    // Everyone habit — show kids if it's a kids habit, otherwise all members
+    const kids = members.filter(m => m.isKid);
+    displayMembers = habit.isKid && kids.length > 0 ? kids : members;
+  }
 
   useEffect(() => {
     const handle = (e) => { if (e.key === "Escape") onCancel(); };
@@ -623,7 +635,9 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
       setHoldProgress(p => {
         if (p >= 100) {
           clearInterval(holdInterval.current);
-          if (isKidsHabit || habit.isShared) { onComplete(habit.id, null, true); }
+          // Multi-user habits always ask "Who did this?"
+          const isMultiUser = habit.assignedMemberIds && habit.assignedMemberIds.length > 1;
+          if (isKidsHabit || habit.isShared || isMultiUser) { onComplete(habit.id, null, true); }
           else { onComplete(habit.id, currentMember, false); }
           setExpanded(false); setShowDigital(false); setHoldProgress(0);
           return 100;
@@ -759,7 +773,8 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
         {/* Week chart */}
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>This Week</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>Family Progress This Week</div>
+            <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>Household completion rate</div>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 60 }}>
             {weekData.map((v, i) => {
@@ -921,7 +936,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember }) {
 }
 
 // ─── ASSIGN TILE MODAL ────────────────────────────────────────────
-function AssignTileModal({ tileUID, habits, onAssign, onClose }) {
+function AssignTileModal({ tileUID, habits, onAssign, onClose, onCreateHabit }) {
   useEffect(() => {
     const handle = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", handle);
@@ -968,6 +983,13 @@ function AssignTileModal({ tileUID, habits, onAssign, onClose }) {
           ))
         )}
         <button onClick={onClose} style={{ width: "100%", padding: 13, background: C.offwhite, border: "none", borderRadius: 14, fontSize: 14, color: C.slateLight, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 4 }}>Skip for now</button>
+        {onCreateHabit && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.sandDark}` }}>
+            <button onClick={onCreateHabit} style={{ width: "100%", padding: "12px 16px", background: `${C.accent}15`, border: `1.5px solid ${C.accent}`, borderRadius: 12, color: C.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+              ➕ Create new habit for this tile
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1076,7 +1098,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 // ─── MANAGE HABITS SCREEN ─────────────────────────────────────────
 function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBack }) {
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null });
+  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null, completionType: 'individual' });
 
   useEffect(() => {
     if (!editing) return;
@@ -1159,6 +1181,26 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
             })}
           </div>
         </div>
+        {/* Completion tracking type */}
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginTop: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Completion tracking</div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>How should progress be tracked?</div>
+          <div onClick={() => setForm(f => ({ ...f, completionType: 'individual' }))} style={{ padding: "12px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: form.completionType === 'individual' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${form.completionType === 'individual' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${form.completionType === 'individual' ? C.accent : C.sandDark}`, background: form.completionType === 'individual' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{form.completionType === 'individual' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
+              <span style={{ fontWeight: 600 }}>👤 Individual tracking</span>
+            </div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>Each person tracks their own progress separately</div>
+          </div>
+          <div onClick={() => setForm(f => ({ ...f, completionType: 'shared' }))} style={{ padding: "12px 14px", borderRadius: 12, cursor: "pointer", background: form.completionType === 'shared' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${form.completionType === 'shared' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${form.completionType === 'shared' ? C.accent : C.sandDark}`, background: form.completionType === 'shared' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{form.completionType === 'shared' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
+              <span style={{ fontWeight: 600 }}>👥 Shared/Household tracking</span>
+            </div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>One completion counts for everyone assigned</div>
+            <div style={{ fontSize: 11, color: C.warm, marginLeft: 26, marginTop: 2 }}>Example: "Feed the pet" — anyone can do it, counts for all</div>
+          </div>
+        </div>
         <button onClick={() => { onEditHabit(editing.id, { ...form, assignedMemberIds: form.assignedMemberIds || null }); setEditing(null); }} style={{ ...btnPrimary, marginTop: 12 }}>Save Changes</button>
         <button onClick={() => { if (window.confirm(`Delete "${editing.name}"? This removes all completion history.`)) { onDeleteHabit(editing.id); setEditing(null); } }} style={{ ...btnPrimary, background: `${C.error}18`, color: C.error, boxShadow: "none" }}>Delete Habit</button>
       </div>
@@ -1176,7 +1218,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           <div style={{ fontSize: 14, color: C.slateLight }}>No habits yet</div>
         </div>
       ) : Array.from(new Map(habits.map(h => [h.id, h])).values()).map(h => (
-        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null, completionType: h.completionType || 'individual' }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: `${h.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{h.icon}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
@@ -1216,6 +1258,8 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   const [customSelectedMembers, setCustomSelectedMembers] = useState([]);
   const [customDays, setCustomDays] = useState(null);
   const [customCatId, setCustomCatId] = useState("family");
+  const [customCompletionType, setCustomCompletionType] = useState('individual');
+  const [habitCompletionType, setHabitCompletionType] = useState('individual');
 
   if (view === "tile") {
     return <ManageTilesScreen habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={() => setView("menu")} />;
@@ -1332,6 +1376,27 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           </div>
         </div>
 
+        {/* Completion tracking type */}
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Completion tracking</div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>How should progress be tracked?</div>
+          <div onClick={() => setCustomCompletionType('individual')} style={{ padding: "12px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: customCompletionType === 'individual' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customCompletionType === 'individual' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${customCompletionType === 'individual' ? C.accent : C.sandDark}`, background: customCompletionType === 'individual' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{customCompletionType === 'individual' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
+              <span style={{ fontWeight: 600 }}>👤 Individual tracking</span>
+            </div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>Each person tracks their own progress separately</div>
+          </div>
+          <div onClick={() => setCustomCompletionType('shared')} style={{ padding: "12px 14px", borderRadius: 12, cursor: "pointer", background: customCompletionType === 'shared' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customCompletionType === 'shared' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${customCompletionType === 'shared' ? C.accent : C.sandDark}`, background: customCompletionType === 'shared' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{customCompletionType === 'shared' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
+              <span style={{ fontWeight: 600 }}>👥 Shared/Household tracking</span>
+            </div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>One completion counts for everyone assigned</div>
+            <div style={{ fontSize: 11, color: C.warm, marginLeft: 26, marginTop: 2 }}>Example: "Feed the pet" — anyone can do it, counts for all</div>
+          </div>
+        </div>
+
         <button
           onClick={() => {
             if (!customName.trim()) return;
@@ -1345,8 +1410,9 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
               isShared: customSelectedMembers.length === 0,
               assignedMemberIds,
               daysActive: customDays,
+              completionType: customCompletionType,
             });
-            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomSelectedMembers([]); setCustomDays(null);
+            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomSelectedMembers([]); setCustomDays(null); setCustomCompletionType('individual');
           }}
           style={{ ...btnPrimary, opacity: customName.trim() ? 1 : 0.5 }}
         >
@@ -1356,12 +1422,31 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
     );
   }
 
+  if (view === "addRitual") return (
+    <div style={{ padding: "0 20px 110px" }}>
+      <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Add a Ritual</div>
+      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>How do you want to add it?</div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <div onClick={() => setView("habits")} style={{ flex: 1, background: C.white, borderRadius: 20, padding: 20, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>📚</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Browse Templates</div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>Choose from pre-made habits</div>
+        </div>
+        <div onClick={() => setView("custom")} style={{ flex: 1, background: C.white, borderRadius: 20, padding: 20, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>✨</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Create Custom</div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>Design your own habit</div>
+        </div>
+      </div>
+    </div>
+  );
+
   if (view === "menu") return (
     <div style={{ padding: "0 20px 110px" }}>
       <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 24 }}>What would you like to set up?</div>
       {[
-        { id: "habits", icon: "◈", label: "Add a Ritual Habit", desc: "Choose from templates — ready to tap", color: C.slate },
-        { id: "custom", icon: "✏️", label: "Create Custom Ritual", desc: "Design your own habit with any emoji", color: C.warm },
+        { id: "addRitual", icon: "◈", label: "Add a Ritual", desc: "Browse templates or create your own", color: C.slate },
         { id: "rewards", icon: "🎁", label: "Manage Rewards", desc: "Set up points rewards for your family", color: C.accent },
         { id: "tile", icon: "🏷️", label: "Manage Tiles", desc: "Assign tiles to habits, detect new tiles", color: C.kidsBlue },
         { id: "habitsManage", icon: "✏️", label: "Manage Habits", desc: "Edit names, locations, targets or delete", color: C.slateLight },
@@ -1484,10 +1569,30 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           })}
         </div>
       </div>
+      {/* Completion tracking type */}
+      <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Completion tracking</div>
+        <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>How should progress be tracked?</div>
+        <div onClick={() => setHabitCompletionType('individual')} style={{ padding: "12px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: habitCompletionType === 'individual' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitCompletionType === 'individual' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+            <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${habitCompletionType === 'individual' ? C.accent : C.sandDark}`, background: habitCompletionType === 'individual' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{habitCompletionType === 'individual' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
+            <span style={{ fontWeight: 600 }}>👤 Individual tracking</span>
+          </div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>Each person tracks their own progress separately</div>
+        </div>
+        <div onClick={() => setHabitCompletionType('shared')} style={{ padding: "12px 14px", borderRadius: 12, cursor: "pointer", background: habitCompletionType === 'shared' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitCompletionType === 'shared' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+            <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${habitCompletionType === 'shared' ? C.accent : C.sandDark}`, background: habitCompletionType === 'shared' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{habitCompletionType === 'shared' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
+            <span style={{ fontWeight: 600 }}>👥 Shared/Household tracking</span>
+          </div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>One completion counts for everyone assigned</div>
+          <div style={{ fontSize: 11, color: C.warm, marginLeft: 26, marginTop: 2 }}>Example: "Feed the pet" — anyone can do it, counts for all</div>
+        </div>
+      </div>
       <button onClick={() => {
         const assignedMemberIds = habitSelectedMembers.length === 0 ? null : habitSelectedMembers;
-        onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays });
-        setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setView("menu");
+        onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays, completionType: habitCompletionType });
+        setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setHabitCompletionType('individual'); setView("menu");
       }} style={btnPrimary}>Add to My Rituals</button>
     </div>
   );
@@ -1596,6 +1701,29 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
       <button onClick={onManageHabits} style={{ width: "100%", padding: "14px", borderRadius: 16, border: `1.5px solid ${C.slateLight}30`, background: `${C.slateLight}10`, color: C.slateLight, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 12 }}>
         ✏️ Manage Habits
       </button>
+
+      {/* Admin: Reset all points */}
+      <div style={{ marginBottom: 12, padding: "20px", background: `${C.error}08`, borderRadius: 16, border: `1px solid ${C.error}30` }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 6 }}>⚠️ Admin Actions</div>
+        <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 12 }}>These actions affect all family members and cannot be undone.</div>
+        <button
+          onClick={async () => {
+            if (!window.confirm("Reset all points and streaks to zero?\n\nThis will:\n- Set everyone's points to 0\n- Set all streaks to 0\n- Cannot be undone\n\nAre you sure?")) return;
+            try {
+              await supabase.from("members").update({ points: 0, streak: 0 }).eq('family_id', family.id);
+              await supabase.from("habits").update({ streak: 0 }).eq('family_id', family.id);
+              await onRefresh();
+              alert("✅ All points and streaks have been reset to zero.");
+            } catch (err) {
+              console.error("Reset failed:", err);
+              alert("❌ Reset failed. Check console for details.");
+            }
+          }}
+          style={{ width: "100%", padding: "12px 16px", background: C.error, border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
+        >
+          🔄 Reset All Points &amp; Streaks
+        </button>
+      </div>
 
       <button onClick={() => {
         if (window.confirm(`Sign out of ${family.name}? You'll need your PIN to log back in.`)) {
@@ -1769,6 +1897,28 @@ export default function RitualApp() {
         { onConflict: "habit_id,member_id,date" }
       );
       if (error) console.error("❌ Completion sync failed:", error);
+
+      // Shared/household habit: sync same tap count to all other assigned members
+      if (habit.completionType === 'shared' && habit.assignedMemberIds && habit.assignedMemberIds.length > 0) {
+        const otherMembers = habit.assignedMemberIds.filter(id => id !== resolvedMember.id);
+        if (otherMembers.length > 0) {
+          const sharedCompletions = otherMembers.map(memberId => ({
+            habit_id: habitId, member_id: memberId, family_id: family.id, date: today, taps: newTaps,
+          }));
+          await supabase.from("completions").upsert(sharedCompletions, { onConflict: 'habit_id,member_id,date' });
+          // Also update local state so switching members shows correct progress
+          setTodayCompletions(prev => {
+            let updated = [...prev];
+            otherMembers.forEach(memberId => {
+              const idx = updated.findIndex(c => c.habitId === habitId && c.memberId === memberId);
+              if (idx >= 0) { updated[idx] = { ...updated[idx], taps: newTaps }; }
+              else { updated.push({ id: `opt_shared_${Date.now()}_${memberId}`, habitId, memberId, familyId: family.id, date: today, taps: newTaps }); }
+            });
+            return updated;
+          });
+        }
+      }
+
       // Read fresh points from DB before writing to avoid stale-overwrite race condition
       const { data: freshMember } = await supabase.from("members").select("points").eq("id", resolvedMember.id).single();
       const freshPoints = freshMember?.points ?? (resolvedMember.points || 0);
@@ -1835,6 +1985,7 @@ export default function RitualApp() {
       isShared: h.isShared ?? true,
       assignedMemberIds: h.assignedMemberIds || null,
       daysActive: h.daysActive || null,
+      completionType: h.completionType || 'individual',
     };
     setHabits(prev => [...prev, tempHabit]);
     setTab("today");
@@ -1846,6 +1997,7 @@ export default function RitualApp() {
         is_kid: h.isKid || false, is_custom: h.isCustom || false, is_shared: h.isShared ?? true,
         assigned_member_ids: h.assignedMemberIds || null,
         days_active: h.daysActive || null,
+        completion_type: h.completionType || 'individual',
       }).select().single();
       if (data) {
         setHabits(prev => prev.map(x => x.id === tempId ? normalizeHabit(data) : x));
@@ -1880,6 +2032,7 @@ export default function RitualApp() {
       };
       if ('assignedMemberIds' in updates) dbUpdates.assigned_member_ids = updates.assignedMemberIds || null;
       if ('daysActive' in updates) dbUpdates.days_active = updates.daysActive || null;
+      if ('completionType' in updates) dbUpdates.completion_type = updates.completionType || 'individual';
       await supabase.from("habits").update(dbUpdates).eq("id", habitId);
     }
   };
@@ -1964,19 +2117,26 @@ export default function RitualApp() {
     if (assignedHabit) {
       console.log("✅ Tile assigned to habit:", assignedHabit.name);
       const ids = assignedHabit.assignedMemberIds;
-      if (assignedHabit.isKid || !ids || ids.length === 0) {
-        // Kids habit or shared habit — ask who did it
+      // Multi-person habits ALWAYS ask "Who did this?"
+      const shouldAskWho =
+        assignedHabit.isKid ||    // Kids habits always ask
+        !ids ||                    // Everyone habits ask
+        ids.length === 0 ||        // Everyone habits ask
+        ids.length > 1;            // Multi-person habits ALWAYS ask
+      if (shouldAskWho) {
         setWhoDidThis(assignedHabit);
-      } else if (ids.length === 1) {
-        // Single-person habit — auto-complete for that person
-        const assignedMember = family?.members?.find(m => m.id === ids[0]);
-        handleComplete(assignedHabit.id, assignedMember || currentMemberRef.current, false);
-      } else if (ids.includes(currentMemberRef.current?.id)) {
-        // Multi-person habit — current member is one of them, complete for them
-        handleComplete(assignedHabit.id, currentMemberRef.current, false);
       } else {
-        // Current member is not in assigned list — show who it's for
-        setWhoDidThis(assignedHabit);
+        // Single-person habit — check if the right person is tapping
+        const assignedMember = family?.members?.find(m => m.id === ids[0]);
+        if (!assignedMember) {
+          console.error("Assigned member not found");
+          return;
+        }
+        if (currentMemberRef.current?.id === assignedMember.id) {
+          handleComplete(assignedHabit.id, assignedMember, false);
+        } else {
+          alert(`This is ${assignedMember.name}'s personal habit.`);
+        }
       }
     } else {
       console.log("⚠️ Unassigned tile:", tileUID);
@@ -2025,7 +2185,7 @@ export default function RitualApp() {
         input:focus{border-color:${C.accent} !important;outline:none;}
         input::placeholder{color:${C.sandDark};}
         /* FIX 1: Responsive layout */
-        .ritual-root{max-width:390px;margin:0 auto;min-height:100vh;background:${C.sandLight};position:relative;}
+        .ritual-root{max-width:390px;margin:0 auto;background:${C.sandLight};position:relative;}
         .habit-grid{display:flex;flex-direction:column;gap:10px;}
         .tab-bar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:390px;background:rgba(250,248,245,0.96);backdrop-filter:blur(24px);border-top:1px solid ${C.sandDark}50;padding:10px 0 26px;display:flex;justify-content:space-around;}
         @media(min-width:768px){
@@ -2040,7 +2200,7 @@ export default function RitualApp() {
 
       <div className="ritual-root">
         {/* Header */}
-        <div style={{ padding: "20px 24px 12px" }}>
+        <div style={{ padding: "20px 24px 12px", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
           <div style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", letterSpacing: -0.3, lineHeight: 1.1 }}>{headings[tab]}</div>
             <div style={{ fontSize: 12, color: C.slateLight, marginTop: 3 }}>
@@ -2122,6 +2282,11 @@ export default function RitualApp() {
             setUnassignedTileUID(null);
           }}
           onClose={() => setUnassignedTileUID(null)}
+          onCreateHabit={() => {
+            setUnassignedTileUID(null);
+            setAddInitialView("custom");
+            setTab("add");
+          }}
         />
       )}
     </>
