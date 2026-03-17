@@ -132,25 +132,41 @@ comment on column habits.tile_uid is
 comment on column habits.is_shared is
   'true = show "Who did this?" on tile tap (shared). false = auto-assign to current member (personal).';
 
--- 7. Add assigned_member_id column (Option C: personal habits)
-alter table habits add column if not exists assigned_member_id uuid references members(id) on delete cascade;
+-- 7. Add assigned_member_ids column (uuid array — NULL=everyone, [id]=one person, [id1,id2]=multiple)
+--    NOTE: Production uses this plural uuid[] array. The old singular assigned_member_id design was not used.
+alter table habits add column if not exists assigned_member_ids uuid[];
 
 -- 8. Add days_active column (day-of-week filter: 0=Mon … 6=Sun)
 alter table habits add column if not exists days_active integer[];
 
--- 9. Backfill: existing habits are shared (null = visible to everyone)
-update habits set assigned_member_id = null where assigned_member_id is null;
+-- 9. Backfill defaults
+update habits set assigned_member_ids = null where assigned_member_ids is null;
 update habits set days_active = null where days_active is null;
 
--- 10. Index for assigned_member_id lookups
-create index if not exists idx_habits_assigned_member
-  on habits(assigned_member_id) where assigned_member_id is not null;
+-- 10. GIN index for assigned_member_ids array lookups
+create index if not exists idx_habits_assigned_members
+  on habits using gin(assigned_member_ids) where assigned_member_ids is not null;
 
 -- 11. Comments
-comment on column habits.assigned_member_id is
-  'Member this habit is assigned to. NULL = shared (visible to everyone). Non-null = personal (only visible to assigned member).';
+comment on column habits.assigned_member_ids is
+  'Array of member UUIDs. NULL = visible to everyone. [id] = one person. [id1,id2] = multiple people.';
 comment on column habits.days_active is
   'Days of week habit is active (0=Monday to 6=Sunday). NULL or empty = active daily. Example: [0,1,2,3,4] = weekdays only.';
+
+-- 12. Add completion_type column (Wave 2 — March 17 2026)
+alter table habits add column if not exists completion_type text default 'individual';
+alter table habits add constraint if not exists habits_completion_type_check
+  check (completion_type in ('individual', 'shared'));
+update habits set completion_type = 'individual' where completion_type is null;
+create index if not exists idx_habits_completion_type on habits(completion_type);
+comment on column habits.completion_type is
+  'individual = each person tracked separately. shared = one completion syncs to all assigned members.';
+
+-- 13. Analytics index for time-of-day queries (Wave 3 — Insights tab)
+create index if not exists idx_completions_completed_at
+  on completions(completed_at);
+comment on index idx_completions_completed_at is
+  'Used by Insights tab for time-of-day behavior analytics';
 
 
 -- ═══════════════════════════════════════════════════════════════════

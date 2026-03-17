@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { supabase } from "./supabase";
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
@@ -90,13 +90,13 @@ function normalizeCompletion(c) {
   return {
     id: c.id, habitId: c.habit_id, memberId: c.member_id,
     familyId: c.family_id, date: c.date, taps: c.taps || 0,
+    completedAt: c.completed_at || null,
   };
 }
 
 // ─── SUPABASE FETCH HELPERS ───────────────────────────────────────
 async function fetchFamilyData(pin) {
   if (!supabase) return null;
-  console.log("🔄 fetchFamilyData PIN:", pin);
   const { data, error } = await supabase
     .from("families")
     .select("*, members(*), habits(*), rewards(*)")
@@ -113,12 +113,10 @@ async function fetchFamilyData(pin) {
 
 async function fetchTodayCompletions(familyId) {
   if (!supabase) return [];
-  console.log("📊 fetchTodayCompletions for family:", familyId);
   const { data, error } = await supabase
     .from("completions").select("*")
     .eq("family_id", familyId).eq("date", todayKey());
   if (error) console.error("❌ fetchTodayCompletions error:", error);
-  console.log("✅ Loaded", (data || []).length, "completions");
   return (data || []).map(normalizeCompletion);
 }
 
@@ -129,6 +127,17 @@ async function fetchWeekCompletions(familyId) {
     .from("completions").select("*")
     .eq("family_id", familyId)
     .gte("date", dates[0]).lte("date", dates[6]);
+  return (data || []).map(normalizeCompletion);
+}
+
+async function fetchAnalyticsData(familyId) {
+  if (!supabase) return [];
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  const { data } = await supabase
+    .from("completions").select("*")
+    .eq("family_id", familyId)
+    .gte("date", d.toISOString().split("T")[0]);
   return (data || []).map(normalizeCompletion);
 }
 
@@ -774,9 +783,14 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>Family Progress This Week</div>
-            <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>Household completion rate</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>Household completion rate</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
+                {weekData[todayIndex] !== null ? `${weekData[todayIndex]}%` : "—"}
+              </div>
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 60 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 70, paddingTop: 22 }}>
             {weekData.map((v, i) => {
               const isToday = i === todayIndex;
               const isFuture = v === null;
@@ -786,7 +800,7 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
                   <div style={{ width: "100%", position: "relative", height: 50, display: "flex", alignItems: "flex-end" }}>
                     <div style={{ width: "100%", borderRadius: 4, minHeight: 4, height: `${Math.max(pct * 0.5, 4)}px`, background: isFuture ? C.sandLight : isToday ? `linear-gradient(180deg, ${C.accent}, ${C.accentLight})` : `${C.slate}55`, boxShadow: isToday ? `0 4px 12px ${C.accent}40` : "none", transition: "height 0.6s cubic-bezier(0.34,1.56,0.64,1)" }} />
                     {isToday && pct > 0 && (
-                      <div style={{ position: "absolute", top: -18, left: "50%", transform: "translateX(-50%)", fontSize: 9, color: C.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{pct}%</div>
+                      <div style={{ position: "absolute", top: -20, left: "50%", transform: "translateX(-50%)", fontSize: 9, color: C.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{pct}%</div>
                     )}
                   </div>
                   <div style={{ fontSize: 9, fontWeight: isToday ? 700 : 400, color: isToday ? C.accent : isFuture ? C.sandDark : C.slateLight }}>{dayLabels[i]}</div>
@@ -1618,33 +1632,355 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
 }
 
 // ─── INSIGHTS SCREEN ──────────────────────────────────────────────
-function InsightsScreen({ habits, family, weekCompletions = [] }) {
-  const best = habits.length > 0 ? Math.max(...habits.map(h => h.streak || 0), 0) : 0;
-  const topHabit = habits.length > 0
-    ? [...habits].sort((a, b) => {
-        const aCount = weekCompletions.filter(c => c.habitId === a.id).reduce((s, c) => s + (c.taps || 0), 0);
-        const bCount = weekCompletions.filter(c => c.habitId === b.id).reduce((s, c) => s + (c.taps || 0), 0);
-        return bCount - aCount;
-      })[0]
-    : null;
-  const totalFamilyPoints = (family.members || []).reduce((a, m) => a + (m.points || 0), 0);
+function InsightsScreen({ habits, family, weekCompletions = [], currentMember, analyticsData }) {
+  const [showFamily, setShowFamily] = useState(false);
+  const members = family?.members || [];
+  const kids = members.filter(m => m.isKid);
+
+  // Filter completions by member when in "My Stats" mode
+  const filteredWeek = useMemo(() => {
+    if (showFamily || !currentMember) return weekCompletions;
+    return weekCompletions.filter(c => c.memberId === currentMember.id);
+  }, [weekCompletions, currentMember, showFamily]);
+
+  const filteredAnalytics = useMemo(() => {
+    if (!analyticsData) return null;
+    if (showFamily || !currentMember) return analyticsData;
+    return analyticsData.filter(c => c.memberId === currentMember.id);
+  }, [analyticsData, currentMember, showFamily]);
+
+  // ── Family Highlights ──────────────────────────────────────────
+  const highlights = useMemo(() => {
+    const tapsByMember = {};
+    weekCompletions.forEach(c => { if (c.taps > 0) tapsByMember[c.memberId] = (tapsByMember[c.memberId] || 0) + c.taps; });
+    const hero = [...members].sort((a, b) => (tapsByMember[b.id] || 0) - (tapsByMember[a.id] || 0))[0];
+
+    const streakChamp = [...members].sort((a, b) => (b.streak || 0) - (a.streak || 0))[0];
+
+    const earlyTaps = {}, nightTaps = {};
+    weekCompletions.forEach(c => {
+      if (!c.completedAt || c.taps <= 0) return;
+      const h = new Date(c.completedAt).getHours();
+      if (h < 9) earlyTaps[c.memberId] = (earlyTaps[c.memberId] || 0) + 1;
+      if (h >= 20) nightTaps[c.memberId] = (nightTaps[c.memberId] || 0) + 1;
+    });
+    const earlyBird = members.filter(m => earlyTaps[m.id] > 0).sort((a, b) => (earlyTaps[b.id] || 0) - (earlyTaps[a.id] || 0))[0];
+    const nightOwl = members.filter(m => nightTaps[m.id] > 0).sort((a, b) => (nightTaps[b.id] || 0) - (nightTaps[a.id] || 0))[0];
+
+    const sharedIds = new Set(habits.filter(h => h.completionType === 'shared').map(h => h.id));
+    const sharedTaps = {};
+    weekCompletions.forEach(c => { if (sharedIds.has(c.habitId) && c.taps > 0) sharedTaps[c.memberId] = (sharedTaps[c.memberId] || 0) + c.taps; });
+    const sharedMVP = members.filter(m => sharedTaps[m.id] > 0).sort((a, b) => (sharedTaps[b.id] || 0) - (sharedTaps[a.id] || 0))[0];
+
+    const daysByMember = {};
+    const seen = new Set();
+    weekCompletions.forEach(c => {
+      if (c.taps <= 0) return;
+      const key = `${c.memberId}_${c.date}`;
+      if (!seen.has(key)) { seen.add(key); daysByMember[c.memberId] = (daysByMember[c.memberId] || 0) + 1; }
+    });
+    const consistency = [...members].sort((a, b) => (daysByMember[b.id] || 0) - (daysByMember[a.id] || 0))[0];
+
+    return {
+      hero: tapsByMember[hero?.id] > 0 ? { member: hero, count: tapsByMember[hero.id] } : null,
+      streakChamp: streakChamp?.streak > 0 ? { member: streakChamp, streak: streakChamp.streak } : null,
+      earlyBird: earlyBird ? { member: earlyBird, count: earlyTaps[earlyBird.id] } : null,
+      nightOwl: nightOwl ? { member: nightOwl, count: nightTaps[nightOwl.id] } : null,
+      sharedMVP: sharedMVP ? { member: sharedMVP, count: sharedTaps[sharedMVP.id] } : null,
+      consistency: daysByMember[consistency?.id] > 0 ? { member: consistency, days: daysByMember[consistency.id] } : null,
+    };
+  }, [weekCompletions, members, habits]);
+
+  // ── Time-of-day patterns ───────────────────────────────────────
+  const timePatterns = useMemo(() => {
+    const buckets = { early: 0, morning: 0, afternoon: 0, evening: 0, night: 0 };
+    let total = 0;
+    filteredWeek.forEach(c => {
+      if (!c.completedAt || c.taps <= 0) return;
+      const h = new Date(c.completedAt).getHours();
+      total++;
+      if (h < 9) buckets.early++;
+      else if (h < 12) buckets.morning++;
+      else if (h < 17) buckets.afternoon++;
+      else if (h < 20) buckets.evening++;
+      else buckets.night++;
+    });
+    if (total === 0) return null;
+    const pct = k => Math.round((buckets[k] / total) * 100);
+    return [
+      { label: "Early morning", sublabel: "before 9am", pct: pct('early'), icon: "🌅" },
+      { label: "Morning", sublabel: "9am – 12pm", pct: pct('morning'), icon: "☀️" },
+      { label: "Afternoon", sublabel: "12pm – 5pm", pct: pct('afternoon'), icon: "🌤️" },
+      { label: "Evening", sublabel: "5pm – 8pm", pct: pct('evening'), icon: "🌇" },
+      { label: "Night", sublabel: "after 8pm", pct: pct('night'), icon: "🌙" },
+    ].sort((a, b) => b.pct - a.pct);
+  }, [filteredWeek]);
+
+  // ── Streak Watch ───────────────────────────────────────────────
+  const streakWatch = useMemo(() => {
+    const milestones = [3, 7, 10, 14, 21, 30, 50, 100];
+    return members
+      .map(m => {
+        const s = m.streak || 0;
+        const next = milestones.find(ms => ms > s);
+        return { member: m, streak: s, next, daysAway: next ? next - s : null };
+      })
+      .filter(x => x.streak > 0)
+      .sort((a, b) => (a.daysAway || 999) - (b.daysAway || 999));
+  }, [members]);
+
+  // ── Habit Health (needs analyticsData) ────────────────────────
+  const habitHealth = useMemo(() => {
+    if (!filteredAnalytics) return null;
+    const weekDates = getWeekDates();
+    const thisWeekStart = weekDates[0];
+    const lastWeekEnd = new Date(weekDates[0]);
+    lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+    const lastWeekStart = new Date(lastWeekEnd);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 6);
+    const lwStartStr = lastWeekStart.toISOString().split("T")[0];
+    const lwEndStr = lastWeekEnd.toISOString().split("T")[0];
+
+    return habits.map(h => {
+      const thisWeek = filteredAnalytics.filter(c => c.habitId === h.id && c.date >= thisWeekStart && c.taps > 0);
+      const lastWeek = filteredAnalytics.filter(c => c.habitId === h.id && c.date >= lwStartStr && c.date <= lwEndStr && c.taps > 0);
+      const twRate = thisWeek.length / 7;
+      const lwRate = lastWeek.length / 7;
+      const delta = lwRate > 0 ? Math.round((twRate - lwRate) * 100) : null;
+      const twPct = Math.round(twRate * 100);
+      return { habit: h, thisWeekDays: thisWeek.length, lastWeekDays: lastWeek.length, delta, twPct };
+    }).filter(x => x.thisWeekDays > 0 || x.lastWeekDays > 0).slice(0, 6);
+  }, [filteredAnalytics, habits]);
+
+  // ── Kids Leaderboard ──────────────────────────────────────────
+  const kidsBoard = useMemo(() => {
+    if (kids.length === 0) return null;
+    const tapsByKid = {};
+    weekCompletions.forEach(c => {
+      if (c.taps > 0 && kids.find(k => k.id === c.memberId)) tapsByKid[c.memberId] = (tapsByKid[c.memberId] || 0) + c.taps;
+    });
+    return kids.map(k => ({ member: k, taps: tapsByKid[k.id] || 0 })).sort((a, b) => b.taps - a.taps);
+  }, [kids, weekCompletions]);
+
+  // ── Personal Bests (needs analyticsData) ──────────────────────
+  const personalBests = useMemo(() => {
+    if (!filteredAnalytics || !currentMember) return null;
+    const myComps = showFamily ? filteredAnalytics : filteredAnalytics.filter(c => c.memberId === currentMember.id);
+    if (myComps.length === 0) return null;
+
+    // Count completions per week
+    const byWeek = {};
+    myComps.forEach(c => {
+      if (c.taps <= 0) return;
+      const d = new Date(c.date);
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      const wk = monday.toISOString().split("T")[0];
+      byWeek[wk] = (byWeek[wk] || 0) + 1;
+    });
+    const weekTotals = Object.values(byWeek).sort((a, b) => b - a);
+    const allTimeRecord = weekTotals[0] || 0;
+    const currentWeekKey = getWeekDates()[0];
+    const thisWeekCount = byWeek[currentWeekKey] || 0;
+    const previousRecord = weekTotals.find((_, i, arr) => i > 0) || 0;
+    const isNewRecord = thisWeekCount > 0 && thisWeekCount >= allTimeRecord && Object.keys(byWeek).length > 1;
+
+    // Longest streak per habit
+    const habitStreaks = habits.map(h => ({ habit: h, streak: h.streak || 0 })).filter(x => x.streak >= 3).sort((a, b) => b.streak - a.streak).slice(0, 2);
+
+    return { thisWeekCount, allTimeRecord, previousRecord, isNewRecord, habitStreaks };
+  }, [filteredAnalytics, currentMember, habits, showFamily]);
+
+  const insightCard = (content) => (
+    <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+      {content}
+    </div>
+  );
+
+  const cardHeader = (icon, title, color = C.slate) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+      <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{icon}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.slate, letterSpacing: 0.3 }}>{title}</div>
+    </div>
+  );
+
+  const highlightRow = (icon, label, value, color = C.slate) => value ? (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+      <span style={{ fontSize: 18, width: 24, textAlign: "center", flexShrink: 0 }}>{icon}</span>
+      <span style={{ fontSize: 13, color: C.slateLight, flex: 1 }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color, flexShrink: 0 }}>{value}</span>
+    </div>
+  ) : null;
+
+  const loadingSkeleton = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {[70, 85, 60].map((w, i) => (
+        <div key={i} style={{ height: 14, borderRadius: 7, background: C.sandLight, width: `${w}%`, animation: "pulse 1.5s ease-in-out infinite" }} />
+      ))}
+      <div style={{ fontSize: 11, color: C.sandDark, marginTop: 4 }}>Loading analytics…</div>
+    </div>
+  );
+
+  const hasWeekData = weekCompletions.length > 0;
+
   return (
     <div style={{ padding: "0 20px 110px" }}>
-      {[
-        { label: "Best streak", value: `${best} days`, icon: "🔥", color: C.accent },
-        { label: "Most consistent", value: topHabit?.name || "—", icon: topHabit?.icon || "◈", color: C.green },
-        { label: "Active rituals", value: `${habits.length}`, icon: "◈", color: C.slate },
-        { label: "Family points total", value: totalFamilyPoints.toLocaleString(), icon: "🏆", color: C.warm },
-        { label: "Family members", value: `${family.members?.length || 0} people`, icon: "👨‍👩‍👧", color: C.slateLight },
-      ].map((s, i) => (
-        <div key={i} style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 10, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: `${s.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{s.icon}</div>
-          <div>
-            <div style={{ fontSize: 12, color: C.slateLight }}>{s.label}</div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: C.slate, marginTop: 2 }}>{s.value}</div>
+      {/* My Stats / Family toggle */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {["My Stats", "Family"].map((label, i) => {
+          const active = i === 0 ? !showFamily : showFamily;
+          return (
+            <button key={label} onClick={() => setShowFamily(i === 1)}
+              style={{ flex: 1, padding: "9px 0", borderRadius: 12, border: `1.5px solid ${active ? C.accent : C.sandDark}`, background: active ? `${C.accent}12` : C.white, color: active ? C.accent : C.slateLight, fontSize: 13, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 1. Family Highlights */}
+      {insightCard(<>
+        {cardHeader("🏆", "Family Highlights", C.warm)}
+        {!hasWeekData ? (
+          <div style={{ fontSize: 13, color: C.slateLight }}>Complete some habits this week to see highlights!</div>
+        ) : <>
+          {highlightRow("🥇", "Household Hero", highlights.hero ? `${highlights.hero.member.avatar} ${highlights.hero.member.name} (${highlights.hero.count} tasks)` : null, C.accent)}
+          {highlightRow("🔥", "Streak Champion", highlights.streakChamp ? `${highlights.streakChamp.member.avatar} ${highlights.streakChamp.member.name} (${highlights.streakChamp.streak} days)` : null, C.accent)}
+          {highlightRow("🌅", "Early Bird", highlights.earlyBird ? `${highlights.earlyBird.member.avatar} ${highlights.earlyBird.member.name} (${highlights.earlyBird.count} before 9am)` : null, C.green)}
+          {highlightRow("🌙", "Night Owl", highlights.nightOwl ? `${highlights.nightOwl.member.avatar} ${highlights.nightOwl.member.name} (${highlights.nightOwl.count} after 8pm)` : null, C.slate)}
+          {highlightRow("🤝", "Shared Task MVP", highlights.sharedMVP ? `${highlights.sharedMVP.member.avatar} ${highlights.sharedMVP.member.name} (${highlights.sharedMVP.count} shared)` : null, C.warm)}
+          {highlightRow("📅", "Most Consistent", highlights.consistency ? `${highlights.consistency.member.avatar} ${highlights.consistency.member.name} (${highlights.consistency.days} days active)` : null, C.green)}
+          {!highlights.hero && !highlights.streakChamp && (
+            <div style={{ fontSize: 13, color: C.slateLight }}>Tap some habits to start earning highlights!</div>
+          )}
+        </>}
+      </>)}
+
+      {/* 2. Streak Watch */}
+      {streakWatch.length > 0 && insightCard(<>
+        {cardHeader("🔥", "Streak Watch", C.accent)}
+        {streakWatch.slice(0, 4).map((x, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < streakWatch.length - 1 ? 10 : 0 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: `${C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{x.member.avatar}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{x.member.name}</div>
+              <div style={{ fontSize: 11, color: C.slateLight }}>
+                {x.daysAway === 1
+                  ? `🎯 1 day from ${x.next}-day streak!`
+                  : x.daysAway && x.daysAway <= 3
+                  ? `✨ ${x.daysAway} days from ${x.next}-day streak!`
+                  : `🔥 ${x.streak} day streak`}
+              </div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{x.streak}</div>
           </div>
-        </div>
-      ))}
+        ))}
+      </>)}
+
+      {/* 3. When You Work Best */}
+      {insightCard(<>
+        {cardHeader("⏰", showFamily ? "When Your Family Works Best" : "When You Work Best", C.green)}
+        {!timePatterns ? (
+          <div style={{ fontSize: 13, color: C.slateLight }}>Complete habits with timestamps to see your patterns.</div>
+        ) : (
+          timePatterns.slice(0, 3).map((t, i) => (
+            <div key={i} style={{ marginBottom: i < 2 ? 10 : 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ fontSize: 12, color: C.slate }}>{t.icon} {t.label} <span style={{ color: C.slateLight }}>({t.sublabel})</span></div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: t.pct >= 40 ? C.accent : C.slateLight }}>{t.pct}%</div>
+              </div>
+              <div style={{ height: 6, background: C.sandLight, borderRadius: 3 }}>
+                <div style={{ height: "100%", borderRadius: 3, background: t.pct >= 40 ? `linear-gradient(90deg, ${C.accent}, ${C.accentLight})` : `${C.slate}55`, width: `${t.pct}%`, transition: "width 0.6s ease" }} />
+              </div>
+            </div>
+          ))
+        )}
+      </>)}
+
+      {/* 4. Habit Health */}
+      {insightCard(<>
+        {cardHeader("📊", "Habit Health", C.green)}
+        {!filteredAnalytics ? loadingSkeleton : habitHealth && habitHealth.length > 0 ? (
+          habitHealth.map((x, i) => {
+            let icon = "🎯", label = "Locked in", color = C.green;
+            if (x.twPct === 100 && x.thisWeekDays >= 5) { icon = "🎯"; label = "100% this week!"; color = C.green; }
+            else if (x.delta !== null && x.delta >= 15) { icon = "📈"; label = `+${x.delta}% vs last week`; color = C.green; }
+            else if (x.delta !== null && x.delta <= -15) { icon = "📉"; label = `${x.delta}% vs last week`; color = C.error; }
+            else if (x.thisWeekDays <= 1 && x.lastWeekDays >= 4) { icon = "⚠️"; label = "Needs attention"; color = C.warm; }
+            else { icon = "✓"; label = `${x.thisWeekDays} of 7 days`; color = C.slateLight; }
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < habitHealth.length - 1 ? 10 : 0 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: `${x.habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{x.habit.icon}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{x.habit.name}</div>
+                  <div style={{ fontSize: 11, color }}>
+                    {icon} {label}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div style={{ fontSize: 13, color: C.slateLight }}>Complete habits over a few days to see health trends.</div>
+        )}
+      </>)}
+
+      {/* 5. Kids Leaderboard */}
+      {kidsBoard && insightCard(<>
+        {cardHeader("🏆", "Kids Leaderboard", C.kids)}
+        {kidsBoard.every(k => k.taps === 0) ? (
+          <div style={{ fontSize: 13, color: C.slateLight }}>No completions this week yet — let's go!</div>
+        ) : (
+          kidsBoard.map((k, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < kidsBoard.length - 1 ? 10 : 0 }}>
+              <div style={{ fontSize: 22, width: 28, textAlign: "center", flexShrink: 0 }}>{["🥇","🥈","🥉"][i] || "▫️"}</div>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: `${k.member.color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>{k.member.avatar}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{k.member.name}</div>
+                <div style={{ fontSize: 11, color: C.slateLight }}>{k.taps} task{k.taps !== 1 ? "s" : ""} this week</div>
+              </div>
+              {k.member.streak > 0 && (
+                <div style={{ fontSize: 11, color: C.accent, fontWeight: 600, padding: "3px 8px", borderRadius: 10, background: `${C.accent}12` }}>🔥 {k.member.streak}</div>
+              )}
+            </div>
+          ))
+        )}
+      </>)}
+
+      {/* 6. Personal Bests */}
+      {currentMember && insightCard(<>
+        {cardHeader("🎉", showFamily ? "Family Records" : "Personal Bests", C.accent)}
+        {!filteredAnalytics ? loadingSkeleton : personalBests ? (
+          <div>
+            {personalBests.isNewRecord && (
+              <div style={{ background: `${C.accent}12`, borderRadius: 12, padding: "10px 14px", marginBottom: 10, border: `1px solid ${C.accent}30` }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>🎊 New record this week!</div>
+                <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{personalBests.thisWeekCount} habits completed</div>
+              </div>
+            )}
+            {!personalBests.isNewRecord && personalBests.thisWeekCount > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 13, color: C.slate }}>This week: <span style={{ fontWeight: 700 }}>{personalBests.thisWeekCount} habits</span></div>
+                {personalBests.allTimeRecord > personalBests.thisWeekCount && (
+                  <div style={{ fontSize: 11, color: C.slateLight }}>All-time best: {personalBests.allTimeRecord} in a week</div>
+                )}
+              </div>
+            )}
+            {personalBests.habitStreaks.map((x, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 16 }}>{x.habit.icon}</span>
+                <span style={{ fontSize: 12, color: C.slate, flex: 1 }}>{x.habit.name}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>🔥 {x.streak} day streak</span>
+              </div>
+            ))}
+            {personalBests.thisWeekCount === 0 && personalBests.habitStreaks.length === 0 && (
+              <div style={{ fontSize: 13, color: C.slateLight }}>Start completing habits to build your records!</div>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: C.slateLight }}>Complete habits over multiple weeks to see records.</div>
+        )}
+      </>)}
     </div>
   );
 }
@@ -1753,6 +2089,9 @@ export default function RitualApp() {
   useEffect(() => { currentMemberRef.current = currentMember; }, [currentMember]);
   const [addInitialView, setAddInitialView] = useState("menu");
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("ritual_soundEnabled") !== "false");
+  const [lastFetchDate, setLastFetchDate] = useState(() => todayKey());
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const analyticsLastFetched = useRef(null);
 
   const todayIndex = getTodayIndex();
 
@@ -1813,6 +2152,41 @@ export default function RitualApp() {
     return result;
   }, [habitsWithTaps, habits, weekCompletions, todayIndex]);
 
+  // ─── Daily reset detection ───────────────────────────────────────
+  const checkDateBoundary = useCallback(() => {
+    const today = todayKey();
+    if (lastFetchDate && lastFetchDate !== today) {
+      setLastFetchDate(today);
+      setAnalyticsData(null); // invalidate analytics cache on new day
+      if (supabase && family) {
+        Promise.all([
+          fetchTodayCompletions(family.id),
+          fetchWeekCompletions(family.id),
+        ]).then(([td, wd]) => {
+          setTodayCompletions(td);
+          setWeekCompletions(wd);
+        });
+      }
+    }
+  }, [lastFetchDate, family]);
+
+  useEffect(() => {
+    const handler = () => { if (document.visibilityState === 'visible') checkDateBoundary(); };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, [checkDateBoundary]);
+
+  // ─── Insights lazy-load ──────────────────────────────────────────
+  useEffect(() => {
+    if (tab !== 'insights' || !family) return;
+    const now = Date.now();
+    if (analyticsData && analyticsLastFetched.current && now - analyticsLastFetched.current < 5 * 60 * 1000) return;
+    fetchAnalyticsData(family.id).then(data => {
+      setAnalyticsData(data);
+      analyticsLastFetched.current = Date.now();
+    });
+  }, [tab, family]); // intentionally excludes analyticsData/analyticsLastFetched (refs/stable)
+
   // ─── Load family data after login ───────────────────────────────
   const loadDataForFamily = async (familyData) => {
     setFamily(familyData);
@@ -1836,7 +2210,6 @@ export default function RitualApp() {
       try {
         const savedPin = localStorage.getItem("ritual_savedPin");
         if (savedPin && supabase) {
-          console.log("🔄 Auto-login with saved PIN");
           const familyData = await fetchFamilyData(savedPin);
           if (familyData) { await loadDataForFamily(familyData); return; }
           console.warn("⚠️ Saved PIN invalid, clearing");
@@ -1868,6 +2241,7 @@ export default function RitualApp() {
   };
 
   const handleComplete = async (habitId, member, fromDigital) => {
+    checkDateBoundary(); // detect midnight crossing before recording
     const habit = habitsWithTaps.find(h => h.id === habitId);
     if (!habit) return;
     // Show "Who did this?" for kids habits OR shared habits when no member specified
@@ -1891,7 +2265,6 @@ export default function RitualApp() {
 
     // Await Supabase sync (ensures multi-device consistency)
     if (supabase && resolvedMember) {
-      console.log("✅ Syncing completion to Supabase:", habitId, "taps:", newTaps);
       const { error } = await supabase.from("completions").upsert(
         { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: newTaps },
         { onConflict: "habit_id,member_id,date" }
@@ -2020,7 +2393,6 @@ export default function RitualApp() {
       if (h.id === habitId) return { ...h, tileUid: tileUID };
       return h;
     }));
-    console.log("✅ Tile", tileUID, "assigned to habit", habitId);
   };
 
   const handleEditHabit = async (habitId, updates) => {
@@ -2034,6 +2406,31 @@ export default function RitualApp() {
       if ('daysActive' in updates) dbUpdates.days_active = updates.daysActive || null;
       if ('completionType' in updates) dbUpdates.completion_type = updates.completionType || 'individual';
       await supabase.from("habits").update(dbUpdates).eq("id", habitId);
+
+      // Shared completion backfill: if switching to 'shared', sync today's max taps to all assigned members
+      if (updates.completionType === 'shared' && updates.assignedMemberIds?.length > 0) {
+        const today = todayKey();
+        const { data: existing } = await supabase
+          .from('completions').select('member_id, taps')
+          .eq('habit_id', habitId).eq('date', today);
+        if (existing && existing.length > 0) {
+          const maxTaps = Math.max(...existing.map(c => c.taps));
+          const upserts = updates.assignedMemberIds.map(memberId => ({
+            habit_id: habitId, member_id: memberId,
+            family_id: family.id, date: today, taps: maxTaps,
+          }));
+          await supabase.from('completions').upsert(upserts, { onConflict: 'habit_id,member_id,date' });
+          setTodayCompletions(prev => {
+            let updated = [...prev];
+            updates.assignedMemberIds.forEach(memberId => {
+              const idx = updated.findIndex(c => c.habitId === habitId && c.memberId === memberId);
+              if (idx >= 0) updated[idx] = { ...updated[idx], taps: maxTaps };
+              else updated.push({ id: `backfill_${memberId}_${Date.now()}`, habitId, memberId, familyId: family.id, date: today, taps: maxTaps });
+            });
+            return updated;
+          });
+        }
+      }
     }
   };
 
@@ -2112,10 +2509,8 @@ export default function RitualApp() {
     if (tileHandled.current === tileUID) return;
     tileHandled.current = tileUID;
     window.history.replaceState({}, "", "/");
-    console.log("🏷️ Tile detected:", tileUID);
     const assignedHabit = habitsWithTaps.find(h => h.tileUid === tileUID);
     if (assignedHabit) {
-      console.log("✅ Tile assigned to habit:", assignedHabit.name);
       const ids = assignedHabit.assignedMemberIds;
       // Multi-person habits ALWAYS ask "Who did this?"
       const shouldAskWho =
@@ -2139,7 +2534,6 @@ export default function RitualApp() {
         }
       }
     } else {
-      console.log("⚠️ Unassigned tile:", tileUID);
       setUnassignedTileUID(tileUID);
     }
   }, [family, mounted, habitsWithTaps]);
@@ -2172,7 +2566,6 @@ export default function RitualApp() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
         body{background:${C.sandLight};font-family:'DM Sans',sans-serif;}
         @keyframes ripple{0%{transform:scale(0.8);opacity:1;}100%{transform:scale(2.2);opacity:0;}}
@@ -2250,7 +2643,7 @@ export default function RitualApp() {
           )}
           {tab === "family" && <FamilyScreen family={family} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} />}
           {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
-          {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} />}
+          {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} />}
           {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} />}
         </div>
 
