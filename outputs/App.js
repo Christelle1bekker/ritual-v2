@@ -1701,29 +1701,27 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     };
   }, [weekCompletions, members, habits]);
 
-  // ── Time-of-day patterns ───────────────────────────────────────
+  // ── Time-of-day patterns (3 buckets covering full 24h) ────────
   const timePatterns = useMemo(() => {
-    const buckets = { early: 0, morning: 0, afternoon: 0, evening: 0, night: 0 };
+    const counts = [0, 0, 0]; // Morning, Afternoon, Evening
     let total = 0;
     filteredWeek.forEach(c => {
       if (!c.completedAt || c.taps <= 0) return;
       const h = new Date(c.completedAt).getHours();
       total++;
-      if (h < 9) buckets.early++;
-      else if (h < 12) buckets.morning++;
-      else if (h < 17) buckets.afternoon++;
-      else if (h < 20) buckets.evening++;
-      else buckets.night++;
+      if (h >= 6 && h < 12) counts[0]++;
+      else if (h >= 12 && h < 18) counts[1]++;
+      else counts[2]++; // 6pm–6am wraps midnight
     });
-    if (total === 0) return null;
-    const pct = k => Math.round((buckets[k] / total) * 100);
-    return [
-      { label: "Early morning", sublabel: "before 9am", pct: pct('early'), icon: "🌅" },
-      { label: "Morning", sublabel: "9am – 12pm", pct: pct('morning'), icon: "☀️" },
-      { label: "Afternoon", sublabel: "12pm – 5pm", pct: pct('afternoon'), icon: "🌤️" },
-      { label: "Evening", sublabel: "5pm – 8pm", pct: pct('evening'), icon: "🌇" },
-      { label: "Night", sublabel: "after 8pm", pct: pct('night'), icon: "🌙" },
-    ].sort((a, b) => b.pct - a.pct);
+    const pct = i => total > 0 ? Math.round((counts[i] / total) * 100) : 0;
+    return {
+      total,
+      buckets: [
+        { label: "Morning", sublabel: "6am – 12pm", pct: pct(0), icon: "🌅" },
+        { label: "Afternoon", sublabel: "12pm – 6pm", pct: pct(1), icon: "☀️" },
+        { label: "Evening", sublabel: "6pm – 6am", pct: pct(2), icon: "🌙" },
+      ],
+    };
   }, [filteredWeek]);
 
   // ── Streak Watch ───────────────────────────────────────────────
@@ -1738,6 +1736,24 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       .filter(x => x.streak > 0)
       .sort((a, b) => (a.daysAway || 999) - (b.daysAway || 999));
   }, [members]);
+
+  // ── Your Weekly Summary (My Stats only) ───────────────────────
+  const weeklySummary = useMemo(() => {
+    if (!currentMember) return null;
+    const myCompletions = weekCompletions.filter(c => c.memberId === currentMember.id && c.taps > 0);
+    const myHabits = habits.filter(h => {
+      if (!h.assignedMemberIds || h.assignedMemberIds.length === 0) return myCompletions.some(c => c.habitId === h.id);
+      return h.assignedMemberIds.includes(currentMember.id);
+    });
+    const totalPossible = myHabits.length * 7;
+    const completed = myCompletions.length;
+    const percentage = totalPossible > 0 ? Math.round((completed / totalPossible) * 100) : 0;
+    const habitStats = myHabits.map(h => {
+      const count = myCompletions.filter(c => c.habitId === h.id).length;
+      return { name: h.name, icon: h.icon, rate: Math.round((count / 7) * 100) };
+    }).sort((a, b) => b.rate - a.rate);
+    return { completed, totalPossible, percentage, bestHabit: habitStats[0] || null, streak: currentMember.streak || 0 };
+  }, [weekCompletions, habits, currentMember]);
 
   // ── Habit Health (needs analyticsData) ────────────────────────
   const habitHealth = useMemo(() => {
@@ -1851,8 +1867,39 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
         })}
       </div>
 
-      {/* 1. Family Highlights */}
-      {insightCard(<>
+      {/* 0. Your Weekly Summary (My Stats only) */}
+      {!showFamily && currentMember && weeklySummary && insightCard(<>
+        {cardHeader("📊", "Your Weekly Summary", C.accent)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: C.slateLight }}>Habits completed this week</span>
+            <span style={{ fontWeight: 700, fontSize: 16, color: C.accent }}>
+              {weeklySummary.completed} / {weeklySummary.totalPossible}
+              <span style={{ fontSize: 12, fontWeight: 400, color: C.slateLight }}> ({weeklySummary.percentage}%)</span>
+            </span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: C.slateLight }}>Current streak</span>
+            <span style={{ fontWeight: 700, fontSize: 16, color: C.warm }}>🔥 {weeklySummary.streak} days</span>
+          </div>
+          {weeklySummary.bestHabit && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: C.slateLight }}>Best habit this week</span>
+              <span style={{ fontWeight: 600, fontSize: 13, color: C.green }}>
+                {weeklySummary.bestHabit.icon} {weeklySummary.bestHabit.name} ({weeklySummary.bestHabit.rate}%)
+              </span>
+            </div>
+          )}
+          {weeklySummary.completed === 0 && (
+            <div style={{ fontSize: 13, color: C.slateLight, fontStyle: "italic" }}>
+              No completions yet this week — let's get started! 🌟
+            </div>
+          )}
+        </div>
+      </>)}
+
+      {/* 1. Family Highlights (Family view only) */}
+      {showFamily && insightCard(<>
         {cardHeader("🏆", "Family Highlights", C.warm)}
         {!hasWeekData ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>Complete some habits this week to see highlights!</div>
@@ -1870,33 +1917,41 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       </>)}
 
       {/* 2. Streak Watch */}
-      {streakWatch.length > 0 && insightCard(<>
-        {cardHeader("🔥", "Streak Watch", C.accent)}
-        {streakWatch.slice(0, 4).map((x, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < streakWatch.length - 1 ? 10 : 0 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: `${C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{x.member.avatar}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{x.member.name}</div>
-              <div style={{ fontSize: 11, color: C.slateLight }}>
-                {x.daysAway === 1
-                  ? `🎯 1 day from ${x.next}-day streak!`
-                  : x.daysAway && x.daysAway <= 3
-                  ? `✨ ${x.daysAway} days from ${x.next}-day streak!`
-                  : `🔥 ${x.streak} day streak`}
+      {(() => {
+        const toShow = showFamily
+          ? streakWatch.slice(0, 4)
+          : streakWatch.filter(x => x.member.id === currentMember?.id);
+        if (toShow.length === 0) return null;
+        return insightCard(<>
+          {cardHeader("🔥", showFamily ? "Everyone's Streaks" : "Your Streaks", C.accent)}
+          {toShow.map((x, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < toShow.length - 1 ? 10 : 0 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: `${C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{x.member.avatar}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{x.member.name}</div>
+                <div style={{ fontSize: 11, color: C.slateLight }}>
+                  {x.daysAway === 1
+                    ? `🎯 1 day from ${x.next}-day streak!`
+                    : x.daysAway && x.daysAway <= 3
+                    ? `✨ ${x.daysAway} days from ${x.next}-day streak!`
+                    : `🔥 ${x.streak} day streak`}
+                </div>
               </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{x.streak}</div>
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{x.streak}</div>
-          </div>
-        ))}
-      </>)}
+          ))}
+        </>);
+      })()}
 
       {/* 3. When You Work Best */}
       {insightCard(<>
         {cardHeader("⏰", showFamily ? "When Your Family Works Best" : "When You Work Best", C.green)}
-        {!timePatterns ? (
-          <div style={{ fontSize: 13, color: C.slateLight }}>Complete habits with timestamps to see your patterns.</div>
+        {timePatterns.total === 0 ? (
+          <div style={{ textAlign: "center", padding: "16px 0", color: C.slateLight, fontSize: 13, fontStyle: "italic" }}>
+            Complete more habits to see when you're most productive! 🌟
+          </div>
         ) : (
-          timePatterns.slice(0, 3).map((t, i) => (
+          timePatterns.buckets.map((t, i) => (
             <div key={i} style={{ marginBottom: i < 2 ? 10 : 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                 <div style={{ fontSize: 12, color: C.slate }}>{t.icon} {t.label} <span style={{ color: C.slateLight }}>({t.sublabel})</span></div>
@@ -1934,12 +1989,14 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             );
           })
         ) : (
-          <div style={{ fontSize: 13, color: C.slateLight }}>Complete habits over a few days to see health trends.</div>
+          <div style={{ textAlign: "center", padding: "16px 0", color: C.slateLight, fontSize: 13, fontStyle: "italic" }}>
+            Track habits for a week to see health trends! 📈
+          </div>
         )}
       </>)}
 
-      {/* 5. Kids Leaderboard */}
-      {kidsBoard && insightCard(<>
+      {/* 5. Kids Leaderboard (Family view only) */}
+      {showFamily && kidsBoard && insightCard(<>
         {cardHeader("🏆", "Kids Leaderboard", C.kids)}
         {kidsBoard.every(k => k.taps === 0) ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>No completions this week yet — let's go!</div>
@@ -1991,7 +2048,9 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             )}
           </div>
         ) : (
-          <div style={{ fontSize: 13, color: C.slateLight }}>Complete habits over multiple weeks to see records.</div>
+          <div style={{ textAlign: "center", padding: "16px 0", color: C.slateLight, fontSize: 13, fontStyle: "italic" }}>
+            Complete more habits to unlock achievements! 🎉
+          </div>
         )}
       </>)}
     </div>
@@ -2278,7 +2337,7 @@ export default function RitualApp() {
     // Await Supabase sync (ensures multi-device consistency)
     if (supabase && resolvedMember) {
       const { error } = await supabase.from("completions").upsert(
-        { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: newTaps },
+        { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: newTaps, completed_at: new Date().toISOString() },
         { onConflict: "habit_id,member_id,date" }
       );
       if (error) console.error("❌ Completion sync failed:", error);
