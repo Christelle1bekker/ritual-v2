@@ -2378,6 +2378,15 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
         >
           🔄 Reset All Points &amp; Streaks
         </button>
+        {window.location.hostname === 'localhost' && (
+          <button onClick={async () => {
+            const res = await fetch('/api/cron-streaks');
+            const data = await res.json();
+            alert(JSON.stringify(data, null, 2));
+          }} style={{ width: "100%", padding: "12px 16px", background: C.slateLight, border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 8 }}>
+            🔧 Test Streak Reset (dev only)
+          </button>
+        )}
       </div>
 
       <button onClick={() => {
