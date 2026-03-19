@@ -2423,6 +2423,17 @@ export default function RitualApp() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
   }, []);
 
+  // ─── Service Worker registration (PWA) ─────────────────────────
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js')
+          .then(reg => console.log('SW registered:', reg.scope))
+          .catch(err => console.warn('SW registration failed:', err));
+      });
+    }
+  }, []);
+
   const todayIndex = getTodayIndex();
 
   // ─── habitsWithTaps: merge habits + today's completions ──────────

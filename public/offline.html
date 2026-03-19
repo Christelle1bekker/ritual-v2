@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Ritual — Offline</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #F2EDE7;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #3D4A4F;
+      text-align: center;
+      padding: 40px 24px;
+      box-sizing: border-box;
+    }
+    .symbol {
+      font-size: 64px;
+      margin-bottom: 24px;
+      opacity: 0.35;
+      line-height: 1;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin: 0 0 8px;
+    }
+    p {
+      font-size: 15px;
+      color: #5A6B72;
+      line-height: 1.6;
+      margin: 0;
+      max-width: 280px;
+    }
+    button {
+      margin-top: 32px;
+      padding: 14px 32px;
+      border-radius: 16px;
+      border: none;
+      background: #C17B4E;
+      color: white;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      letter-spacing: 0.01em;
+    }
+    button:active {
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <div class="symbol">◈</div>
+  <h1>You're offline</h1>
+  <p>Ritual needs a connection to sync your habits.<br />Check your internet and try again.</p>
+  <button onclick="window.location.reload()">Try again</button>
+</body>
+</html>

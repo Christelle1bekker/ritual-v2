@@ -23,5 +23,9 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "jimp": "^1.6.0",
+    "sharp": "^0.34.5"
   }
 }
