@@ -2458,6 +2458,7 @@ export default function RitualApp() {
   const analyticsLastFetched = useRef(null);
   const [redemptions, setRedemptions] = useState([]);
   const redemptionsLastFetched = useRef(null);
+  const [rewardError, setRewardError] = useState(null);
 
   const todayIndex = getTodayIndex();
 
@@ -2827,17 +2828,28 @@ export default function RitualApp() {
   };
 
   // ─── Reward handlers ─────────────────────────────────────────────
+  const showRewardError = (msg) => {
+    setRewardError(msg);
+    setTimeout(() => setRewardError(null), 5000);
+  };
+
   const handleAddReward = async (rewardData) => {
-    if (!supabase || !family) return;
+    if (!supabase) {
+      showRewardError('Cannot save — Supabase is not configured. Check environment variables.');
+      console.error('❌ handleAddReward: supabase client is null');
+      return;
+    }
+    if (!family) return;
     const { data, error } = await supabase.from('rewards').insert({
       family_id: family.id, name: rewardData.name, points: rewardData.points,
       icon: rewardData.icon, who: rewardData.who || 'Everyone',
-      color: rewardData.who === 'Kids' ? C.kids : C.accent, status: 'active',
+      color: rewardData.who === 'Kids' ? C.kids : C.accent,
     }).select().single();
     if (data) {
       setFamily(f => ({ ...f, rewards: [...(f.rewards || []), normalizeReward(data)] }));
     } else {
       console.error('❌ Add reward failed:', error);
+      showRewardError(`Failed to save reward: ${error?.message || 'unknown error'}`);
     }
   };
 
@@ -2853,7 +2865,7 @@ export default function RitualApp() {
 
   const handleDeleteReward = async (rewardId) => {
     setFamily(f => ({ ...f, rewards: f.rewards.filter(r => r.id !== rewardId) }));
-    if (supabase) await supabase.from('rewards').update({ status: 'archived' }).eq('id', rewardId);
+    if (supabase) await supabase.from('rewards').delete().eq('id', rewardId);
   };
 
   const handleRedeemReward = async (rewardId, memberId) => {
@@ -3049,6 +3061,12 @@ export default function RitualApp() {
       `}</style>
 
       <div className="ritual-root">
+        {/* Error toast */}
+        {rewardError && (
+          <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: C.error, color: C.white, borderRadius: 14, padding: "12px 18px", fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.2)", maxWidth: 340, textAlign: "center", fontFamily: "'DM Sans', sans-serif" }}>
+            ⚠️ {rewardError}
+          </div>
+        )}
         {/* Header */}
         <div style={{ padding: "20px 24px 12px", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
           <div style={{ marginBottom: 8 }}>
