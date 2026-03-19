@@ -2305,7 +2305,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 }
 
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────
-function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound }) {
+function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding }) {
   return (
     <div style={{ padding: "0 20px 110px" }}>
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -2396,6 +2396,167 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
       }} style={{ width: "100%", padding: "14px", borderRadius: 16, border: `1.5px solid ${C.error}30`, background: `${C.error}10`, color: C.error, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
         Sign Out of {family.name}
       </button>
+
+      {/* Replay onboarding — for testing and demos */}
+      <div style={{ textAlign: "center", marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.sandLight}` }}>
+        <button onClick={onReplayOnboarding} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: C.slateLight, textDecoration: "underline dotted", fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", minHeight: 44 }}>
+          Replay onboarding
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ONBOARDING FLOW ──────────────────────────────────────────────
+function OnboardingFlow({ currentMember, onComplete }) {
+  const isKid = currentMember?.isKid === true;
+  const totalSlides = isKid ? 2 : 3;
+  const [slide, setSlide] = useState(0);
+  const [navCount, setNavCount] = useState(0);
+  const touchStartX = useRef(null);
+
+  const bg = isKid
+    ? `linear-gradient(135deg, ${C.kids}, ${C.kidsLight})`
+    : `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`;
+  const dotColor = isKid ? C.kids : C.accent;
+  const isLastSlide = slide === totalSlides - 1;
+
+  const goNext = () => {
+    if (slide < totalSlides - 1) { setSlide(s => s + 1); setNavCount(n => n + 1); }
+  };
+  const goPrev = () => {
+    if (slide > 0) { setSlide(s => s - 1); setNavCount(n => n + 1); }
+  };
+
+  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const handleTouchEnd = (e) => {
+    if (touchStartX.current === null) return;
+    const delta = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(delta) >= 50) { delta < 0 ? goNext() : goPrev(); }
+    touchStartX.current = null;
+  };
+  const handleContainerClick = (e) => {
+    if (e.target.tagName === "BUTTON" || e.target.closest?.("button")) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const w = rect.width;
+    if (x < w * 0.4) goPrev();
+    else if (x > w * 0.6) goNext();
+  };
+
+  const kidBtnStyle = {
+    ...btnPrimary,
+    background: "linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.75))",
+    color: C.kids, boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
+  };
+
+  const adultSlides = [
+    // Slide 0 — Welcome
+    <div key="a0" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
+      <div key={`a0i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Welcome to Ritual</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Habit tracking for the whole family — powered by physical tiles you tap with your phone.</div>
+      </div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>SWIPE TO SEE HOW IT WORKS</div>
+    </div>,
+    // Slide 1 — How it works
+    <div key="a1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
+      <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Tap a tile, done.</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every habit has a tile you place where it happens — by the bed, at the front door, in the kitchen. Tap your phone to it and the habit logs instantly. No phone? Hold the habit card instead.</div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+        {[["🏷️", "tile"], ["📱", "tap"], ["✦", "logged"]].map(([icon, label], i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ padding: "8px 14px", borderRadius: 20, background: C.offwhite, fontSize: 13, color: C.slate, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
+              <span>{icon}</span><span>{label}</span>
+            </div>
+            {i < 2 && <span style={{ fontSize: 14, color: "rgba(255,255,255,0.4)" }}>→</span>}
+          </div>
+        ))}
+      </div>
+    </div>,
+    // Slide 2 — Rewards
+    <div key="a2" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
+      <div key={`a2i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>⭐</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Earn points. Claim rewards.</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every completed habit earns points. Set up rewards your family actually wants — then let them redeem.</div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+        {[["🍕", "Dinner pick", 20], ["🎬", "Movie night", 15], ["💰", "Pocket money", 50]].map(([icon, name, pts], i) => (
+          <div key={i} style={{ padding: "8px 14px", borderRadius: 20, background: C.white, fontSize: 12, fontFamily: "'DM Sans', sans-serif", color: C.slate, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+            <span>{icon}</span><span>{name}</span><span style={{ color: C.slateLight }}>· {pts}pts</span>
+          </div>
+        ))}
+      </div>
+      <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ ...btnPrimary, marginTop: 4, pointerEvents: "auto" }}>Set up Ritual →</button>
+    </div>,
+  ];
+
+  const kidSlides = [
+    // Slide 0 — Welcome
+    <div key="k0" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
+      <div key={`k0i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🌟</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Hey, welcome to Ritual!</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.85)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Complete your habits every day to earn points and unlock awesome rewards.</div>
+      </div>
+    </div>,
+    // Slide 1 — How to earn
+    <div key="k1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
+      <div key={`k1i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Tap your tile, earn points</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.85)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Each habit has a tile. Tap your phone to it when you're done — points go straight to your balance.</div>
+      </div>
+      {currentMember && (
+        <div style={{ padding: "12px 28px", borderRadius: 30, background: "rgba(255,255,255,0.3)", fontSize: 18, fontWeight: 700, color: C.white, fontFamily: "'DM Sans', sans-serif", boxShadow: "0 0 20px rgba(255,255,255,0.25), 0 4px 12px rgba(0,0,0,0.1)" }}>
+          You have {currentMember.points || 0} pts
+        </div>
+      )}
+      <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ ...kidBtnStyle, marginTop: 4, pointerEvents: "auto" }}>Let's go! 🚀</button>
+    </div>,
+  ];
+
+  const slides = isKid ? kidSlides : adultSlides;
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 500, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onClick={handleContainerClick}
+    >
+      {/* Top nav: back + skip */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "max(20px, env(safe-area-inset-top)) 20px 12px", flexShrink: 0, position: "relative", zIndex: 10 }}>
+        {slide > 0 ? (
+          <button onClick={(e) => { e.stopPropagation(); goPrev(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 20, padding: "12px 8px", minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", fontFamily: "'DM Sans', sans-serif" }}>←</button>
+        ) : <div style={{ minWidth: 44, minHeight: 44 }} />}
+        {!isLastSlide ? (
+          <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: 500, padding: "12px 8px", minHeight: 44, fontFamily: "'DM Sans', sans-serif" }}>Skip</button>
+        ) : <div style={{ minWidth: 44, minHeight: 44 }} />}
+      </div>
+
+      {/* Carousel */}
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <div style={{ display: "flex", height: "100%", transform: `translateX(-${slide * (100 / totalSlides)}%)`, transition: "transform 300ms ease", width: `${totalSlides * 100}%` }}>
+          {slides.map((slideContent, i) => (
+            <div key={i} style={{ width: `${100 / totalSlides}%`, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+              {slideContent}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Progress dots */}
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: "16px 20px", paddingBottom: "calc(28px + env(safe-area-inset-bottom))", flexShrink: 0, position: "relative", zIndex: 10 }}>
+        {Array.from({ length: totalSlides }, (_, i) => (
+          <div key={i} onClick={(e) => { e.stopPropagation(); if (i !== slide) { setSlide(i); setNavCount(n => n + 1); } }} style={{ width: i === slide ? 20 : 8, height: 8, borderRadius: 4, background: i === slide ? dotColor : "rgba(255,255,255,0.35)", transition: "all 0.3s ease", cursor: "pointer" }} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -2422,6 +2583,7 @@ export default function RitualApp() {
   const analyticsLastFetched = useRef(null);
   const [redemptions, setRedemptions] = useState([]);
   const redemptionsLastFetched = useRef(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // ─── Toast notification system ──────────────────────────────────
   const [toasts, setToasts] = useState([]);
@@ -2560,6 +2722,8 @@ export default function RitualApp() {
     const savedMemberId = localStorage.getItem("ritual_currentMemberId");
     const savedMember = familyData.members?.find(m => m.id === savedMemberId);
     setCurrentMember(savedMember || familyData.members?.[0] || null);
+    const hasOnboarded = localStorage.getItem(`ritual_onboarded_${familyData.id}`);
+    if (!hasOnboarded) setShowOnboarding(true);
     if (supabase) {
       const [todayData, weekData] = await Promise.all([
         fetchTodayCompletions(familyData.id),
@@ -2598,6 +2762,12 @@ export default function RitualApp() {
   // ─── Handlers ───────────────────────────────────────────────────
   const handleLogin = async (familyData) => {
     await loadDataForFamily(familyData);
+  };
+
+  const completeOnboarding = () => {
+    if (family) localStorage.setItem(`ritual_onboarded_${family.id}`, "true");
+    setShowOnboarding(false);
+    if (!currentMember?.isKid) setTab("add");
   };
 
   const handleLogout = () => {
@@ -3134,7 +3304,7 @@ export default function RitualApp() {
           {tab === "family" && <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />}
           {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} />}
-          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} />}
+          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={() => { localStorage.removeItem(`ritual_onboarded_${family.id}`); setShowOnboarding(true); }} />}
         </div>
 
         {/* Branding footer */}
@@ -3154,6 +3324,11 @@ export default function RitualApp() {
           ))}
         </div>
       </div>
+
+      {/* Onboarding overlay — shown on first login per device */}
+      {showOnboarding && family && (
+        <OnboardingFlow currentMember={currentMember} family={family} onComplete={completeOnboarding} />
+      )}
 
       {/* Assign Tile Modal — shown whenever an unassigned tile is tapped */}
       {unassignedTileUID && (
