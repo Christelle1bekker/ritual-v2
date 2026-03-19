@@ -39,31 +39,31 @@ function getMotivation(done, total) {
   return `${total - done} ritual${total - done > 1 ? "s" : ""} left — you've got this`;
 }
 
+const MELB_TZ = 'Australia/Melbourne';
+
 function todayKey() {
-  return new Date().toISOString().split("T")[0];
+  return new Date().toLocaleDateString('en-CA', { timeZone: MELB_TZ });
 }
 
 function getYesterdayKey() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split("T")[0];
+  return new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: MELB_TZ });
 }
 
 function getTodayIndex() {
-  return (new Date().getDay() + 6) % 7;
+  const todayStr = todayKey();
+  const [y, m, d] = todayStr.split('-').map(Number);
+  return (new Date(y, m - 1, d).getDay() + 6) % 7;
 }
 
 function getWeekDates() {
-  const today = new Date();
+  const todayStr = todayKey();
+  const [y, m, d] = todayStr.split('-').map(Number);
+  const today = new Date(y, m - 1, d);
   const day = today.getDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
-  const monday = new Date(today);
-  monday.setDate(today.getDate() + mondayOffset);
-  monday.setHours(0, 0, 0, 0);
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return d.toISOString().split("T")[0];
+    const date = new Date(y, m - 1, d + mondayOffset + i);
+    return date.toLocaleDateString('en-CA');
   });
 }
 
@@ -150,12 +150,12 @@ async function fetchWeekCompletions(familyId) {
 
 async function fetchAnalyticsData(familyId) {
   if (!supabase) return [];
-  const d = new Date();
-  d.setDate(d.getDate() - ANALYTICS_WINDOW_DAYS);
+  const windowStart = new Date(Date.now() - ANALYTICS_WINDOW_DAYS * 86400000)
+    .toLocaleDateString('en-CA', { timeZone: MELB_TZ });
   const { data } = await supabase
     .from("completions").select("*")
     .eq("family_id", familyId)
-    .gte("date", d.toISOString().split("T")[0]);
+    .gte("date", windowStart);
   return (data || []).map(normalizeCompletion);
 }
 

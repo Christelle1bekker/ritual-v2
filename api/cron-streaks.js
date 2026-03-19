@@ -10,10 +10,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY  // Service role key — NOT the anon key
 );
 
-function getYesterdayUTC() {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().split('T')[0]; // "YYYY-MM-DD"
+function getYesterdayMelbourne() {
+  // Subtract 24h then express in Melbourne timezone to get Melbourne's yesterday
+  return new Date(Date.now() - 86400000)
+    .toLocaleDateString('en-CA', { timeZone: 'Australia/Melbourne' });
 }
 
 export default async function handler(req, res) {
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const yesterday = getYesterdayUTC();
+  const yesterday = getYesterdayMelbourne();
   console.log(`Running streak reset for date: ${yesterday}`);
 
   try {
