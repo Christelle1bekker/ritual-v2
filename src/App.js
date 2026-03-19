@@ -2302,12 +2302,63 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           </div>
         )}
       </>)}
+
+      {/* Rewards section */}
+      {family?.rewards?.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.slate, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Rewards</div>
+
+          {/* Points balances */}
+          <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 12 }}>Points Balance</div>
+            {(family.members || []).map(m => {
+              const topReward = [...(family.rewards || [])].sort((a, b) => a.points - b.points).find(r => r.points <= (m.points || 0));
+              return (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{m.name}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>{m.points || 0} pts</div>
+                    </div>
+                    {topReward && (
+                      <div style={{ fontSize: 11, color: C.slateLight }}>Can redeem: {topReward.icon} {topReward.name}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Available rewards */}
+          <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 12 }}>Available Rewards</div>
+            {(family.rewards || []).filter(r => r.status !== 'inactive').map(r => {
+              const affordable = (family.members || []).filter(m => (m.points || 0) >= r.points);
+              return (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.sandLight}` }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: `${r.color || C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{r.icon}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{r.name}</div>
+                    <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>{r.points} pts · {r.who || "Everyone"}</div>
+                  </div>
+                  {affordable.length > 0 && (
+                    <div style={{ fontSize: 11, fontWeight: 600, color: C.green, background: `${C.green}12`, padding: "4px 8px", borderRadius: 8, flexShrink: 0 }}>
+                      {affordable.length === 1 ? `${affordable[0].name} can redeem` : `${affordable.length} can redeem`}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────
-function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding }) {
+function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding, onToast }) {
   return (
     <div style={{ padding: "0 20px 110px" }}>
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -2370,10 +2421,10 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
               await supabase.from("members").update({ points: 0, streak: 0 }).eq('family_id', family.id);
               await supabase.from("habits").update({ streak: 0 }).eq('family_id', family.id);
               await onRefresh();
-              alert("✅ All points and streaks have been reset to zero.");
+              onToast("✅ Points and streaks reset to zero");
             } catch (err) {
               console.error("Reset failed:", err);
-              alert("❌ Reset failed. Check console for details.");
+              onToast("❌ Reset failed — check console", "error");
             }
           }}
           style={{ width: "100%", padding: "12px 16px", background: C.error, border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
@@ -2384,7 +2435,8 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
           <button onClick={async () => {
             const res = await fetch('/api/cron-streaks');
             const data = await res.json();
-            alert(JSON.stringify(data, null, 2));
+            console.log(data);
+            onToast("Cron test complete — check console");
           }} style={{ width: "100%", padding: "12px 16px", background: C.slateLight, border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 8 }}>
             🔧 Test Streak Reset (dev only)
           </button>
@@ -2453,33 +2505,33 @@ function OnboardingFlow({ currentMember, onComplete }) {
   };
 
   const adultSlides = [
-    // Slide 0 — Entry (new)
+    // Slide 0 — Entry point: two paths
     <div key="a0" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
       <div key={`a0i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Welcome to Ritual</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", fontFamily: "'DM Sans', sans-serif" }}>Habit tracking for the whole family</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Habit tracking for the whole family</div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10, marginTop: 24, width: "100%", pointerEvents: "auto" }}>
-        <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary }}>New to Ritual? Let's get set up →</button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
+        <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto" }}>New to Ritual? Let's get set up →</button>
         <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ background: "none", border: "none", fontSize: 13, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", minHeight: 44, textDecoration: "underline dotted" }}>Skip to app</button>
       </div>
     </div>,
-    // Slide 1 — Welcome (unchanged)
+    // Slide 1 — Welcome
     <div key="a1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
       <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Welcome to Ritual</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Habit tracking for the whole family — powered by physical tiles you tap with your phone.</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Build habits as a family</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Ritual uses physical NFC tiles placed around your home. Tap your phone to a tile and the habit logs instantly — no app hunting, no friction.</div>
       </div>
       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>SWIPE TO SEE HOW IT WORKS</div>
     </div>,
-    // Slide 2 — How it works (unchanged)
+    // Slide 2 — How it works
     <div key="a2" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
       <div key={`a2i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Tap a tile, done.</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every habit has a tile you place where it happens — by the bed, at the front door, in the kitchen. Tap your phone to it and the habit logs instantly. No phone? Hold the habit card instead.</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every habit has a tile you place where it happens — by the bed, at the front door, in the kitchen. Tap your phone to it and the habit logs instantly.</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
         {[["🏷️", "tile"], ["📱", "tap"], ["✦", "logged"]].map(([icon, label], i) => (
@@ -2495,55 +2547,56 @@ function OnboardingFlow({ currentMember, onComplete }) {
     // Slide 3 — NEW: Let's build your first habit
     <div key="a3" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
       <div key={`a3i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🛏️</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Let's build your first habit</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every ritual needs a home. Pick something small — something you already do — and make it official.</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Pick something small — something you already do — and make it official. Here's an easy one to start with:</div>
       </div>
-      <div style={{ background: "rgba(255,255,255,0.1)", borderRadius: 20, padding: "14px 18px", display: "flex", gap: 12, alignItems: "center", width: "100%" }}>
-        <div style={{ fontSize: 28, lineHeight: 1 }}>🛏️</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 3, textAlign: "left" }}>
+      <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: 20, padding: "14px 18px", width: "100%", display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>🛏️</div>
+        <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.white, fontFamily: "'DM Sans', sans-serif" }}>Make your bed</div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: "'DM Sans', sans-serif" }}>Bedroom · 10 pts</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: "'DM Sans', sans-serif", marginTop: 2 }}>Bedroom · 10 pts</div>
         </div>
       </div>
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>YOU CAN ADD THIS AND MORE ON THE NEXT SCREEN</div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, textTransform: "uppercase", fontFamily: "'DM Sans', sans-serif" }}>YOU CAN ADD THIS AND MORE ON THE NEXT SCREEN</div>
     </div>,
     // Slide 4 — NEW: Connect a tile
     <div key="a4" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
       <div key={`a4i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Now let's connect a tile</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Now connect a tile</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Place a tile where the habit happens — bedroom door, bathroom mirror, kitchen bench. Tap your phone to it once to link it.</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
         {[
-          "Takes 10 seconds to set up",
+          "Takes about 10 seconds to set up",
           "You can reassign any tile to a different habit any time",
-          "No tile yet? You can skip this and add one later",
+          "No tile yet? You can skip this and add one later"
         ].map((text, i) => (
-          <div key={i} style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.white, fontFamily: "'DM Sans', sans-serif" }}>
-            <span>✦</span><span>{text}</span>
+          <div key={i} style={{ background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+            <span style={{ color: C.accentLight, fontSize: 14, flexShrink: 0 }}>✦</span>
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.4 }}>{text}</span>
           </div>
         ))}
       </div>
     </div>,
-    // Slide 5 — NEW: You're all set (final)
+    // Slide 5 — NEW: You're ready (final slide with CTA)
     <div key="a5" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
       <div key={`a5i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>You're all set</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>When someone taps a tile, you'll see who did it, their streak, and their points. The whole family in one place.</div>
       </div>
-      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
         {[["🔥", "Streaks"], ["⭐", "Points"], ["👨‍👩‍👧", "Family"]].map(([icon, label], i) => (
-          <div key={i} style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.white, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, fontFamily: "'DM Sans', sans-serif" }}>
+          <div key={i} style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.white, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
             <span>{icon}</span><span>{label}</span>
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 20, pointerEvents: "auto" }}>
-        <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ ...btnPrimary }}>Let's add your first ritual →</button>
-        <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ background: "none", border: "none", fontSize: 12, color: "rgba(255,255,255,0.45)", cursor: "pointer", marginTop: 8, fontFamily: "'DM Sans', sans-serif", textDecoration: "underline dotted", padding: "8px 16px", minHeight: 44 }}>I'll explore on my own</button>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: "100%", marginTop: 4 }}>
+        <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ ...btnPrimary, width: "100%", pointerEvents: "auto" }}>Let's add your first ritual →</button>
+        <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ background: "none", border: "none", fontSize: 12, color: "rgba(255,255,255,0.45)", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: "8px 16px", minHeight: 44, textDecoration: "underline dotted" }}>I'll explore on my own</button>
       </div>
     </div>,
   ];
@@ -2587,7 +2640,7 @@ function OnboardingFlow({ currentMember, onComplete }) {
         {slide > 0 ? (
           <button onClick={(e) => { e.stopPropagation(); goPrev(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 20, padding: "12px 8px", minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", fontFamily: "'DM Sans', sans-serif" }}>←</button>
         ) : <div style={{ minWidth: 44, minHeight: 44 }} />}
-        {!isLastSlide && !(slide === 0 && !isKid) ? (
+        {!isLastSlide && slide !== 0 ? (
           <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: 500, padding: "12px 8px", minHeight: 44, fontFamily: "'DM Sans', sans-serif" }}>Skip</button>
         ) : <div style={{ minWidth: 44, minHeight: 44 }} />}
       </div>
@@ -2816,9 +2869,10 @@ export default function RitualApp() {
   };
 
   const completeOnboarding = () => {
+    const isFirstTime = !localStorage.getItem(`ritual_onboarded_${family?.id}`);
     if (family) localStorage.setItem(`ritual_onboarded_${family.id}`, "true");
     setShowOnboarding(false);
-    if (!currentMember?.isKid) setTab("add");
+    if (!currentMember?.isKid && isFirstTime) setTab("add");
   };
 
   const handleLogout = () => {
@@ -3357,7 +3411,7 @@ export default function RitualApp() {
           {tab === "family" && <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />}
           {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} />}
-          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={() => { localStorage.removeItem(`ritual_onboarded_${family.id}`); setShowOnboarding(true); }} />}
+          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={() => { localStorage.removeItem(`ritual_onboarded_${family.id}`); setShowOnboarding(true); }} onToast={addToast} />}
         </div>
 
         {/* Branding footer */}
