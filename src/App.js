@@ -2541,8 +2541,8 @@ function OnboardingFlow({ currentMember, onComplete }) {
       </div>
 
       {/* Carousel */}
-      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
-        <div style={{ display: "flex", height: "100%", transform: `translateX(-${slide * (100 / totalSlides)}%)`, transition: "transform 300ms ease", width: `${totalSlides * 100}%` }}>
+      <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, display: "flex", transform: `translateX(-${slide * (100 / totalSlides)}%)`, transition: "transform 300ms ease", width: `${totalSlides * 100}%` }}>
           {slides.map((slideContent, i) => (
             <div key={i} style={{ width: `${100 / totalSlides}%`, flexShrink: 0, display: "flex", flexDirection: "column" }}>
               {slideContent}
