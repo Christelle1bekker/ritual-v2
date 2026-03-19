@@ -1114,7 +1114,10 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
                 <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{redeemTarget.points} pts · {currentMember.name} will have {Math.max((currentMember.points || 0) - redeemTarget.points, 0)} pts remaining</div>
               </div>
             </div>
-            <div style={{ fontSize: 11, color: C.slateLight, textAlign: "center", marginBottom: 20 }}>A parent will need to approve and fulfil this reward</div>
+            {currentMember.isKid
+              ? <div style={{ fontSize: 11, color: C.slateLight, textAlign: "center", marginBottom: 20 }}>A parent will need to approve and fulfil this reward</div>
+              : <div style={{ fontSize: 11, color: C.slateLight, textAlign: "center", marginBottom: 20 }}>Points will be deducted from your balance</div>
+            }
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setRedeemTarget(null)} style={{ flex: 1, padding: 14, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 14, color: C.slateLight, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
               <button onClick={() => { onRedeemReward(redeemTarget.id, currentMember.id); setRedeemTarget(null); }} style={{ ...btnPrimary, flex: 2 }}>Confirm Redeem</button>
@@ -2873,28 +2876,33 @@ export default function RitualApp() {
     const member = family.members.find(m => m.id === memberId);
     if (!reward || !member || (member.points || 0) < reward.points) return;
     const cost = reward.points;
-    // Optimistic: deduct points
+    // Deduct points optimistically for everyone
     setFamily(f => ({ ...f, members: f.members.map(m => m.id === memberId ? { ...m, points: Math.max((m.points || 0) - cost, 0) } : m) }));
-    if (supabase) {
+    if (!supabase) return;
+    // Sync points to DB
+    const { data: fm } = await supabase.from('members').select('points').eq('id', memberId).single();
+    const fp = fm?.points ?? (member.points || 0);
+    await supabase.from('members').update({ points: Math.max(fp - cost, 0) }).eq('id', memberId);
+    // Kids only: create pending redemption for parent to fulfil
+    if (member.isKid) {
       const { data: row, error } = await supabase.from('reward_redemptions').insert({
         reward_id: rewardId, member_id: memberId, family_id: family.id, points_spent: cost, status: 'pending',
       }).select().single();
       if (error) { console.error('❌ Redemption failed:', error); return; }
       if (row) setRedemptions(prev => [row, ...prev]);
       redemptionsLastFetched.current = Date.now();
-      // Sync points deduction to DB
-      const { data: fm } = await supabase.from('members').select('points').eq('id', memberId).single();
-      const fp = fm?.points ?? (member.points || 0);
-      await supabase.from('members').update({ points: Math.max(fp - cost, 0) }).eq('id', memberId);
     }
   };
 
   const handleFulfillRedemption = async (redemptionId) => {
+    console.log('✅ handleFulfillRedemption called', redemptionId);
     setRedemptions(prev => prev.filter(r => r.id !== redemptionId));
+    redemptionsLastFetched.current = null; // force refresh next time family tab opens
     if (supabase) {
-      await supabase.from('reward_redemptions').update({
+      const { error } = await supabase.from('reward_redemptions').update({
         status: 'fulfilled', fulfilled_at: new Date().toISOString(),
       }).eq('id', redemptionId);
+      if (error) console.error('❌ Fulfill failed:', error);
     }
   };
 
