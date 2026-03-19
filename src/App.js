@@ -3168,11 +3168,13 @@ export default function RitualApp() {
           console.error("Assigned member not found");
           return;
         }
-        if (currentMemberRef.current?.id === assignedMember.id) {
-          handleComplete(assignedHabit.id, assignedMember, false);
-        } else {
-          addToast(`This tile belongs to ${assignedMember.name}`, 'error');
+        // Always complete for the assigned member regardless of who is currently
+        // active in the app — the tile is the identity signal, not the UI state.
+        // Auto-switch the active member to them so the UI reflects the right person.
+        if (currentMemberRef.current?.id !== assignedMember.id) {
+          setCurrentMember(assignedMember);
         }
+        handleComplete(assignedHabit.id, assignedMember, false);
       }
     } else {
       setUnassignedTileUID(tileUID);
