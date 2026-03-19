@@ -2254,7 +2254,6 @@ export default function RitualApp() {
   };
 
   const handleComplete = async (habitId, member, fromDigital) => {
-    checkDateBoundary(); // detect midnight crossing before recording
     const habit = habitsWithTaps.find(h => h.id === habitId);
     if (!habit) return;
     // Show "Who did this?" for kids habits OR shared habits when no member specified
