@@ -1011,19 +1011,13 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
       <div style={{ background: C.white, borderRadius: 20, padding: 18, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>Rewards Available</div>
-          {!currentMember?.isKid && (
-            <button onClick={() => setShowAddReward(true)} style={{ background: `${C.accent}15`, border: "none", borderRadius: 12, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: C.accent, cursor: "pointer" }}>+ Add Reward</button>
-          )}
         </div>
         {currentMember && <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 14 }}>{currentMember.name} has {currentMember.points || 0} pts</div>}
         {visibleRewards.length === 0 ? (
           <div style={{ textAlign: "center", padding: "20px 0" }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🎁</div>
             <div style={{ fontSize: 13, color: C.slate, fontWeight: 600, marginBottom: 4 }}>No rewards yet</div>
-            <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 16 }}>Add rewards for your family to redeem with their points</div>
-            {!currentMember?.isKid && (
-              <button onClick={() => setShowAddReward(true)} style={{ ...btnPrimary, padding: "10px 24px", fontSize: 13 }}>+ Add First Reward</button>
-            )}
+            <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 16 }}>Add rewards in the Add tab → Manage Rewards</div>
           </div>
         ) : visibleRewards.map((r, i) => {
           const canAfford = currentMember && (currentMember.points || 0) >= r.points;
@@ -1469,7 +1463,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   const [habitPoints, setHabitPoints] = useState(10);
   const [customPoints, setCustomPoints] = useState(10);
   // Reward form state
-  const [rewardForm, setRewardForm] = useState({ name: "", icon: "🎁", points: 100, who: "Everyone" });
+  const [rewardForm, setRewardForm] = useState({ name: "", icon: "🎁", points: 10, who: "Everyone" });
   const [editingReward, setEditingReward] = useState(null);
 
   if (view === "tile") {
@@ -1839,13 +1833,31 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       } else {
         onAddReward({ ...rewardForm });
       }
-      setRewardForm({ name: "", icon: "🎁", points: 100, who: "Everyone" });
+      setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" });
     };
     return (
       <div style={{ padding: "0 20px 110px" }}>
-        <button onClick={() => { setView("menu"); setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 100, who: "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
+        <button onClick={() => { setView("menu"); setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Manage Rewards</div>
         <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Create and edit rewards for your family</div>
+
+        {/* Templates grid — only when adding */}
+        {!editingReward && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.slateLight, letterSpacing: 0.5, marginBottom: 10 }}>TEMPLATES</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {REWARD_TEMPLATES.map((t, i) => (
+                <div key={i} onClick={() => setRewardForm(f => ({ ...f, name: t.name, icon: t.icon, points: t.points, who: t.who }))} style={{ background: rewardForm.name === t.name && rewardForm.icon === t.icon ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${rewardForm.name === t.name && rewardForm.icon === t.icon ? C.accent : "transparent"}`, borderRadius: 14, padding: "10px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 22 }}>{t.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{t.name}</div>
+                    <div style={{ fontSize: 11, color: C.slateLight }}>{t.points} pts</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Add / Edit form */}
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -1860,7 +1872,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 0.5, marginBottom: 6 }}>POINTS COST</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {[100, 250, 500, 750, 1000, 2000].map(p => (
+                {[10, 15, 20, 25, 30, 40, 50, 100].map(p => (
                   <div key={p} onClick={() => setRewardForm(f => ({ ...f, points: p }))} style={{ padding: "6px 12px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontWeight: 600, background: rewardForm.points === p ? C.accent : C.offwhite, color: rewardForm.points === p ? C.white : C.slate, border: `1.5px solid ${rewardForm.points === p ? C.accent : C.sandDark}` }}>{p}</div>
                 ))}
               </div>
@@ -1875,7 +1887,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            {editingReward && <button onClick={() => { setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 100, who: "Everyone" }); }} style={{ flex: 1, padding: 12, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 13, color: C.slateLight, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>}
+            {editingReward && <button onClick={() => { setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" }); }} style={{ flex: 1, padding: 12, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 13, color: C.slateLight, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>}
             <button onClick={saveReward} style={{ ...btnPrimary, flex: 2, opacity: rewardForm.name.trim() ? 1 : 0.5 }}>{editingReward ? "Save Changes" : "Add Reward"}</button>
           </div>
         </div>
