@@ -2412,7 +2412,7 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
 // ─── ONBOARDING FLOW ──────────────────────────────────────────────
 function OnboardingFlow({ currentMember, onComplete }) {
   const isKid = currentMember?.isKid === true;
-  const totalSlides = isKid ? 2 : 3;
+  const totalSlides = isKid ? 2 : 6;
   const [slide, setSlide] = useState(0);
   const [navCount, setNavCount] = useState(0);
   const touchStartX = useRef(null);
@@ -2453,18 +2453,30 @@ function OnboardingFlow({ currentMember, onComplete }) {
   };
 
   const adultSlides = [
-    // Slide 0 — Welcome
+    // Slide 0 — Entry (new)
     <div key="a0" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
       <div key={`a0i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Welcome to Ritual</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", fontFamily: "'DM Sans', sans-serif" }}>Habit tracking for the whole family</div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10, marginTop: 24, width: "100%", pointerEvents: "auto" }}>
+        <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary }}>New to Ritual? Let's get set up →</button>
+        <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ background: "none", border: "none", fontSize: 13, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", minHeight: 44, textDecoration: "underline dotted" }}>Skip to app</button>
+      </div>
+    </div>,
+    // Slide 1 — Welcome (unchanged)
+    <div key="a1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
+      <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Welcome to Ritual</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Habit tracking for the whole family — powered by physical tiles you tap with your phone.</div>
       </div>
       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>SWIPE TO SEE HOW IT WORKS</div>
     </div>,
-    // Slide 1 — How it works
-    <div key="a1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
-      <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
+    // Slide 2 — How it works (unchanged)
+    <div key="a2" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
+      <div key={`a2i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Tap a tile, done.</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every habit has a tile you place where it happens — by the bed, at the front door, in the kitchen. Tap your phone to it and the habit logs instantly. No phone? Hold the habit card instead.</div>
@@ -2480,21 +2492,59 @@ function OnboardingFlow({ currentMember, onComplete }) {
         ))}
       </div>
     </div>,
-    // Slide 2 — Rewards
-    <div key="a2" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
-      <div key={`a2i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>⭐</div>
+    // Slide 3 — NEW: Let's build your first habit
+    <div key="a3" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
+      <div key={`a3i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🛏️</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Earn points. Claim rewards.</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every completed habit earns points. Set up rewards your family actually wants — then let them redeem.</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Let's build your first habit</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every ritual needs a home. Pick something small — something you already do — and make it official.</div>
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-        {[["🍕", "Dinner pick", 20], ["🎬", "Movie night", 15], ["💰", "Pocket money", 50]].map(([icon, name, pts], i) => (
-          <div key={i} style={{ padding: "8px 14px", borderRadius: 20, background: C.white, fontSize: 12, fontFamily: "'DM Sans', sans-serif", color: C.slate, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
-            <span>{icon}</span><span>{name}</span><span style={{ color: C.slateLight }}>· {pts}pts</span>
+      <div style={{ background: "rgba(255,255,255,0.1)", borderRadius: 20, padding: "14px 18px", display: "flex", gap: 12, alignItems: "center", width: "100%" }}>
+        <div style={{ fontSize: 28, lineHeight: 1 }}>🛏️</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, textAlign: "left" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.white, fontFamily: "'DM Sans', sans-serif" }}>Make your bed</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: "'DM Sans', sans-serif" }}>Bedroom · 10 pts</div>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>YOU CAN ADD THIS AND MORE ON THE NEXT SCREEN</div>
+    </div>,
+    // Slide 4 — NEW: Connect a tile
+    <div key="a4" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
+      <div key={`a4i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Now let's connect a tile</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Place a tile where the habit happens — bedroom door, bathroom mirror, kitchen bench. Tap your phone to it once to link it.</div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+        {[
+          "Takes 10 seconds to set up",
+          "You can reassign any tile to a different habit any time",
+          "No tile yet? You can skip this and add one later",
+        ].map((text, i) => (
+          <div key={i} style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.white, fontFamily: "'DM Sans', sans-serif" }}>
+            <span>✦</span><span>{text}</span>
           </div>
         ))}
       </div>
-      <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ ...btnPrimary, marginTop: 4, pointerEvents: "auto" }}>Set up Ritual →</button>
+    </div>,
+    // Slide 5 — NEW: You're all set (final)
+    <div key="a5" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
+      <div key={`a5i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>You're all set</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>When someone taps a tile, you'll see who did it, their streak, and their points. The whole family in one place.</div>
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+        {[["🔥", "Streaks"], ["⭐", "Points"], ["👨‍👩‍👧", "Family"]].map(([icon, label], i) => (
+          <div key={i} style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.white, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, fontFamily: "'DM Sans', sans-serif" }}>
+            <span>{icon}</span><span>{label}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 20, pointerEvents: "auto" }}>
+        <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ ...btnPrimary }}>Let's add your first ritual →</button>
+        <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ background: "none", border: "none", fontSize: 12, color: "rgba(255,255,255,0.45)", cursor: "pointer", marginTop: 8, fontFamily: "'DM Sans', sans-serif", textDecoration: "underline dotted", padding: "8px 16px", minHeight: 44 }}>I'll explore on my own</button>
+      </div>
     </div>,
   ];
 
@@ -2537,7 +2587,7 @@ function OnboardingFlow({ currentMember, onComplete }) {
         {slide > 0 ? (
           <button onClick={(e) => { e.stopPropagation(); goPrev(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 20, padding: "12px 8px", minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", fontFamily: "'DM Sans', sans-serif" }}>←</button>
         ) : <div style={{ minWidth: 44, minHeight: 44 }} />}
-        {!isLastSlide ? (
+        {!isLastSlide && !(slide === 0 && !isKid) ? (
           <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: 500, padding: "12px 8px", minHeight: 44, fontFamily: "'DM Sans', sans-serif" }}>Skip</button>
         ) : <div style={{ minWidth: 44, minHeight: 44 }} />}
       </div>
