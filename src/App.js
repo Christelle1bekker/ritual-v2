@@ -46,7 +46,9 @@ function todayKey() {
 }
 
 function getYesterdayKey() {
-  return new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: MELB_TZ });
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString('en-CA', { timeZone: MELB_TZ });
 }
 
 function getTodayIndex() {
@@ -694,7 +696,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
         <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg, ${habit.color}, ${habit.color}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: C.white, boxShadow: `0 4px 10px ${habit.color}35` }}>✓</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
-          <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>Done · 🔥 {(habit.streak || 0) + 1} day streak · +10 pts{habit.completedBy ? ` · ${habit.completedBy}` : ""}</div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>Done · 🔥 {(habit.streak || 0) + 1} day streak · +{habit.points || 10} pts{habit.completedBy ? ` · ${habit.completedBy}` : ""}</div>
         </div>
         <div style={{ fontSize: 9, color: `${C.slateLight}60`, textAlign: "right", lineHeight: 1.4 }}>{longPressProgress > 0 ? "Undoing…" : "Hold to\nundo"}</div>
       </div>
@@ -2625,8 +2627,7 @@ export default function RitualApp() {
   // ─── myHabitsWithTaps: habits visible to current member, per-member taps ────
   const myHabitsWithTaps = useMemo(() => {
     if (!currentMember) return habitsWithTaps;
-    const today = new Date().getDay();
-    const todayConverted = (today + 6) % 7; // 0=Mon … 6=Sun
+    const todayConverted = getTodayIndex();
     return habits
       .filter(h => {
         if (h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
@@ -3170,7 +3171,7 @@ export default function RitualApp() {
         if (currentMemberRef.current?.id === assignedMember.id) {
           handleComplete(assignedHabit.id, assignedMember, false);
         } else {
-          alert(`This is ${assignedMember.name}'s personal habit.`);
+          addToast(`This tile belongs to ${assignedMember.name}`, 'error');
         }
       }
     } else {
