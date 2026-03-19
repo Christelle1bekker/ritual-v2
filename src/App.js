@@ -16,6 +16,12 @@ const C = {
 
 const MEMBER_COLORS = [C.accent, C.green, C.warm, C.kids, C.kidsBlue, C.slateLight, C.kidsPurple, C.warmLight];
 
+// ─── NAMED CONSTANTS ──────────────────────────────────────────────
+const ANALYTICS_WINDOW_DAYS = 30;      // days of history for analytics tab
+const FLASH_COUNTDOWN_SECONDS = 5;     // seconds before completion flash auto-dismisses
+const REDEMPTION_CACHE_MS = 60_000;    // 1 min: how long redemptions are cached before re-fetch
+const ANALYTICS_CACHE_MS = 5 * 60_000; // 5 min: how long analytics are cached before re-fetch
+
 // ─── HELPERS ──────────────────────────────────────────────────────
 function getGreeting() {
   const h = new Date().getHours();
@@ -145,7 +151,7 @@ async function fetchWeekCompletions(familyId) {
 async function fetchAnalyticsData(familyId) {
   if (!supabase) return [];
   const d = new Date();
-  d.setDate(d.getDate() - 30);
+  d.setDate(d.getDate() - ANALYTICS_WINDOW_DAYS);
   const { data } = await supabase
     .from("completions").select("*")
     .eq("family_id", familyId)
@@ -425,9 +431,9 @@ function LoginScreen({ onLogin }) {
         color: m.color, is_kid: m.isKid, points: 0, streak: 0,
       })));
       await supabase.from("rewards").insert([
-        { family_id: createdFamilyId, name: "30 min extra screen time", points: 500, icon: "📱", who: "Kids", color: C.kids },
-        { family_id: createdFamilyId, name: "Choose dinner", points: 750, icon: "🍕", who: "Everyone", color: C.accent },
-        { family_id: createdFamilyId, name: "Family movie night", points: 2000, icon: "🎬", who: "Everyone", color: C.green },
+        { family_id: createdFamilyId, name: "30 min extra screen time", points: 25, icon: "📱", who: "Kids", color: C.kids },
+        { family_id: createdFamilyId, name: "Choose dinner", points: 20, icon: "🍕", who: "Everyone", color: C.accent },
+        { family_id: createdFamilyId, name: "Family movie night", points: 30, icon: "🎬", who: "Everyone", color: C.green },
       ]);
       const familyData = await fetchFamilyData(pin);
       if (!familyData) { setError("Setup done but failed to load. Try logging in."); return; }
@@ -581,7 +587,7 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
 
 // ─── COMPLETION FLASH ─────────────────────────────────────────────
 function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
-  const [countdown, setCountdown] = useState(5);
+  const [countdown, setCountdown] = useState(FLASH_COUNTDOWN_SECONDS);
   const isKid = habit?.isKid || member?.isKid;
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
@@ -853,26 +859,15 @@ const REWARD_TEMPLATES = [
   { icon: "💰", name: "$10 pocket money", points: 100, who: "Kids" },
 ];
 
-const REWARD_ICONS = ["🎁","🍕","🎬","📱","🌙","🎵","🎡","💵","💰","🏆","⭐","🎮","🍦","🎪","🐾","🚀","🎨","🎠","🎭","🎯"];
+// REWARD_ICONS removed — was only used by the dead-code FamilyScreen modal (Wave 4.1 superseded by AddScreen Manage Rewards)
 
-function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, currentMember, redemptions, onRedeemReward, onFulfillRedemption, onCancelRedemption, onAddReward }) {
+function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, currentMember, redemptions, onRedeemReward, onFulfillRedemption, onCancelRedemption }) {
+  // NOTE: FamilyScreen is a large component — candidate for splitting in Wave 5+
   const [view, setView] = useState("list");
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", isKid: false, colorIdx: 0 });
   const [nudged, setNudged] = useState({});
   const [redeemTarget, setRedeemTarget] = useState(null);
-  const [showAddReward, setShowAddReward] = useState(false);
-  const [newRewardName, setNewRewardName] = useState("");
-  const [newRewardIcon, setNewRewardIcon] = useState("🎁");
-  const [newRewardPoints, setNewRewardPoints] = useState(100);
-  const [rewardAudience, setRewardAudience] = useState("Everyone");
-
-  const handleCreateReward = () => {
-    if (!newRewardName.trim()) return;
-    onAddReward({ name: newRewardName.trim(), icon: newRewardIcon, points: newRewardPoints, who: rewardAudience });
-    setShowAddReward(false);
-    setNewRewardName(""); setNewRewardIcon("🎁"); setNewRewardPoints(100); setRewardAudience("Everyone");
-  };
 
   const handleNudge = (id) => {
     setNudged(n => ({ ...n, [id]: true }));
@@ -956,7 +951,9 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: m.color }}>{m.points || 0} pts</span>
-                  <button onClick={() => { setEditing(m); setForm({ name: m.name, isKid: m.isKid, colorIdx: Math.max(0, MEMBER_COLORS.indexOf(m.color)) }); setView("add"); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.sandDark, fontSize: 16 }}>✎</button>
+                  {!currentMember?.isKid && (
+                    <button onClick={() => { setEditing(m); setForm({ name: m.name, isKid: m.isKid, colorIdx: Math.max(0, MEMBER_COLORS.indexOf(m.color)) }); setView("add"); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.sandDark, fontSize: 16 }}>✎</button>
+                  )}
                 </div>
               </div>
               <div style={{ marginTop: 6, height: 4, background: C.sandLight, borderRadius: 2 }}>
@@ -1039,67 +1036,6 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
           );
         })}
       </div>
-
-      {/* Add Reward modal */}
-      {showAddReward && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => setShowAddReward(false)}>
-          <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Add a Reward</div>
-            <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 18 }}>Pick a template or create your own</div>
-
-            {/* Templates */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
-              {REWARD_TEMPLATES.map((t, i) => (
-                <div key={i} onClick={() => { setNewRewardName(t.name); setNewRewardIcon(t.icon); setNewRewardPoints(t.points); setRewardAudience(t.who); }} style={{ background: newRewardName === t.name && newRewardIcon === t.icon ? `${C.accent}15` : C.offwhite, border: newRewardName === t.name && newRewardIcon === t.icon ? `1.5px solid ${C.accent}` : "1.5px solid transparent", borderRadius: 14, padding: "10px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 22 }}>{t.icon}</span>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{t.name}</div>
-                    <div style={{ fontSize: 11, color: C.slateLight }}>{t.points} pts · {t.who === "Kids" ? "⭐ Kids" : "👥 All"}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ height: 1, background: C.sandLight, marginBottom: 18 }} />
-            <div style={{ fontSize: 11, fontWeight: 600, color: C.slateLight, marginBottom: 12, letterSpacing: 0.5, textTransform: "uppercase" }}>Customise</div>
-
-            {/* Icon picker */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-              {REWARD_ICONS.map(ic => (
-                <div key={ic} onClick={() => setNewRewardIcon(ic)} style={{ width: 38, height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, cursor: "pointer", background: newRewardIcon === ic ? `${C.accent}20` : C.offwhite, border: newRewardIcon === ic ? `2px solid ${C.accent}` : "2px solid transparent" }}>{ic}</div>
-              ))}
-            </div>
-
-            {/* Name */}
-            <input style={{ ...inputStyle, marginBottom: 12 }} placeholder="Reward name" value={newRewardName} onChange={e => setNewRewardName(e.target.value)} />
-
-            {/* Points */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: C.slateLight, marginBottom: 8, letterSpacing: 0.5, textTransform: "uppercase" }}>Points cost</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {[25, 50, 75, 100, 150, 200, 500].map(p => (
-                  <div key={p} onClick={() => setNewRewardPoints(p)} style={{ padding: "8px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: "pointer", background: newRewardPoints === p ? C.accent : C.offwhite, color: newRewardPoints === p ? C.white : C.slate }}>{p}</div>
-                ))}
-              </div>
-            </div>
-
-            {/* Who */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: C.slateLight, marginBottom: 8, letterSpacing: 0.5, textTransform: "uppercase" }}>Who can redeem</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {[{ label: "👥 Everyone", val: "Everyone" }, { label: "⭐ Kids only", val: "Kids" }].map(opt => (
-                  <div key={opt.val} onClick={() => setRewardAudience(opt.val)} style={{ flex: 1, padding: "10px", borderRadius: 14, textAlign: "center", cursor: "pointer", fontSize: 13, fontWeight: 600, background: rewardAudience === opt.val ? `${C.accent}15` : C.offwhite, border: rewardAudience === opt.val ? `2px solid ${C.accent}` : "2px solid transparent", color: rewardAudience === opt.val ? C.accent : C.slateLight }}>{opt.label}</div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setShowAddReward(false)} style={{ flex: 1, padding: 14, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 14, color: C.slateLight, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
-              <button onClick={handleCreateReward} disabled={!newRewardName.trim()} style={{ ...btnPrimary, flex: 2, opacity: newRewardName.trim() ? 1 : 0.4 }}>Add Reward</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Redeem confirmation sheet */}
       {redeemTarget && currentMember && (
@@ -1468,6 +1404,8 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   // Reward form state
   const [rewardForm, setRewardForm] = useState({ name: "", icon: "🎁", points: 10, who: "Everyone" });
   const [editingReward, setEditingReward] = useState(null);
+  // Loading state for async add operations
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (view === "tile") {
     return <ManageTilesScreen habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={() => setView("menu")} />;
@@ -1617,11 +1555,13 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         </div>
 
         <button
-          onClick={() => {
-            if (!customName.trim()) return;
+          disabled={isSubmitting || !customName.trim()}
+          onClick={async () => {
+            if (!customName.trim() || isSubmitting) return;
+            setIsSubmitting(true);
             const selectedCategory = CATEGORIES.find(c => c.id === customCatId) || CATEGORIES[0];
             const assignedMemberIds = customSelectedMembers.length === 0 ? null : customSelectedMembers;
-            onAddHabit({
+            await onAddHabit({
               name: customName.trim(), icon: customEmoji,
               category: selectedCategory.name, categoryId: customCatId,
               color: selectedCategory.color, location: customLocation.trim() || null,
@@ -1632,11 +1572,12 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
               completionType: customCompletionType,
               points: customPoints,
             });
+            setIsSubmitting(false);
             setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomSelectedMembers([]); setCustomDays(null); setCustomCompletionType('individual'); setCustomPoints(10);
           }}
-          style={{ ...btnPrimary, opacity: customName.trim() ? 1 : 0.5 }}
+          style={{ ...btnPrimary, opacity: customName.trim() && !isSubmitting ? 1 : 0.5 }}
         >
-          Add Custom Ritual
+          {isSubmitting ? "Adding…" : "Add Custom Ritual"}
         </button>
       </div>
     );
@@ -1817,26 +1758,37 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           <div style={{ fontSize: 11, color: C.warm, marginLeft: 26, marginTop: 2 }}>Example: "Feed the pet" — anyone can do it, counts for all</div>
         </div>
       </div>
-      <button onClick={() => {
-        const assignedMemberIds = habitSelectedMembers.length === 0 ? null : habitSelectedMembers;
-        onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays, completionType: habitCompletionType, points: habitPoints });
-        setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setHabitCompletionType('individual'); setHabitPoints(10); setView("menu");
-      }} style={btnPrimary}>Add to My Rituals</button>
+      <button
+        disabled={isSubmitting}
+        onClick={async () => {
+          if (isSubmitting) return;
+          setIsSubmitting(true);
+          const assignedMemberIds = habitSelectedMembers.length === 0 ? null : habitSelectedMembers;
+          await onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays, completionType: habitCompletionType, points: habitPoints });
+          setIsSubmitting(false);
+          setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setHabitCompletionType('individual'); setHabitPoints(10); setView("menu");
+        }}
+        style={{ ...btnPrimary, opacity: isSubmitting ? 0.7 : 1 }}
+      >
+        {isSubmitting ? "Adding…" : "Add to My Rituals"}
+      </button>
     </div>
   );
 
   if (view === "rewards") {
     const REWARD_EMOJIS = ["🎁","🎮","🎬","🍕","🍦","🎪","🏖️","🎠","🎯","⭐","🏆","🎤","🎨","📚","🎭","🎡","🎢","🚀","🦄","🎂"];
     const activeRewards = (family.rewards || []).filter(r => r.status !== 'archived');
-    const saveReward = () => {
-      if (!rewardForm.name.trim() || rewardForm.points < 1) return;
+    const saveReward = async () => {
+      if (!rewardForm.name.trim() || rewardForm.points < 1 || isSubmitting) return;
+      setIsSubmitting(true);
       if (editingReward) {
-        onEditReward(editingReward.id, { ...rewardForm });
+        await onEditReward(editingReward.id, { ...rewardForm });
         setEditingReward(null);
       } else {
-        onAddReward({ ...rewardForm });
+        await onAddReward({ ...rewardForm });
       }
       setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" });
+      setIsSubmitting(false);
     };
     return (
       <div style={{ padding: "0 20px 110px" }}>
@@ -1891,7 +1843,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             {editingReward && <button onClick={() => { setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" }); }} style={{ flex: 1, padding: 12, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 13, color: C.slateLight, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>}
-            <button onClick={saveReward} style={{ ...btnPrimary, flex: 2, opacity: rewardForm.name.trim() ? 1 : 0.5 }}>{editingReward ? "Save Changes" : "Add Reward"}</button>
+            <button onClick={saveReward} disabled={isSubmitting || !rewardForm.name.trim()} style={{ ...btnPrimary, flex: 2, opacity: rewardForm.name.trim() && !isSubmitting ? 1 : 0.5 }}>{isSubmitting ? "Saving…" : editingReward ? "Save Changes" : "Add Reward"}</button>
           </div>
         </div>
 
@@ -2461,7 +2413,15 @@ export default function RitualApp() {
   const analyticsLastFetched = useRef(null);
   const [redemptions, setRedemptions] = useState([]);
   const redemptionsLastFetched = useRef(null);
-  const [rewardError, setRewardError] = useState(null);
+
+  // ─── Toast notification system ──────────────────────────────────
+  const [toasts, setToasts] = useState([]);
+  const toastCounter = useRef(0);
+  const addToast = useCallback((message, type = 'success') => {
+    const id = ++toastCounter.current;
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+  }, []);
 
   const todayIndex = getTodayIndex();
 
@@ -2550,7 +2510,7 @@ export default function RitualApp() {
   useEffect(() => {
     if (tab !== 'insights' || !family) return;
     const now = Date.now();
-    if (analyticsData && analyticsLastFetched.current && now - analyticsLastFetched.current < 5 * 60 * 1000) return;
+    if (analyticsData && analyticsLastFetched.current && now - analyticsLastFetched.current < ANALYTICS_CACHE_MS) return;
     fetchAnalyticsData(family.id).then(data => {
       setAnalyticsData(data);
       analyticsLastFetched.current = Date.now();
@@ -2561,7 +2521,7 @@ export default function RitualApp() {
   useEffect(() => {
     if (tab !== 'family' || !family || !supabase) return;
     const now = Date.now();
-    if (redemptionsLastFetched.current && now - redemptionsLastFetched.current < 60 * 1000) return;
+    if (redemptionsLastFetched.current && now - redemptionsLastFetched.current < REDEMPTION_CACHE_MS) return;
     supabase.from('reward_redemptions')
       .select('*')
       .eq('family_id', family.id)
@@ -2738,7 +2698,7 @@ export default function RitualApp() {
   const handleAddHabit = async (h) => {
     const tempId = `temp_${Date.now()}`;
     const tempHabit = {
-      id: tempId, familyId: family?.id, name: h.name, icon: h.icon,
+      id: tempId, familyId: family?.id, name: h.name.trim(), icon: h.icon,
       category: h.category, categoryId: h.categoryId, color: h.color,
       location: h.location, target: h.target || 1, streak: 0,
       isKid: h.isKid || false, isCustom: h.isCustom || false, tileUid: null,
@@ -2749,10 +2709,9 @@ export default function RitualApp() {
       points: h.points || 10,
     };
     setHabits(prev => [...prev, tempHabit]);
-    setTab("today");
     if (supabase && family) {
       const { data, error } = await supabase.from("habits").insert({
-        family_id: family.id, name: h.name, icon: h.icon,
+        family_id: family.id, name: h.name.trim(), icon: h.icon,
         category: h.category, category_id: h.categoryId, color: h.color,
         location: h.location || null, target: h.target || 1, streak: 0,
         is_kid: h.isKid || false, is_custom: h.isCustom || false, is_shared: h.isShared ?? true,
@@ -2763,11 +2722,16 @@ export default function RitualApp() {
       }).select().single();
       if (data) {
         setHabits(prev => prev.map(x => x.id === tempId ? normalizeHabit(data) : x));
+        addToast(`✓ "${h.name.trim()}" added to your rituals`);
       } else {
         console.error("❌ Add habit failed:", error);
         setHabits(prev => prev.filter(x => x.id !== tempId));
+        addToast(`Failed to add habit: ${error?.message || 'unknown error'}`, 'error');
       }
+    } else {
+      addToast(`✓ "${h.name.trim()}" added to your rituals`);
     }
+    setTab("today");
   };
 
   const handleAssignTile = async (tileUID, habitId) => {
@@ -2831,28 +2795,24 @@ export default function RitualApp() {
   };
 
   // ─── Reward handlers ─────────────────────────────────────────────
-  const showRewardError = (msg) => {
-    setRewardError(msg);
-    setTimeout(() => setRewardError(null), 5000);
-  };
-
   const handleAddReward = async (rewardData) => {
     if (!supabase) {
-      showRewardError('Cannot save — Supabase is not configured. Check environment variables.');
+      addToast('Cannot save — Supabase not configured', 'error');
       console.error('❌ handleAddReward: supabase client is null');
       return;
     }
     if (!family) return;
     const { data, error } = await supabase.from('rewards').insert({
-      family_id: family.id, name: rewardData.name, points: rewardData.points,
+      family_id: family.id, name: rewardData.name.trim(), points: rewardData.points,
       icon: rewardData.icon, who: rewardData.who || 'Everyone',
       color: rewardData.who === 'Kids' ? C.kids : C.accent,
     }).select().single();
     if (data) {
       setFamily(f => ({ ...f, rewards: [...(f.rewards || []), normalizeReward(data)] }));
+      addToast(`✓ Reward "${rewardData.name.trim()}" created`);
     } else {
       console.error('❌ Add reward failed:', error);
-      showRewardError(`Failed to save reward: ${error?.message || 'unknown error'}`);
+      addToast(`Failed to save reward: ${error?.message || 'unknown error'}`, 'error');
     }
   };
 
@@ -2888,21 +2848,33 @@ export default function RitualApp() {
       const { data: row, error } = await supabase.from('reward_redemptions').insert({
         reward_id: rewardId, member_id: memberId, family_id: family.id, points_spent: cost, status: 'pending',
       }).select().single();
-      if (error) { console.error('❌ Redemption failed:', error); return; }
+      if (error) { console.error('❌ Redemption failed:', error); addToast('Failed to create redemption request', 'error'); return; }
       if (row) setRedemptions(prev => [row, ...prev]);
       redemptionsLastFetched.current = Date.now();
+      addToast(`✓ ${reward.name} requested — a parent will fulfil it`);
+    } else {
+      addToast(`✓ ${reward.name} redeemed — enjoy!`);
     }
   };
 
   const handleFulfillRedemption = async (redemptionId) => {
-    console.log('✅ handleFulfillRedemption called', redemptionId);
+    // Optimistic: remove from pending list immediately
     setRedemptions(prev => prev.filter(r => r.id !== redemptionId));
     redemptionsLastFetched.current = null; // force refresh next time family tab opens
     if (supabase) {
       const { error } = await supabase.from('reward_redemptions').update({
-        status: 'fulfilled', fulfilled_at: new Date().toISOString(),
+        status: 'fulfilled',
       }).eq('id', redemptionId);
-      if (error) console.error('❌ Fulfill failed:', error);
+      if (error) {
+        console.error('❌ Fulfill failed:', error);
+        // Revert optimistic update — force a fresh fetch on next tab visit
+        redemptionsLastFetched.current = null;
+        addToast('Failed to mark as fulfilled — please try again', 'error');
+      } else {
+        addToast('✓ Reward fulfilled!');
+      }
+    } else {
+      addToast('✓ Reward fulfilled!');
     }
   };
 
@@ -2915,6 +2887,7 @@ export default function RitualApp() {
       const fp = fm?.points ?? 0;
       await supabase.from('members').update({ points: fp + pointsToRefund }).eq('id', memberId);
     }
+    addToast(`↩ Redemption cancelled — ${pointsToRefund} pts refunded`);
   };
 
   const handleRemoveTile = async (habitId) => {
@@ -3069,12 +3042,26 @@ export default function RitualApp() {
       `}</style>
 
       <div className="ritual-root">
-        {/* Error toast */}
-        {rewardError && (
-          <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: C.error, color: C.white, borderRadius: 14, padding: "12px 18px", fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.2)", maxWidth: 340, textAlign: "center", fontFamily: "'DM Sans', sans-serif" }}>
-            ⚠️ {rewardError}
+        {/* Toast notifications — auto-dismiss after 3s, stacks from bottom */}
+        {toasts.map((t, i) => (
+          <div key={t.id} style={{
+            position: "fixed",
+            bottom: `calc(90px + env(safe-area-inset-bottom) + ${i * 52}px)`,
+            left: "50%", transform: "translateX(-50%)",
+            zIndex: 9998,
+            background: t.type === 'error' ? C.error : C.slateDark,
+            color: C.white, borderRadius: 14, padding: "11px 18px",
+            fontSize: 13, fontWeight: 600,
+            boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+            maxWidth: 320, textAlign: "center",
+            fontFamily: "'DM Sans', sans-serif",
+            whiteSpace: "nowrap",
+            animation: "slideUp 0.3s ease",
+            pointerEvents: "none",
+          }}>
+            {t.message}
           </div>
-        )}
+        ))}
         {/* Header */}
         <div style={{ padding: "20px 24px 12px", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
           <div style={{ marginBottom: 8 }}>
@@ -3124,7 +3111,7 @@ export default function RitualApp() {
               soundEnabled={soundEnabled}
             />
           )}
-          {tab === "family" && <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} onAddReward={handleAddReward} />}
+          {tab === "family" && <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />}
           {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} />}
           {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} />}
