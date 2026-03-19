@@ -2337,7 +2337,7 @@ export default function RitualApp() {
     // Await Supabase sync (ensures multi-device consistency)
     if (supabase && resolvedMember) {
       const { error } = await supabase.from("completions").upsert(
-        { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: newTaps, completed_at: new Date().toISOString() },
+        { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: newTaps },
         { onConflict: "habit_id,member_id,date" }
       );
       if (error) console.error("❌ Completion sync failed:", error);
