@@ -83,6 +83,18 @@ function normalizeHabit(h) {
     assignedMemberIds: h.assigned_member_ids || null,
     daysActive: h.days_active || null,
     completionType: h.completion_type || 'individual',
+    points: h.points || 10,
+  };
+}
+
+function normalizeReward(r) {
+  return {
+    id: r.id, familyId: r.family_id,
+    name: r.name, points: r.points,
+    icon: r.icon, who: r.who || 'Everyone',
+    color: r.color || C.accent,
+    assignedTo: r.assigned_to || null,
+    status: r.status || 'active',
   };
 }
 
@@ -107,7 +119,7 @@ async function fetchFamilyData(pin) {
     id: data.id, name: data.name, pin: data.pin,
     members: (data.members || []).map(normalizeMember),
     habits: (data.habits || []).map(normalizeHabit),
-    rewards: data.rewards || [],
+    rewards: (data.rewards || []).map(normalizeReward),
   };
 }
 
@@ -607,7 +619,7 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
       <div style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", textAlign: "center" }}>{habit?.name}</div>
       {habit?.target > 1 && <div style={{ padding: "8px 20px", borderRadius: 20, background: "rgba(255,255,255,0.15)", fontSize: 14, color: C.white, fontWeight: 600 }}>{taps} / {target} today</div>}
       {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: "rgba(255,255,255,0.15)", fontSize: 13, color: C.white, fontWeight: 600 }}>🔥 {(habit?.streak || 0) + 1} day streak</div>}
-      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>+10 points</div>
+      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>+{habit?.points || 10} points</div>
       <button onClick={() => { if (soundEnabled) { playCompletionSound("undo"); triggerHaptic("undo"); } onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
         <span>↩</span> Undo tap · {countdown}s
       </button>
@@ -830,11 +842,12 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
 }
 
 // ─── FAMILY SCREEN ────────────────────────────────────────────────
-function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember }) {
+function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, currentMember, redemptions, onRedeemReward, onFulfillRedemption, onCancelRedemption }) {
   const [view, setView] = useState("list");
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", isKid: false, colorIdx: 0 });
   const [nudged, setNudged] = useState({});
+  const [redeemTarget, setRedeemTarget] = useState(null);
 
   const handleNudge = (id) => {
     setNudged(n => ({ ...n, [id]: true }));
@@ -886,10 +899,20 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember }) {
   );
 
   const totalPoints = family.members.reduce((a, m) => a + (m.points || 0), 0);
+  const activeRewards = (family.rewards || []).filter(r => r.status !== 'archived');
+  const visibleRewards = activeRewards.filter(r => {
+    if (!currentMember) return true;
+    if (r.who === 'Kids' && !currentMember.isKid) return false;
+    if (r.assignedTo && !r.assignedTo.includes(currentMember.id)) return false;
+    return true;
+  });
+  // Adults see all pending; kids see only their own
+  const pendingRedemptions = (redemptions || []).filter(rd =>
+    currentMember?.isKid ? rd.member_id === currentMember.id : true
+  );
 
   return (
     <div style={{ padding: "0 20px 110px" }}>
-      {/* FIX 6: Removed PIN from family header */}
       <div style={{ background: `linear-gradient(135deg, ${C.warm}, ${C.accent})`, borderRadius: 24, padding: 24, marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", letterSpacing: 2.5, textTransform: "uppercase", marginBottom: 6 }}>The {family.name} Family</div>
         <div style={{ fontSize: 44, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1 }}>{totalPoints.toLocaleString()}</div>
@@ -929,19 +952,84 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember }) {
         <span style={{ fontSize: 20 }}>+</span> Add family member
       </div>
 
-      <div style={{ background: C.white, borderRadius: 20, padding: 20, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 14, letterSpacing: 0.5 }}>Rewards Available</div>
-        {(family.rewards || []).map((r, i) => (
-          <div key={r.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: i < family.rewards.length - 1 ? `1px solid ${C.sandLight}` : "none" }}>
-            <div style={{ fontSize: 26 }}>{r.icon}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{r.name}</div>
-              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who} · {r.points} pts</div>
-            </div>
-            <div style={{ padding: "6px 12px", borderRadius: 20, background: C.offwhite, fontSize: 12, color: C.warm, fontWeight: 600 }}>Redeem</div>
+      {/* Pending redemptions (adults see all; kids see their own) */}
+      {pendingRedemptions.length > 0 && (
+        <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 12, letterSpacing: 0.5 }}>
+            {currentMember?.isKid ? "⏳ Your Pending Requests" : "⏳ Pending Requests"}
           </div>
-        ))}
+          {pendingRedemptions.map(rd => {
+            const reward = activeRewards.find(r => r.id === rd.reward_id);
+            const redeemer = family.members.find(m => m.id === rd.member_id);
+            return (
+              <div key={rd.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid " + C.sandLight }}>
+                <div style={{ fontSize: 24 }}>{reward?.icon || "🎁"}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{reward?.name || "Reward"}</div>
+                  <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>
+                    {redeemer?.name || "Member"} · {rd.points_spent} pts · {new Date(rd.redeemed_at).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                  </div>
+                </div>
+                {!currentMember?.isKid && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => onFulfillRedemption(rd.id)} style={{ padding: "5px 10px", borderRadius: 12, border: "none", background: `${C.green}18`, color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✓ Done</button>
+                    <button onClick={() => onCancelRedemption(rd.id, rd.member_id, rd.points_spent)} style={{ padding: "5px 10px", borderRadius: 12, border: "none", background: `${C.error}12`, color: C.error, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Rewards available */}
+      <div style={{ background: C.white, borderRadius: 20, padding: 18, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 2, letterSpacing: 0.5 }}>Rewards Available</div>
+        {currentMember && <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 14 }}>{currentMember.name} has {currentMember.points || 0} pts</div>}
+        {visibleRewards.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "12px 0", fontSize: 13, color: C.slateLight }}>No rewards set up yet — add them in the Set Up tab</div>
+        ) : visibleRewards.map((r, i) => {
+          const canAfford = currentMember && (currentMember.points || 0) >= r.points;
+          return (
+            <div key={r.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: i < visibleRewards.length - 1 ? `1px solid ${C.sandLight}` : "none" }}>
+              <div style={{ fontSize: 26 }}>{r.icon}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{r.name}</div>
+                <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who === "Kids" ? "⭐ Kids" : "👥 Everyone"} · {r.points} pts</div>
+              </div>
+              <button
+                onClick={() => { if (currentMember && canAfford) setRedeemTarget(r); }}
+                disabled={!currentMember || !canAfford}
+                style={{ padding: "7px 14px", borderRadius: 20, border: "none", fontSize: 12, fontWeight: 600, cursor: currentMember && canAfford ? "pointer" : "default", background: currentMember && canAfford ? `${C.accent}15` : C.offwhite, color: currentMember && canAfford ? C.accent : C.sandDark }}
+              >
+                {canAfford ? "Redeem" : "Need " + (r.points - (currentMember?.points || 0)) + " more"}
+              </button>
+            </div>
+          );
+        })}
       </div>
+
+      {/* Redeem confirmation sheet */}
+      {redeemTarget && currentMember && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => setRedeemTarget(null)}>
+          <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Redeem Reward?</div>
+            <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20 }}>This will use {redeemTarget.points} points from {currentMember.name}'s balance</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, background: C.offwhite, borderRadius: 16, padding: 16, marginBottom: 6 }}>
+              <div style={{ fontSize: 36 }}>{redeemTarget.icon}</div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: C.slate }}>{redeemTarget.name}</div>
+                <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{redeemTarget.points} pts · {currentMember.name} will have {Math.max((currentMember.points || 0) - redeemTarget.points, 0)} pts remaining</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: C.slateLight, textAlign: "center", marginBottom: 20 }}>A parent will need to approve and fulfil this reward</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setRedeemTarget(null)} style={{ flex: 1, padding: 14, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 14, color: C.slateLight, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+              <button onClick={() => { onRedeemReward(redeemTarget.id, currentMember.id); setRedeemTarget(null); }} style={{ ...btnPrimary, flex: 2 }}>Confirm Redeem</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1109,7 +1197,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 // ─── MANAGE HABITS SCREEN ─────────────────────────────────────────
 function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBack }) {
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null, completionType: 'individual' });
+  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null, completionType: 'individual', points: 10 });
 
   useEffect(() => {
     if (!editing) return;
@@ -1140,6 +1228,15 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
             <button onClick={() => setForm(f => ({ ...f, target: Math.max(1, f.target - 1) }))} style={{ width: 40, height: 40, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 20, cursor: "pointer", color: C.slate }}>−</button>
             <div style={{ fontSize: 36, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", minWidth: 40, textAlign: "center" }}>{form.target}</div>
             <button onClick={() => setForm(f => ({ ...f, target: Math.min(20, f.target + 1) }))} style={{ width: 40, height: 40, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 20, cursor: "pointer", color: C.slate }}>+</button>
+          </div>
+        </div>
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Points per completion</div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>Awarded when habit is done</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[5, 10, 15, 25, 50].map(p => (
+              <div key={p} onClick={() => setForm(f => ({ ...f, points: p }))} style={{ padding: "8px 16px", borderRadius: 20, cursor: "pointer", fontSize: 13, fontWeight: 600, background: form.points === p ? C.accent : C.offwhite, color: form.points === p ? C.white : C.slate, border: `1.5px solid ${form.points === p ? C.accent : C.sandDark}` }}>{p} pts</div>
+            ))}
           </div>
         </div>
         <div style={{ background: C.white, borderRadius: 20, padding: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -1229,7 +1326,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           <div style={{ fontSize: 14, color: C.slateLight }}>No habits yet</div>
         </div>
       ) : Array.from(new Map(habits.map(h => [h.id, h])).values()).map(h => (
-        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null, completionType: h.completionType || 'individual' }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null, completionType: h.completionType || 'individual', points: h.points || 10 }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: `${h.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{h.icon}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
@@ -1251,7 +1348,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
 }
 
 // ─── ADD SCREEN ───────────────────────────────────────────────────
-function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, initialView = "menu", onMounted }) {
+function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, onAddReward, onEditReward, onDeleteReward, initialView = "menu", onMounted }) {
   const [view, setView] = useState(initialView);
   useEffect(() => { onMounted?.(); }, []);
   const [selectedCat, setSelectedCat] = useState(null);
@@ -1271,6 +1368,11 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   const [customCatId, setCustomCatId] = useState("family");
   const [customCompletionType, setCustomCompletionType] = useState('individual');
   const [habitCompletionType, setHabitCompletionType] = useState('individual');
+  const [habitPoints, setHabitPoints] = useState(10);
+  const [customPoints, setCustomPoints] = useState(10);
+  // Reward form state
+  const [rewardForm, setRewardForm] = useState({ name: "", icon: "🎁", points: 100, who: "Everyone" });
+  const [editingReward, setEditingReward] = useState(null);
 
   if (view === "tile") {
     return <ManageTilesScreen habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={() => setView("menu")} />;
@@ -1387,6 +1489,17 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           </div>
         </div>
 
+        {/* Points */}
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Points per completion</div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>Awarded each time this habit is done</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[5, 10, 15, 25, 50].map(p => (
+              <div key={p} onClick={() => setCustomPoints(p)} style={{ padding: "8px 16px", borderRadius: 20, cursor: "pointer", fontSize: 13, fontWeight: 600, background: customPoints === p ? C.accent : C.offwhite, color: customPoints === p ? C.white : C.slate, border: `1.5px solid ${customPoints === p ? C.accent : C.sandDark}` }}>{p} pts</div>
+            ))}
+          </div>
+        </div>
+
         {/* Completion tracking type */}
         <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Completion tracking</div>
@@ -1422,8 +1535,9 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
               assignedMemberIds,
               daysActive: customDays,
               completionType: customCompletionType,
+              points: customPoints,
             });
-            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomSelectedMembers([]); setCustomDays(null); setCustomCompletionType('individual');
+            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomSelectedMembers([]); setCustomDays(null); setCustomCompletionType('individual'); setCustomPoints(10);
           }}
           style={{ ...btnPrimary, opacity: customName.trim() ? 1 : 0.5 }}
         >
@@ -1536,7 +1650,15 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           </div>
           <button onClick={() => setTargetCount(t => Math.min(20, t + 1))} style={{ width: 44, height: 44, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 22, cursor: "pointer", color: C.slate }}>+</button>
         </div>
-        {targetCount > 1 && <div style={{ marginTop: 16, padding: "10px 16px", borderRadius: 12, background: `${selectedHabit.color}10`, fontSize: 12, color: C.slate, textAlign: "center", lineHeight: 1.5 }}><strong>+{targetCount * 10} points</strong> on days you hit all {targetCount} taps</div>}
+      </div>
+      <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Points per completion</div>
+        <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>Awarded each time this habit is done</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[5, 10, 15, 25, 50].map(p => (
+            <div key={p} onClick={() => setHabitPoints(p)} style={{ padding: "8px 16px", borderRadius: 20, cursor: "pointer", fontSize: 13, fontWeight: 600, background: habitPoints === p ? C.accent : C.offwhite, color: habitPoints === p ? C.white : C.slate, border: `1.5px solid ${habitPoints === p ? C.accent : C.sandDark}` }}>{p} pts</div>
+          ))}
+        </div>
       </div>
       <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
@@ -1602,28 +1724,88 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       </div>
       <button onClick={() => {
         const assignedMemberIds = habitSelectedMembers.length === 0 ? null : habitSelectedMembers;
-        onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays, completionType: habitCompletionType });
-        setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setHabitCompletionType('individual'); setView("menu");
+        onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays, completionType: habitCompletionType, points: habitPoints });
+        setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setHabitCompletionType('individual'); setHabitPoints(10); setView("menu");
       }} style={btnPrimary}>Add to My Rituals</button>
     </div>
   );
 
-  if (view === "rewards") return (
-    <div style={{ padding: "0 20px 110px" }}>
-      <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
-      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Rewards</div>
-      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 16 }}>View and manage rewards for your family</div>
-      {(family.rewards || []).map((r, i) => (
-        <div key={r.id || i} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 10, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-          <div style={{ fontSize: 28 }}>{r.icon}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{r.name}</div>
-            <div style={{ fontSize: 12, color: C.slateLight }}>{r.who} · {r.points} pts</div>
+  if (view === "rewards") {
+    const REWARD_EMOJIS = ["🎁","🎮","🎬","🍕","🍦","🎪","🏖️","🎠","🎯","⭐","🏆","🎤","🎨","📚","🎭","🎡","🎢","🚀","🦄","🎂"];
+    const activeRewards = (family.rewards || []).filter(r => r.status !== 'archived');
+    const saveReward = () => {
+      if (!rewardForm.name.trim() || rewardForm.points < 1) return;
+      if (editingReward) {
+        onEditReward(editingReward.id, { ...rewardForm });
+        setEditingReward(null);
+      } else {
+        onAddReward({ ...rewardForm });
+      }
+      setRewardForm({ name: "", icon: "🎁", points: 100, who: "Everyone" });
+    };
+    return (
+      <div style={{ padding: "0 20px 110px" }}>
+        <button onClick={() => { setView("menu"); setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 100, who: "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Manage Rewards</div>
+        <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Create and edit rewards for your family</div>
+
+        {/* Add / Edit form */}
+        <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 12 }}>{editingReward ? "Edit Reward" : "Add New Reward"}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            {REWARD_EMOJIS.map(e => (
+              <div key={e} onClick={() => setRewardForm(f => ({ ...f, icon: e }))} style={{ width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, cursor: "pointer", background: rewardForm.icon === e ? `${C.accent}20` : C.offwhite, border: `2px solid ${rewardForm.icon === e ? C.accent : "transparent"}` }}>{e}</div>
+            ))}
+          </div>
+          <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Reward name (e.g. Movie night)" value={rewardForm.name} onChange={e => setRewardForm(f => ({ ...f, name: e.target.value }))} />
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 0.5, marginBottom: 6 }}>POINTS COST</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {[100, 250, 500, 750, 1000, 2000].map(p => (
+                  <div key={p} onClick={() => setRewardForm(f => ({ ...f, points: p }))} style={{ padding: "6px 12px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontWeight: 600, background: rewardForm.points === p ? C.accent : C.offwhite, color: rewardForm.points === p ? C.white : C.slate, border: `1.5px solid ${rewardForm.points === p ? C.accent : C.sandDark}` }}>{p}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 0.5, marginBottom: 6 }}>WHO CAN REDEEM</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["Everyone", "Kids"].map(w => (
+                <div key={w} onClick={() => setRewardForm(f => ({ ...f, who: w }))} style={{ flex: 1, padding: "10px", borderRadius: 12, cursor: "pointer", textAlign: "center", fontSize: 13, fontWeight: 600, background: rewardForm.who === w ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${rewardForm.who === w ? C.accent : "transparent"}`, color: rewardForm.who === w ? C.slate : C.slateLight }}>{w === "Everyone" ? "👥 Everyone" : "⭐ Kids only"}</div>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            {editingReward && <button onClick={() => { setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 100, who: "Everyone" }); }} style={{ flex: 1, padding: 12, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 13, color: C.slateLight, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>}
+            <button onClick={saveReward} style={{ ...btnPrimary, flex: 2, opacity: rewardForm.name.trim() ? 1 : 0.5 }}>{editingReward ? "Save Changes" : "Add Reward"}</button>
           </div>
         </div>
-      ))}
-    </div>
-  );
+
+        {/* Existing rewards list */}
+        {activeRewards.length > 0 && (
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.slateLight, marginBottom: 10, letterSpacing: 0.5 }}>EXISTING REWARDS</div>
+        )}
+        {activeRewards.map((r, i) => (
+          <div key={r.id || i} style={{ background: C.white, borderRadius: 16, padding: 14, marginBottom: 8, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize: 26 }}>{r.icon}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{r.name}</div>
+              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who === "Kids" ? "⭐ Kids only" : "👥 Everyone"} · {r.points} pts</div>
+            </div>
+            <button onClick={() => { setEditingReward(r); setRewardForm({ name: r.name, icon: r.icon, points: r.points, who: r.who || "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 16, padding: 4 }}>✎</button>
+            <button onClick={() => { if (window.confirm(`Delete "${r.name}"?`)) onDeleteReward(r.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: `${C.error}80`, fontSize: 16, padding: 4 }}>✕</button>
+          </div>
+        ))}
+        {activeRewards.length === 0 && (
+          <div style={{ background: C.white, borderRadius: 20, padding: 24, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>🎁</div>
+            <div style={{ fontSize: 13, color: C.slateLight }}>No rewards yet — add your first one above</div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return null;
 }
@@ -2164,6 +2346,8 @@ export default function RitualApp() {
   const [lastFetchDate, setLastFetchDate] = useState(() => todayKey());
   const [analyticsData, setAnalyticsData] = useState(null);
   const analyticsLastFetched = useRef(null);
+  const [redemptions, setRedemptions] = useState([]);
+  const redemptionsLastFetched = useRef(null);
 
   const todayIndex = getTodayIndex();
 
@@ -2259,6 +2443,22 @@ export default function RitualApp() {
     });
   }, [tab, family]); // intentionally excludes analyticsData/analyticsLastFetched (refs/stable)
 
+  // ─── Redemptions lazy-load (family tab) ─────────────────────────
+  useEffect(() => {
+    if (tab !== 'family' || !family || !supabase) return;
+    const now = Date.now();
+    if (redemptionsLastFetched.current && now - redemptionsLastFetched.current < 60 * 1000) return;
+    supabase.from('reward_redemptions')
+      .select('*')
+      .eq('family_id', family.id)
+      .eq('status', 'pending')
+      .order('redeemed_at', { ascending: false })
+      .then(({ data }) => {
+        setRedemptions(data || []);
+        redemptionsLastFetched.current = Date.now();
+      });
+  }, [tab, family]);
+
   // ─── Load family data after login ───────────────────────────────
   const loadDataForFamily = async (familyData) => {
     setFamily(familyData);
@@ -2328,8 +2528,9 @@ export default function RitualApp() {
       if (existing) return prev.map(c => c.habitId === habitId && c.memberId === resolvedMember?.id ? { ...c, taps: c.taps + 1 } : c);
       return [...prev, { id: `opt_${Date.now()}`, habitId, memberId: resolvedMember?.id, familyId: family.id, date: today, taps: 1 }];
     });
+    const habitPointValue = habit.points || 10;
     if (resolvedMember) {
-      setFamily(f => ({ ...f, members: f.members.map(m => m.id === resolvedMember.id ? { ...m, points: (m.points || 0) + 10 } : m) }));
+      setFamily(f => ({ ...f, members: f.members.map(m => m.id === resolvedMember.id ? { ...m, points: (m.points || 0) + habitPointValue } : m) }));
     }
     setWhoDidThis(null);
     setFlashData({ habit: { ...habit, taps: newTaps }, member: resolvedMember });
@@ -2366,7 +2567,7 @@ export default function RitualApp() {
       // Read fresh points from DB before writing to avoid stale-overwrite race condition
       const { data: freshMember } = await supabase.from("members").select("points").eq("id", resolvedMember.id).single();
       const freshPoints = freshMember?.points ?? (resolvedMember.points || 0);
-      const { error: pe } = await supabase.from("members").update({ points: freshPoints + 10 }).eq("id", resolvedMember.id);
+      const { error: pe } = await supabase.from("members").update({ points: freshPoints + habitPointValue }).eq("id", resolvedMember.id);
       if (pe) console.error("❌ Points sync failed:", pe);
 
       // ── Streak logic: only on first tap of this habit today ──────
@@ -2391,6 +2592,7 @@ export default function RitualApp() {
   const handleUndo = async (habitId) => {
     const habit = habitsWithTaps.find(h => h.id === habitId);
     if (!habit) return;
+    const habitPointValue = habit.points || 10;
     const completedById = habit.completedById;
     const memberToDeduct = completedById ? family?.members?.find(m => m.id === completedById) : currentMember;
     const newTaps = Math.max((habit.taps || 0) - 1, 0);
@@ -2399,7 +2601,7 @@ export default function RitualApp() {
       c.habitId === habitId && c.memberId === completedById ? { ...c, taps: Math.max(c.taps - 1, 0) } : c
     ));
     if (memberToDeduct) {
-      setFamily(f => ({ ...f, members: f.members.map(m => m.id === memberToDeduct.id ? { ...m, points: Math.max((m.points || 0) - 10, 0) } : m) }));
+      setFamily(f => ({ ...f, members: f.members.map(m => m.id === memberToDeduct.id ? { ...m, points: Math.max((m.points || 0) - habitPointValue, 0) } : m) }));
     }
 
     const undoMemberId = completedById || memberToDeduct?.id;
@@ -2413,7 +2615,7 @@ export default function RitualApp() {
         // Read fresh points to avoid stale-overwrite race condition
         const { data: freshMember } = await supabase.from("members").select("points").eq("id", memberToDeduct.id).single();
         const freshPoints = freshMember?.points ?? (memberToDeduct.points || 0);
-        const { error: pe } = await supabase.from("members").update({ points: Math.max(freshPoints - 10, 0) }).eq("id", memberToDeduct.id);
+        const { error: pe } = await supabase.from("members").update({ points: Math.max(freshPoints - habitPointValue, 0) }).eq("id", memberToDeduct.id);
         if (pe) console.error("❌ Points undo failed:", pe);
       }
     }
@@ -2430,6 +2632,7 @@ export default function RitualApp() {
       assignedMemberIds: h.assignedMemberIds || null,
       daysActive: h.daysActive || null,
       completionType: h.completionType || 'individual',
+      points: h.points || 10,
     };
     setHabits(prev => [...prev, tempHabit]);
     setTab("today");
@@ -2442,6 +2645,7 @@ export default function RitualApp() {
         assigned_member_ids: h.assignedMemberIds || null,
         days_active: h.daysActive || null,
         completion_type: h.completionType || 'individual',
+        points: h.points || 10,
       }).select().single();
       if (data) {
         setHabits(prev => prev.map(x => x.id === tempId ? normalizeHabit(data) : x));
@@ -2476,6 +2680,7 @@ export default function RitualApp() {
       if ('assignedMemberIds' in updates) dbUpdates.assigned_member_ids = updates.assignedMemberIds || null;
       if ('daysActive' in updates) dbUpdates.days_active = updates.daysActive || null;
       if ('completionType' in updates) dbUpdates.completion_type = updates.completionType || 'individual';
+      if ('points' in updates) dbUpdates.points = updates.points || 10;
       await supabase.from("habits").update(dbUpdates).eq("id", habitId);
 
       // Shared completion backfill: if switching to 'shared', sync today's max taps to all assigned members
@@ -2509,6 +2714,77 @@ export default function RitualApp() {
     setHabits(prev => prev.filter(h => h.id !== habitId));
     setTodayCompletions(prev => prev.filter(c => c.habitId !== habitId));
     if (supabase) await supabase.from("habits").delete().eq("id", habitId);
+  };
+
+  // ─── Reward handlers ─────────────────────────────────────────────
+  const handleAddReward = async (rewardData) => {
+    if (!supabase || !family) return;
+    const { data, error } = await supabase.from('rewards').insert({
+      family_id: family.id, name: rewardData.name, points: rewardData.points,
+      icon: rewardData.icon, who: rewardData.who || 'Everyone',
+      color: rewardData.who === 'Kids' ? C.kids : C.accent, status: 'active',
+    }).select().single();
+    if (data) {
+      setFamily(f => ({ ...f, rewards: [...(f.rewards || []), normalizeReward(data)] }));
+    } else {
+      console.error('❌ Add reward failed:', error);
+    }
+  };
+
+  const handleEditReward = async (rewardId, updates) => {
+    setFamily(f => ({ ...f, rewards: f.rewards.map(r => r.id === rewardId ? { ...r, ...updates } : r) }));
+    if (supabase) {
+      await supabase.from('rewards').update({
+        name: updates.name, points: updates.points, icon: updates.icon,
+        who: updates.who, color: updates.who === 'Kids' ? C.kids : C.accent,
+      }).eq('id', rewardId);
+    }
+  };
+
+  const handleDeleteReward = async (rewardId) => {
+    setFamily(f => ({ ...f, rewards: f.rewards.filter(r => r.id !== rewardId) }));
+    if (supabase) await supabase.from('rewards').update({ status: 'archived' }).eq('id', rewardId);
+  };
+
+  const handleRedeemReward = async (rewardId, memberId) => {
+    const reward = family.rewards.find(r => r.id === rewardId);
+    const member = family.members.find(m => m.id === memberId);
+    if (!reward || !member || (member.points || 0) < reward.points) return;
+    const cost = reward.points;
+    // Optimistic: deduct points
+    setFamily(f => ({ ...f, members: f.members.map(m => m.id === memberId ? { ...m, points: Math.max((m.points || 0) - cost, 0) } : m) }));
+    if (supabase) {
+      const { data: row, error } = await supabase.from('reward_redemptions').insert({
+        reward_id: rewardId, member_id: memberId, family_id: family.id, points_spent: cost, status: 'pending',
+      }).select().single();
+      if (error) { console.error('❌ Redemption failed:', error); return; }
+      if (row) setRedemptions(prev => [row, ...prev]);
+      redemptionsLastFetched.current = Date.now();
+      // Sync points deduction to DB
+      const { data: fm } = await supabase.from('members').select('points').eq('id', memberId).single();
+      const fp = fm?.points ?? (member.points || 0);
+      await supabase.from('members').update({ points: Math.max(fp - cost, 0) }).eq('id', memberId);
+    }
+  };
+
+  const handleFulfillRedemption = async (redemptionId) => {
+    setRedemptions(prev => prev.filter(r => r.id !== redemptionId));
+    if (supabase) {
+      await supabase.from('reward_redemptions').update({
+        status: 'fulfilled', fulfilled_at: new Date().toISOString(),
+      }).eq('id', redemptionId);
+    }
+  };
+
+  const handleCancelRedemption = async (redemptionId, memberId, pointsToRefund) => {
+    setRedemptions(prev => prev.filter(r => r.id !== redemptionId));
+    setFamily(f => ({ ...f, members: f.members.map(m => m.id === memberId ? { ...m, points: (m.points || 0) + pointsToRefund } : m) }));
+    if (supabase) {
+      await supabase.from('reward_redemptions').update({ status: 'cancelled' }).eq('id', redemptionId);
+      const { data: fm } = await supabase.from('members').select('points').eq('id', memberId).single();
+      const fp = fm?.points ?? 0;
+      await supabase.from('members').update({ points: fp + pointsToRefund }).eq('id', memberId);
+    }
   };
 
   const handleRemoveTile = async (habitId) => {
@@ -2712,8 +2988,8 @@ export default function RitualApp() {
               soundEnabled={soundEnabled}
             />
           )}
-          {tab === "family" && <FamilyScreen family={family} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} />}
-          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
+          {tab === "family" && <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />}
+          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} />}
           {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} />}
         </div>
