@@ -343,6 +343,28 @@ const CATEGORIES = [
 
 const CUSTOM_EMOJIS = ["😊","🏠","💪","📚","🎯","🌟","⭐","✨","🔥","💧","🍎","🥗","🏃","🧘","📖","🎵","☕","🍕","🌱","💼","🎨","🎮","📱","💻","🛏","🍽","🧹","🚿","🎉","🌈","🦋","🌸","🎸","🏆","💎","🌍","🎧","📓","🌙","☀️"];
 
+// ─── TILE ICON COMPONENT ──────────────────────────────────────────
+function TileIcon({ size = "1em", style = {} }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      style={{ display: "inline-block", verticalAlign: "middle", flexShrink: 0, ...style }}
+    >
+      <defs>
+        <radialGradient id="tileGrad" cx="38%" cy="32%" r="70%">
+          <stop offset="0%" stopColor="#545454" />
+          <stop offset="100%" stopColor="#2A2A2A" />
+        </radialGradient>
+      </defs>
+      <polygon points="12,2 20.66,7 20.66,17 12,22 3.34,17 3.34,7" fill="url(#tileGrad)" />
+      <polygon points="12,2 20.66,7 20.66,17 12,22 3.34,17 3.34,7" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
+    </svg>
+  );
+}
+
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [view, setView] = useState("welcome");
@@ -527,6 +549,7 @@ function LoginScreen({ onLogin }) {
               </div>
               <button onClick={addMember} style={{ ...btnPrimary, padding: "11px", background: "rgba(255,255,255,0.15)", boxShadow: "none", fontSize: 14, border: "1px solid rgba(255,255,255,0.2)" }}>+ Add member</button>
             </div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", textAlign: "center", marginBottom: 12, lineHeight: 1.5, fontFamily: "'DM Sans', sans-serif" }}>In a rush? Just add yourself — you can bring the rest of the family in later.</div>
             {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center", marginBottom: 8 }}>{error}</div>}
             {members.length > 0 && (
               <button onClick={finishSetup} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Setting up…" : "Start Ritual →"}</button>
@@ -712,7 +735,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>
               {habit.location ? `${habit.tileUid ? "Tile at" : "At"}: ${habit.location}` : habit.category}{habit.streak > 0 ? ` · 🔥 ${habit.streak}` : ""}
-              {habit.tileUid && <span style={{ color: C.accent, marginLeft: 6 }}>· 🏷️ {tileLabel(habit.tileUid)}</span>}
+              {habit.tileUid && <span style={{ color: C.accent, marginLeft: 6 }}>· <TileIcon size="11px" style={{ marginRight: 2 }} /> {tileLabel(habit.tileUid)}</span>}
             </div>
             {isMulti && taps > 0 && (
               <div style={{ marginTop: 6 }}>
@@ -1142,8 +1165,11 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
     <div style={{ padding: "0 20px 110px" }}>
       <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Manage Tiles</div>
-      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 12, lineHeight: 1.6 }}>
         Tap a tile to assign it. Tiles come pre-programmed — just tap one near your phone.
+      </div>
+      <div style={{ background: `${C.slateLight}0D`, borderRadius: 14, padding: "11px 14px", marginBottom: 20, border: `1px solid ${C.sandLight}` }}>
+        <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.6 }}>💡 Unlock your phone first, then hold the back near a tile and keep still for 1–2 seconds. On iPhone a banner appears at the top — tap it. On Android, tap the notification.</div>
       </div>
 
       {/* Assigned tiles */}
@@ -1156,7 +1182,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
                 <div style={{ width: 40, height: 40, borderRadius: 12, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{habit.icon}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
-                  <div style={{ fontSize: 11, color: C.slateLight }}>🏷️ {tileLabel(habit.tileUid)}{habit.location ? ` · ${habit.location}` : ""}</div>
+                  <div style={{ fontSize: 11, color: C.slateLight }}><TileIcon size="11px" style={{ marginRight: 2 }} /> {tileLabel(habit.tileUid)}{habit.location ? ` · ${habit.location}` : ""}</div>
                 </div>
                 <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>✓ Active</span>
               </div>
@@ -1187,7 +1213,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 
       {assignedHabits.length === 0 && unassignedHabits.length === 0 && (
         <div style={{ background: C.white, borderRadius: 20, padding: 28, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🏷️</div>
+          <div style={{ marginBottom: 12 }}><TileIcon size="40px" /></div>
           <div style={{ fontSize: 15, fontWeight: 600, color: C.slate, marginBottom: 8 }}>No habits yet</div>
           <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.7 }}>Add some habits first, then tap a tile to assign it.</div>
         </div>
@@ -1364,7 +1390,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>
-              {h.location || h.category}{h.tileUid ? ` · 🏷️ ${tileLabel(h.tileUid)}` : ""}
+              {h.location || h.category}{h.tileUid ? <span> · <TileIcon size="11px" style={{ marginRight: 2 }} /> {tileLabel(h.tileUid)}</span> : ""}
               {!h.assignedMemberIds || h.assignedMemberIds.length === 0 ? " · 👥 Everyone" : (() => {
                 const assigned = (family?.members || []).filter(m => h.assignedMemberIds.includes(m.id));
                 if (assigned.length === 0) return " · 👤 Personal";
@@ -1589,7 +1615,10 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
     <div style={{ padding: "0 20px 110px" }}>
       <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
       <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Add a Ritual</div>
-      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>How do you want to add it?</div>
+      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 12 }}>How do you want to add it?</div>
+      <div style={{ background: `${C.slateLight}0D`, borderRadius: 14, padding: "11px 14px", marginBottom: 20, border: `1px solid ${C.sandLight}` }}>
+        <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.6 }}>💡 Add a habit here first, then link it to a tile from Manage Tiles. Start with something small you already do every day.</div>
+      </div>
       <div style={{ display: "flex", gap: 10 }}>
         <div onClick={() => setView("habits")} style={{ flex: 1, background: C.white, borderRadius: 20, padding: 20, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>📚</div>
@@ -1611,7 +1640,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       {[
         { id: "addRitual", icon: "◈", label: "Add a Ritual", desc: "Browse templates or create your own", color: C.slate },
         { id: "rewards", icon: "🎁", label: "Manage Rewards", desc: "Set up points rewards for your family", color: C.accent },
-        { id: "tile", icon: "🏷️", label: "Manage Tiles", desc: "Assign tiles to habits, detect new tiles", color: C.kidsBlue },
+        { id: "tile", icon: <TileIcon size="24px" />, label: "Manage Tiles", desc: "Assign tiles to habits, detect new tiles", color: C.kidsBlue },
         { id: "habitsManage", icon: "✏️", label: "Manage Habits", desc: "Edit names, locations, targets or delete", color: C.slateLight },
       ].map(item => (
         <div key={item.id} onClick={() => setView(item.id)} style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", cursor: "pointer", border: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 16 }}>
@@ -2365,7 +2394,7 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
   const HELP_TOPICS = [
     { id: "add-first", icon: "⊕", title: "Add a habit before anything else", content: `Your tiles don't do anything until you've connected them to a habit. Think of the tile as the button — but first you need to tell Ritual what that button does. Start simple: go to the Add tab, pick a category, choose one habit, and save it. Then connect a tile. That's it — you're ready to go. Don't overthink your first habit. Pick something you already do most days and make it official.` },
     { id: "how-to-tap", icon: "📱", title: "How to tap a tile", content: `This trips people up the first time, so here's exactly what to do:\n\n1. Unlock your phone first — it won't work on a locked screen\n2. Hold the back of your phone near the tile — the reader sits near your camera\n3. Hold still for 1–2 seconds — don't wave it, just hold it close\n4. On iPhone: a small banner appears at the top — tap it\n5. On Android: a notification appears — tap it\n\nDoesn't work? Try moving your phone slightly up or down — every phone model is a little different. Make sure you're using the back of the phone, not the front.` },
-    { id: "what-are-tiles", icon: "🏷️", title: "What are Ritual tiles?", content: `Ritual tiles use the same technology as tap-to-pay — the kind you use when you tap your card or phone at a checkout, or hold a key card to a hotel door. It's been around for years and is used billions of times every day around the world.\n\nThe tile itself does absolutely nothing on its own. No signal, no emission, nothing at all. It only activates for the one second your phone is held next to it. No batteries. No charging. Ever.\n\nAnd if you want to move a tile from one habit to another, you can — they're completely reusable.\n\nIs it safe? Completely. The tile is passive — it has no power source and emits nothing. It simply waits. That's actually what makes tiles such a clever and perfect fit for Ritual — safe enough to place anywhere in your home, yet reliable enough to work every single time.\n\nOne practical note: tiles come with adhesive backing and should be secured to a surface — a wall, door frame, or shelf works well. Keep them out of reach of young children who may want to put them in their mouths.\n\nWant to know more? Reach out to us at support@ritualhabits.com.au` },
+    { id: "what-are-tiles", icon: <TileIcon size="20px" />, title: "What are Ritual tiles?", content: `Ritual tiles use the same technology as tap-to-pay — the kind you use when you tap your card or phone at a checkout, or hold a key card to a hotel door. It's been around for years and is used billions of times every day around the world.\n\nThe tile itself does absolutely nothing on its own. No signal, no emission, nothing at all. It only activates for the one second your phone is held next to it. No batteries. No charging. Ever.\n\nAnd if you want to move a tile from one habit to another, you can — they're completely reusable.\n\nIs it safe? Completely. The tile is passive — it has no power source and emits nothing. It simply waits. That's actually what makes tiles such a clever and perfect fit for Ritual — safe enough to place anywhere in your home, yet reliable enough to work every single time.\n\nOne practical note: tiles come with adhesive backing and should be secured to a surface — a wall, door frame, or shelf works well. Keep them out of reach of young children who may want to put them in their mouths.\n\nWant to know more? Reach out to us at support@ritualhabits.com.au` },
     { id: "why-tiles", icon: "🧠", title: "Why tiles work better than buttons", content: `Let's be honest — most habit apps don't work. You download them full of good intentions, tap a button for a few days, and then forget they exist.\n\nThe problem isn't you. It's that a button on a screen is easy to ignore. Physical objects are different.\n\nHabit researchers have found that things in specific places are among the most powerful triggers for automatic behaviour. When something exists in your space, your brain starts connecting "I'm here" with "I do this." That's the whole idea behind Ritual's tiles.\n\nPut the tile where the habit happens — by the bathroom sink, on the fridge, at the front door. Tap it every day and within a few weeks, the location itself becomes the reminder.\n\nResearch shows that people who linked habits to physical cues in their environment had 58% higher success rates than those who relied on app reminders alone. Your phone notification is easy to swipe away. A tile on your bathroom mirror is a lot harder to ignore.` },
     { id: "individual-vs-family", icon: "👤", title: "Individual vs family habits", content: `When you create a habit, you choose how it gets tracked.\n\nIndividual means each person tracks it separately. Good for personal habits where it matters who did it, not just that it got done. Example: Homework. One child finishing their homework doesn't count for another child. They each need their own completion.\n\nFamily/shared means one completion counts for everyone assigned. Good for household tasks where it doesn't matter who does it — just that it happened. Example: Feeding the dog. If one person feeds the dog, that counts for the whole family. You don't need everyone else to feed the dog again just to tick their box.\n\nWhen in doubt: if the habit is personal to one person, use Individual. If it's a household job anyone can do, use Family.` },
     { id: "kids", icon: "⭐", title: "How kids work in Ritual", content: `Kids earn points the same way adults do — complete a habit, earn points. The main difference is with rewards.\n\nWhen a child redeems a reward, it doesn't just happen — it creates a request that a parent needs to fulfil.\n\nExample: Your child earns enough points for "Choose a movie night." They tap redeem on Friday morning. Their points are set aside straight away — they can't spend them on anything else. When Friday night comes, a parent opens the Family tab and marks it as fulfilled. Done.\n\nThis keeps parents in the loop and means kids can't redeem rewards without it actually happening in real life.\n\nOne other thing — when a tile is tapped on a habit that belongs to a child, the app asks "Who did this?" This is because kids often share devices, so Ritual checks rather than assumes.` },
@@ -2414,7 +2443,7 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
 
       <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
         <button onClick={onManageTiles} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.accent}30`, background: `${C.accent}10`, color: C.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
-          🏷️ Manage Tiles
+          <TileIcon size="16px" style={{ marginRight: 4 }} /> Manage Tiles
         </button>
         <button onClick={async () => { await onRefresh(); }} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.green}30`, background: `${C.green}10`, color: C.green, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
           🔄 Refresh Data
@@ -2558,7 +2587,7 @@ function OnboardingFlow({ currentMember, onComplete }) {
       <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Build habits as a family</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Ritual uses physical NFC tiles placed around your home. Tap your phone to a tile and the habit logs instantly — no app hunting, no friction.</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Ritual uses physical tiles placed around your home. Tap your phone to a tile and the habit logs instantly — no app hunting, no friction.</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
         <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto" }}>Next →</button>
@@ -2567,13 +2596,13 @@ function OnboardingFlow({ currentMember, onComplete }) {
     </div>,
     // Slide 2 — How it works
     <div key="a2" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
-      <div key={`a2i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
+      <div key={`a2i-${navCount}`} style={{ animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}><TileIcon size="64px" /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Tap a tile, done.</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every habit has a tile you place where it happens — by the bed, at the front door, in the kitchen. Tap your phone to it and the habit logs instantly.</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
-        {[["🏷️", "tile"], ["📱", "tap"], ["✦", "logged"]].map(([icon, label], i) => (
+        {[[<TileIcon size="13px" />, "tile"], ["📱", "tap"], ["✦", "logged"]].map(([icon, label], i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ padding: "8px 14px", borderRadius: 20, background: C.offwhite, fontSize: 13, color: C.slate, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
               <span>{icon}</span><span>{label}</span>
@@ -2581,6 +2610,9 @@ function OnboardingFlow({ currentMember, onComplete }) {
             {i < 2 && <span style={{ fontSize: 14, color: "rgba(255,255,255,0.4)" }}>→</span>}
           </div>
         ))}
+      </div>
+      <div style={{ width: "100%" }}>
+        <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto", width: "100%" }}>Next →</button>
       </div>
     </div>,
     // Slide 3 — NEW: Let's build your first habit
@@ -2597,11 +2629,14 @@ function OnboardingFlow({ currentMember, onComplete }) {
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: "'DM Sans', sans-serif", marginTop: 2 }}>Bedroom · 10 pts</div>
         </div>
       </div>
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, textTransform: "uppercase", fontFamily: "'DM Sans', sans-serif" }}>YOU CAN ADD THIS AND MORE ON THE NEXT SCREEN</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
+        <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto" }}>Next →</button>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, textTransform: "uppercase", fontFamily: "'DM Sans', sans-serif" }}>YOU CAN ADD THIS AND MORE ON THE NEXT SCREEN</div>
+      </div>
     </div>,
     // Slide 4 — NEW: Connect a tile
     <div key="a4" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
-      <div key={`a4i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
+      <div key={`a4i-${navCount}`} style={{ animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}><TileIcon size="64px" /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Now connect a tile</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Place a tile where the habit happens — bedroom door, bathroom mirror, kitchen bench. Tap your phone to it once to link it.</div>
@@ -2651,7 +2686,7 @@ function OnboardingFlow({ currentMember, onComplete }) {
     </div>,
     // Slide 1 — How to earn
     <div key="k1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
-      <div key={`k1i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🏷️</div>
+      <div key={`k1i-${navCount}`} style={{ animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}><TileIcon size="64px" /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Tap your tile, earn points</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.85)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Each habit has a tile. Tap your phone to it when you're done — points go straight to your balance.</div>
@@ -2864,9 +2899,18 @@ export default function RitualApp() {
     setHabits(familyData.habits || []);
     const savedMemberId = localStorage.getItem("ritual_currentMemberId");
     const savedMember = familyData.members?.find(m => m.id === savedMemberId);
-    setCurrentMember(savedMember || familyData.members?.[0] || null);
+    const activeMember = savedMember || familyData.members?.[0] || null;
+    setCurrentMember(activeMember);
     const hasOnboarded = localStorage.getItem(`ritual_onboarded_${familyData.id}`);
-    if (!hasOnboarded) setShowOnboarding(true);
+    if (!hasOnboarded) {
+      const createdAt = activeMember?.created_at;
+      const isReturning = createdAt && (Date.now() - new Date(createdAt).getTime()) > 24 * 60 * 60 * 1000;
+      if (isReturning) {
+        localStorage.setItem(`ritual_onboarded_${familyData.id}`, "true");
+      } else {
+        setShowOnboarding(true);
+      }
+    }
     if (supabase) {
       const [todayData, weekData] = await Promise.all([
         fetchTodayCompletions(familyData.id),
