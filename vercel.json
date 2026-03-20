@@ -1,4 +1,12 @@
 {
+  "redirects": [
+    {
+      "source": "/:uid",
+      "has": [{ "type": "host", "value": "t.ritualhabits.com.au" }],
+      "destination": "https://ritual-v2-mu.vercel.app/t/:uid",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
