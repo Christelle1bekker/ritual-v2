@@ -119,17 +119,19 @@ function normalizeCompletion(c) {
 // ─── SUPABASE FETCH HELPERS ───────────────────────────────────────
 async function fetchFamilyData(pin) {
   if (!supabase) return null;
-  const { data, error } = await supabase
-    .from("families")
-    .select("*, members(*), habits(*), rewards(*)")
-    .eq("pin", pin)
-    .single();
-  if (error || !data) { console.error("❌ fetchFamilyData error:", error); return null; }
+  const { data: famRows, error: famErr } = await supabase.rpc('login_family', { family_pin: pin });
+  if (famErr || !famRows?.[0]) { console.error("❌ fetchFamilyData error:", famErr); return null; }
+  const fam = famRows[0];
+  const [{ data: members }, { data: habits }, { data: rewards }] = await Promise.all([
+    supabase.from("members").select("*").eq("family_id", fam.id),
+    supabase.from("habits").select("*").eq("family_id", fam.id),
+    supabase.from("rewards").select("*").eq("family_id", fam.id),
+  ]);
   return {
-    id: data.id, name: data.name, pin: data.pin,
-    members: (data.members || []).map(normalizeMember),
-    habits: (data.habits || []).map(normalizeHabit),
-    rewards: (data.rewards || []).map(normalizeReward),
+    id: fam.id, name: fam.name, pin,
+    members: (members || []).map(normalizeMember),
+    habits: (habits || []).map(normalizeHabit),
+    rewards: (rewards || []).map(normalizeReward),
   };
 }
 
@@ -408,11 +410,9 @@ function LoginScreen({ onLogin }) {
     if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
     setLoading(true);
     try {
-      const { data: fam } = await supabase.from("families").select("id,name,pin").eq("pin", pin).single();
-      if (!fam) { setError("No family found with that PIN."); return; }
-      if (fam.name.toLowerCase() !== familyName.trim().toLowerCase()) { setError("Family name doesn't match that PIN."); return; }
       const familyData = await fetchFamilyData(pin);
-      if (!familyData) { setError("Failed to load family. Try again."); return; }
+      if (!familyData) { setError("No family found with that PIN."); return; }
+      if (familyData.name.toLowerCase() !== familyName.trim().toLowerCase()) { setError("Family name doesn't match that PIN."); return; }
       localStorage.setItem("ritual_savedPin", pin);
       onLogin(familyData);
     } catch { setError("Something went wrong. Please try again."); }
@@ -426,11 +426,13 @@ function LoginScreen({ onLogin }) {
     if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
     setLoading(true);
     try {
-      const { data: existing } = await supabase.from("families").select("id").eq("pin", pin).single();
-      if (existing) { setError("That PIN is already taken. Choose another."); return; }
-      const { data: newFam, error: fe } = await supabase.from("families").insert({ name: familyName.trim(), pin }).select().single();
-      if (fe || !newFam) { setError("Failed to create family. Try again."); return; }
-      setCreatedFamilyId(newFam.id);
+      const { data: existingRows } = await supabase.rpc('login_family', { family_pin: pin });
+      if (existingRows?.length > 0) { setError("That PIN is already taken. Choose another."); return; }
+      const { error: fe } = await supabase.from("families").insert({ name: familyName.trim(), pin });
+      if (fe) { setError("Failed to create family. Try again."); return; }
+      const { data: newRows } = await supabase.rpc('login_family', { family_pin: pin });
+      if (!newRows?.[0]) { setError("Failed to create family. Try again."); return; }
+      setCreatedFamilyId(newRows[0].id);
       setView("addMembers");
     } catch { setError("Something went wrong. Please try again."); }
     finally { setLoading(false); }
