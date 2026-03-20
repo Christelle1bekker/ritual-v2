@@ -2359,6 +2359,20 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────
 function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding, onToast }) {
+  const [openHelp, setOpenHelp] = useState(null);
+  const toggleHelp = (id) => setOpenHelp(prev => prev === id ? null : id);
+
+  const HELP_TOPICS = [
+    { id: "add-first", icon: "⊕", title: "Add a habit before anything else", content: `Your tiles don't do anything until you've connected them to a habit. Think of the tile as the button — but first you need to tell Ritual what that button does. Start simple: go to the Add tab, pick a category, choose one habit, and save it. Then connect a tile. That's it — you're ready to go. Don't overthink your first habit. Pick something you already do most days and make it official.` },
+    { id: "how-to-tap", icon: "📱", title: "How to tap a tile", content: `This trips people up the first time, so here's exactly what to do:\n\n1. Unlock your phone first — it won't work on a locked screen\n2. Hold the back of your phone near the tile — the reader sits near your camera\n3. Hold still for 1–2 seconds — don't wave it, just hold it close\n4. On iPhone: a small banner appears at the top — tap it\n5. On Android: a notification appears — tap it\n\nDoesn't work? Try moving your phone slightly up or down — every phone model is a little different. Make sure you're using the back of the phone, not the front.` },
+    { id: "what-are-tiles", icon: "🏷️", title: "What are Ritual tiles?", content: `Ritual tiles use the same technology as tap-to-pay — the kind you use when you tap your card or phone at a checkout, or hold a key card to a hotel door. It's been around for years and is used billions of times every day around the world.\n\nThe tile itself does absolutely nothing on its own. No signal, no emission, nothing at all. It only activates for the one second your phone is held next to it. No batteries. No charging. Ever.\n\nAnd if you want to move a tile from one habit to another, you can — they're completely reusable.\n\nIs it safe? Completely. The tile is passive — it has no power source and emits nothing. It simply waits. That's actually what makes tiles such a clever and perfect fit for Ritual — safe enough to place anywhere in your home, yet reliable enough to work every single time.\n\nOne practical note: tiles come with adhesive backing and should be secured to a surface — a wall, door frame, or shelf works well. Keep them out of reach of young children who may want to put them in their mouths.\n\nWant to know more? Reach out to us at support@ritualhabits.com.au` },
+    { id: "why-tiles", icon: "🧠", title: "Why tiles work better than buttons", content: `Let's be honest — most habit apps don't work. You download them full of good intentions, tap a button for a few days, and then forget they exist.\n\nThe problem isn't you. It's that a button on a screen is easy to ignore. Physical objects are different.\n\nHabit researchers have found that things in specific places are among the most powerful triggers for automatic behaviour. When something exists in your space, your brain starts connecting "I'm here" with "I do this." That's the whole idea behind Ritual's tiles.\n\nPut the tile where the habit happens — by the bathroom sink, on the fridge, at the front door. Tap it every day and within a few weeks, the location itself becomes the reminder.\n\nResearch shows that people who linked habits to physical cues in their environment had 58% higher success rates than those who relied on app reminders alone. Your phone notification is easy to swipe away. A tile on your bathroom mirror is a lot harder to ignore.` },
+    { id: "individual-vs-family", icon: "👤", title: "Individual vs family habits", content: `When you create a habit, you choose how it gets tracked.\n\nIndividual means each person tracks it separately. Good for personal habits where it matters who did it, not just that it got done. Example: Homework. One child finishing their homework doesn't count for another child. They each need their own completion.\n\nFamily/shared means one completion counts for everyone assigned. Good for household tasks where it doesn't matter who does it — just that it happened. Example: Feeding the dog. If one person feeds the dog, that counts for the whole family. You don't need everyone else to feed the dog again just to tick their box.\n\nWhen in doubt: if the habit is personal to one person, use Individual. If it's a household job anyone can do, use Family.` },
+    { id: "kids", icon: "⭐", title: "How kids work in Ritual", content: `Kids earn points the same way adults do — complete a habit, earn points. The main difference is with rewards.\n\nWhen a child redeems a reward, it doesn't just happen — it creates a request that a parent needs to fulfil.\n\nExample: Your child earns enough points for "Choose a movie night." They tap redeem on Friday morning. Their points are set aside straight away — they can't spend them on anything else. When Friday night comes, a parent opens the Family tab and marks it as fulfilled. Done.\n\nThis keeps parents in the loop and means kids can't redeem rewards without it actually happening in real life.\n\nOne other thing — when a tile is tapped on a habit that belongs to a child, the app asks "Who did this?" This is because kids often share devices, so Ritual checks rather than assumes.` },
+    { id: "fixing-mistakes", icon: "↩️", title: "Fixing mistakes", content: `Tapped by accident? Hold your finger on the completed habit card — a progress bar fills up and it undoes the tap.\n\nMissed a tap and not near your tile? Tap on the habit card to expand it, then look for "Don't have your tile with you?" and hold the button to complete it manually. We make this slightly inconvenient on purpose — the tile tap is the whole point — but life happens.\n\nWrong person got the credit? Undo the completion first (hold the habit card), then complete it again and select the right person.` },
+    { id: "managing-tiles", icon: "🔄", title: "Managing your tiles", content: `Each tile can only be connected to one habit at a time — but you can reassign them whenever you want.\n\nTo move a tile to a different habit: go to Add → Manage Tiles, remove it from the current habit, then assign it to a new one. Takes about 30 seconds.\n\nTiles work permanently — no batteries, no Wi-Fi, no setup beyond the first tap. They're completely reusable, so if a habit changes, the tile changes with it. Look after them and they'll last for years.` },
+  ];
+
   return (
     <div style={{ padding: "0 20px 110px" }}>
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -2451,9 +2465,31 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
         Sign Out of {family.name}
       </button>
 
-      {/* Replay onboarding — for testing and demos */}
-      <div style={{ textAlign: "center", marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.sandLight}` }}>
-        <button onClick={onReplayOnboarding} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: C.slateLight, textDecoration: "underline dotted", fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", minHeight: 44 }}>
+      {/* Help section */}
+      <div style={{ marginTop: 24 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: C.slateLight, marginBottom: 10, textTransform: "uppercase" }}>Help</div>
+        {HELP_TOPICS.map(topic => (
+          <div key={topic.id} style={{ marginBottom: 8, borderRadius: 14, border: `1.5px solid ${C.sandLight}`, overflow: "hidden", background: C.white }}>
+            <button
+              onClick={() => toggleHelp(topic.id)}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", textAlign: "left" }}
+            >
+              <span style={{ fontSize: 20, flexShrink: 0 }}>{topic.icon}</span>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: C.slate }}>{topic.title}</span>
+              <span style={{ fontSize: 16, color: C.slateLight, transform: openHelp === topic.id ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>⌄</span>
+            </button>
+            {openHelp === topic.id && (
+              <div style={{ padding: "0 16px 14px 48px", fontSize: 13, color: C.slate, lineHeight: 1.55 }}>
+                {topic.content}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Replay onboarding — hidden admin link */}
+      <div style={{ textAlign: "center", marginTop: 16, paddingBottom: 4 }}>
+        <button onClick={onReplayOnboarding} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.slateLight, opacity: 0.35, fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", minHeight: 44 }}>
           Replay onboarding
         </button>
       </div>
