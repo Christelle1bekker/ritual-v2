@@ -2389,7 +2389,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 }
 
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────
-function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding, onToast }) {
+function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding, onToast }) {
   const [openHelp, setOpenHelp] = useState(null);
   const toggleHelp = (id) => setOpenHelp(prev => prev === id ? null : id);
 
@@ -2518,12 +2518,14 @@ function SettingsScreen({ family, onLogout, onRefresh, onManageTiles, onManageHa
         ))}
       </div>
 
-      {/* Replay onboarding — hidden admin link */}
-      <div style={{ textAlign: "center", marginTop: 16, paddingBottom: 4 }}>
-        <button onClick={onReplayOnboarding} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.slateLight, opacity: 0.35, fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", minHeight: 44 }}>
-          Replay onboarding
-        </button>
-      </div>
+      {/* Replay onboarding — hidden admin link, adults only */}
+      {!currentMember?.isKid && (
+        <div style={{ textAlign: "center", marginTop: 16, paddingBottom: 4 }}>
+          <button onClick={onReplayOnboarding} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.slateLight, opacity: 0.35, fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", minHeight: 44 }}>
+            Replay onboarding
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2908,8 +2910,8 @@ export default function RitualApp() {
       // Migration path: members created before this column existed should be treated as onboarded
       const isReturning = activeMember.createdAt &&
         (Date.now() - new Date(activeMember.createdAt).getTime()) > 24 * 60 * 60 * 1000;
-      if (isReturning) {
-        // Silently backfill the flag so this only runs once
+      if (isReturning || activeMember.isKid) {
+        // Silently backfill the flag so this only runs once (kids have no onboarding)
         supabase?.from("members").update({ onboarding_complete: true }).eq("id", activeMember.id);
       } else {
         setShowOnboarding(true);
@@ -3502,7 +3504,7 @@ export default function RitualApp() {
           {tab === "family" && <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />}
           {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} />}
-          {tab === "settings" && <SettingsScreen family={family} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} />}
+          {tab === "settings" && <SettingsScreen family={family} currentMember={currentMember} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} />}
         </div>
 
         {/* Branding footer */}
