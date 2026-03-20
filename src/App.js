@@ -2534,16 +2534,13 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
 
 // ─── ONBOARDING FLOW ──────────────────────────────────────────────
 function OnboardingFlow({ currentMember, onComplete }) {
-  const isKid = currentMember?.isKid === true;
-  const totalSlides = isKid ? 2 : 6;
+  const totalSlides = 6;
   const [slide, setSlide] = useState(0);
   const [navCount, setNavCount] = useState(0);
   const touchStartX = useRef(null);
 
-  const bg = isKid
-    ? `linear-gradient(135deg, ${C.kids}, ${C.kidsLight})`
-    : `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`;
-  const dotColor = isKid ? C.kids : C.accent;
+  const bg = `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`;
+  const dotColor = C.accent;
   const isLastSlide = slide === totalSlides - 1;
 
   const goNext = () => {
@@ -2567,12 +2564,6 @@ function OnboardingFlow({ currentMember, onComplete }) {
     const w = rect.width;
     if (x < w * 0.4) goPrev();
     else if (x > w * 0.6) goNext();
-  };
-
-  const kidBtnStyle = {
-    ...btnPrimary,
-    background: "linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.75))",
-    color: C.kids, boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
   };
 
   const adultSlides = [
@@ -2681,32 +2672,7 @@ function OnboardingFlow({ currentMember, onComplete }) {
     </div>,
   ];
 
-  const kidSlides = [
-    // Slide 0 — Welcome
-    <div key="k0" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
-      <div key={`k0i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🌟</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Hey, welcome to Ritual!</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.85)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Complete your habits every day to earn points and unlock awesome rewards.</div>
-      </div>
-    </div>,
-    // Slide 1 — How to earn
-    <div key="k1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
-      <div key={`k1i-${navCount}`} style={{ animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}><TileIcon size="64px" /></div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Tap your tile, earn points</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.85)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Each habit has a tile. Tap your phone to it when you're done — points go straight to your balance.</div>
-      </div>
-      {currentMember && (
-        <div style={{ padding: "12px 28px", borderRadius: 30, background: "rgba(255,255,255,0.3)", fontSize: 18, fontWeight: 700, color: C.white, fontFamily: "'DM Sans', sans-serif", boxShadow: "0 0 20px rgba(255,255,255,0.25), 0 4px 12px rgba(0,0,0,0.1)" }}>
-          You have {currentMember.points || 0} pts
-        </div>
-      )}
-      <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ ...kidBtnStyle, marginTop: 4, pointerEvents: "auto" }}>Let's go! 🚀</button>
-    </div>,
-  ];
-
-  const slides = isKid ? kidSlides : adultSlides;
+  const slides = adultSlides;
 
   return (
     <div

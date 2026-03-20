@@ -1,6 +1,6 @@
 // api/cron-streaks.js
 // Wave 6: Daily streak reset cron job
-// Runs at 1:00 PM UTC daily (= midnight Melbourne time, AEDT UTC+11)
+// Runs at 3:00 PM UTC daily (= 1am AEST / 2am AEDT)
 // Resets streaks to 0 for any habit or member that had no completions yesterday
 
 import { createClient } from '@supabase/supabase-js';
