@@ -2555,12 +2555,15 @@ function OnboardingFlow({ currentMember, onComplete }) {
     </div>,
     // Slide 1 — Welcome
     <div key="a1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
-      <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
+      <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Build habits as a family</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Ritual uses physical NFC tiles placed around your home. Tap your phone to a tile and the habit logs instantly — no app hunting, no friction.</div>
       </div>
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>SWIPE TO SEE HOW IT WORKS</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
+        <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto" }}>Next →</button>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, fontFamily: "'DM Sans', sans-serif", textTransform: "uppercase" }}>SWIPE TO SEE HOW IT WORKS</div>
+      </div>
     </div>,
     // Slide 2 — How it works
     <div key="a2" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
