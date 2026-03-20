@@ -197,6 +197,14 @@ comment on table reward_redemptions is
   'Tracks reward redemptions. Status: pending (awaiting parent fulfillment), fulfilled (delivered), cancelled (refunded).';
 
 
+-- 15. Onboarding status per member (March 2026)
+--     Replaces localStorage-based approach so onboarding only shows once across all devices
+alter table members add column if not exists onboarding_complete boolean default false;
+update members set onboarding_complete = false where onboarding_complete is null;
+comment on column members.onboarding_complete is
+  'True after member has completed or skipped onboarding. Checked on login; avoids re-showing onboarding on new devices.';
+
+
 -- ═══════════════════════════════════════════════════════════════════
 -- NOTES
 -- ═══════════════════════════════════════════════════════════════════
