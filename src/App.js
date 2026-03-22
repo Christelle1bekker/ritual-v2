@@ -390,6 +390,7 @@ function LoginScreen({ onLogin }) {
       if (e.key !== "Enter") return;
       if (view === "join") handleJoin();
       else if (view === "create") handleCreate();
+      else if (view === "createSolo") handleCreateSolo();
       else if (view === "addMembers") { if (memberName.trim()) addMember(); else if (members.length > 0) finishSetup(); }
     };
     document.addEventListener("keydown", handle);
@@ -428,12 +429,34 @@ function LoginScreen({ onLogin }) {
     try {
       const { data: existingRows } = await supabase.rpc('login_family', { family_pin: pin });
       if (existingRows?.length > 0) { setError("That PIN is already taken. Choose another."); return; }
-      const { error: fe } = await supabase.from("families").insert({ name: familyName.trim(), pin });
-      if (fe) { setError("Failed to create family. Try again."); return; }
-      const { data: newRows } = await supabase.rpc('login_family', { family_pin: pin });
-      if (!newRows?.[0]) { setError("Failed to create family. Try again."); return; }
+      const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: familyName.trim(), family_pin: pin });
+      if (fe || !newRows?.[0]) { setError("Failed to create family. Try again."); return; }
       setCreatedFamilyId(newRows[0].id);
       setView("addMembers");
+    } catch { setError("Something went wrong. Please try again."); }
+    finally { setLoading(false); }
+  };
+
+  const handleCreateSolo = async () => {
+    setError("");
+    if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
+    setLoading(true);
+    try {
+      const soloPin = String(Math.floor(Math.random() * 9000) + 1000);
+      const soloName = memberName.trim() || "Me";
+      const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: `${soloName}'s Rituals`, family_pin: soloPin });
+      if (fe || !newRows?.[0]) { setError("Failed to set up. Try again."); return; }
+      const familyId = newRows[0].id;
+      const { error: me } = await supabase.from("members").insert({
+        family_id: familyId, name: soloName, avatar: soloName[0].toUpperCase(),
+        color: MEMBER_COLORS[0], is_kid: false, points: 0, streak: 0,
+      });
+      if (me) { setError("Failed to set up. Try again."); return; }
+      localStorage.setItem("ritual_savedPin", soloPin);
+      localStorage.setItem("ritual_soloMode", "true");
+      const familyData = await fetchFamilyData(soloPin);
+      if (!familyData) { setError("Setup done but failed to load. Try logging in."); return; }
+      onLogin(familyData);
     } catch { setError("Something went wrong. Please try again."); }
     finally { setLoading(false); }
   };
@@ -488,10 +511,11 @@ function LoginScreen({ onLogin }) {
             <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>◈</div>
               <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.1, marginBottom: 8 }}>Welcome to Ritual</div>
-              <div style={{ fontSize: 14, color: "rgba(255,255,255,0.6)", lineHeight: 1.6 }}>Build habits that actually stick.<br />Start your family's ritual today.</div>
+              <div style={{ fontSize: 14, color: "rgba(255,255,255,0.6)", lineHeight: 1.6 }}>Build habits that actually stick.<br />For families, couples, or just you.</div>
             </div>
             <button onClick={() => setView("create")} style={btnPrimary}>Create a new family</button>
             <button onClick={() => setView("join")} style={{ ...btnPrimary, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", boxShadow: "none" }}>Join existing family</button>
+            <button onClick={() => setView("createSolo")} style={{ background: "none", border: "none", fontSize: 14, color: "rgba(255,255,255,0.55)", cursor: "pointer", padding: "10px 0", minHeight: 44, letterSpacing: 0.2 }}>Just me →</button>
           </div>
         )}
 
@@ -519,6 +543,19 @@ function LoginScreen({ onLogin }) {
               <input style={darkInput} placeholder="Choose a 4-digit PIN" type="tel" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
               {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center" }}>{error}</div>}
               <button onClick={handleCreate} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Creating…" : "Continue →"}</button>
+            </div>
+          </div>
+        )}
+
+        {view === "createSolo" && (
+          <div>
+            <button onClick={() => { setView("welcome"); setError(""); setMemberName(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24 }}>← Back</button>
+            <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Just you</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28 }}>Set up your personal ritual space — no family sharing needed</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <input style={darkInput} placeholder="Your name" value={memberName} onChange={e => setMemberName(e.target.value)} autoComplete="off" />
+              {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center" }}>{error}</div>}
+              <button onClick={handleCreateSolo} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Setting up…" : "Start my Rituals →"}</button>
             </div>
           </div>
         )}
@@ -786,7 +823,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
 }
 
 // ─── TODAY SCREEN ─────────────────────────────────────────────────
-function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled }) {
+function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode }) {
   const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
   const total = habits.length;
   const todayPct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -829,9 +866,9 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
         {/* Week chart */}
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>Family Progress This Week</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>{soloMode ? "My Progress This Week" : "Family Progress This Week"}</div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>Household completion rate</div>
+              <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>{soloMode ? "Personal completion rate" : "Household completion rate"}</div>
               <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
                 {weekData[todayIndex] !== null ? `${weekData[todayIndex]}%` : "—"}
               </div>
@@ -2533,7 +2570,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
 }
 
 // ─── ONBOARDING FLOW ──────────────────────────────────────────────
-function OnboardingFlow({ currentMember, onComplete }) {
+function OnboardingFlow({ currentMember, onComplete, soloMode }) {
   const totalSlides = 6;
   const [slide, setSlide] = useState(0);
   const [navCount, setNavCount] = useState(0);
@@ -2572,7 +2609,7 @@ function OnboardingFlow({ currentMember, onComplete }) {
       <div key={`a0i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Welcome to Ritual</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Habit tracking for the whole family</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode ? "Habit tracking, just for you" : "Habit tracking for the whole family"}</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
         <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto" }}>New to Ritual? Let's get set up →</button>
@@ -2583,7 +2620,7 @@ function OnboardingFlow({ currentMember, onComplete }) {
     <div key="a1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
       <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Build habits as a family</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>{soloMode ? "Build habits that stick" : "Build habits as a family"}</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Ritual uses physical tiles placed around your home. Tap your phone to a tile and the habit logs instantly — no app hunting, no friction.</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
@@ -2656,10 +2693,10 @@ function OnboardingFlow({ currentMember, onComplete }) {
       <div key={`a5i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>You're all set</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>When someone taps a tile, you'll see who did it, their streak, and their points. The whole family in one place.</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode ? "Every time you tap a tile, you'll see your streak and your points grow. Your rituals, your progress." : "When someone taps a tile, you'll see who did it, their streak, and their points. The whole family in one place."}</div>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-        {[["🔥", "Streaks"], ["⭐", "Points"], ["👨‍👩‍👧", "Family"]].map(([icon, label], i) => (
+        {(soloMode ? [["🔥", "Streaks"], ["⭐", "Points"], ["🎯", "Goals"]] : [["🔥", "Streaks"], ["⭐", "Points"], ["👨‍👩‍👧", "Family"]]).map(([icon, label], i) => (
           <div key={i} style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.white, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
             <span>{icon}</span><span>{label}</span>
           </div>
@@ -2735,6 +2772,12 @@ export default function RitualApp() {
   const [redemptions, setRedemptions] = useState([]);
   const redemptionsLastFetched = useRef(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [soloMode, setSoloMode] = useState(() => localStorage.getItem("ritual_soloMode") === "true");
+  const toggleSoloMode = () => {
+    const next = !soloMode;
+    setSoloMode(next);
+    localStorage.setItem("ritual_soloMode", String(next));
+  };
 
   // ─── Toast notification system ──────────────────────────────────
   const [toasts, setToasts] = useState([]);
@@ -2923,6 +2966,7 @@ export default function RitualApp() {
   // ─── Handlers ───────────────────────────────────────────────────
   const handleLogin = async (familyData) => {
     await loadDataForFamily(familyData);
+    setSoloMode(localStorage.getItem("ritual_soloMode") === "true");
   };
 
   const completeOnboarding = () => {
@@ -2939,7 +2983,9 @@ export default function RitualApp() {
   const handleLogout = () => {
     setFamily(null); setHabits([]); setTodayCompletions([]); setWeekCompletions([]);
     setCurrentMember(null); setFlashData(null); setWhoDidThis(null);
+    setSoloMode(false);
     localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_currentMemberId");
+    localStorage.removeItem("ritual_soloMode");
   };
 
   const handleComplete = async (habitId, member, fromDigital) => {
@@ -3355,7 +3401,7 @@ export default function RitualApp() {
 
   const TABS = [
     { id: "today", icon: "◈", label: "Today" },
-    { id: "family", icon: "◉", label: "Family" },
+    { id: "family", icon: "◉", label: soloMode ? "Progress" : "Family" },
     { id: "add", icon: "⊕", label: "Add" },
     { id: "insights", icon: "◎", label: "Insights" },
     { id: "settings", icon: "⚙", label: "Settings" },
@@ -3363,7 +3409,7 @@ export default function RitualApp() {
 
   const headings = {
     today: `${getGreeting()}, ${currentMember?.name || family.name}`,
-    family: `The ${family.name}s`,
+    family: soloMode ? "My Progress" : `The ${family.name}s`,
     add: "Set Up",
     insights: "Insights",
     settings: "Settings",
@@ -3426,13 +3472,13 @@ export default function RitualApp() {
             <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", letterSpacing: -0.3, lineHeight: 1.1 }}>{headings[tab]}</div>
             <div style={{ fontSize: 12, color: C.slateLight, marginTop: 3 }}>
               {tab === "today" && `${new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })} · ${doneTodayCount} of ${myHabitsWithTaps.length} complete`}
-              {tab === "family" && `${family.members?.length || 0} members`}
+              {tab === "family" && (soloMode ? "personal dashboard" : `${family.members?.length || 0} members`)}
               {tab === "add" && "Habits, tiles & rewards"}
               {tab === "insights" && "Your habit data"}
               {tab === "settings" && family.name}
             </div>
           </div>
-          {family.members?.length > 0 && (
+          {!soloMode && family.members?.length > 0 && (
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               {family.members.map(m => {
                 const isActive = currentMember?.id === m.id;
@@ -3454,6 +3500,18 @@ export default function RitualApp() {
               })}
             </div>
           )}
+          {family.members?.length > 1 && (
+            <div onClick={toggleSoloMode} style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "4px 12px", borderRadius: 20, cursor: "pointer",
+              background: soloMode ? `${C.accent}20` : "rgba(0,0,0,0.06)",
+              border: `1px solid ${soloMode ? C.accent + "50" : "rgba(0,0,0,0.1)"}`,
+              fontSize: 11, fontWeight: 600, color: soloMode ? C.accent : C.slateLight,
+              letterSpacing: 0.3, transition: "all 0.2s ease", marginTop: 4,
+            }}>
+              {soloMode ? "Solo" : "Family"}
+            </div>
+          )}
         </div>
 
         {/* Screen */}
@@ -3467,6 +3525,7 @@ export default function RitualApp() {
               onFlashUndo={() => { if (flashData) handleUndo(flashData.habit.id); }}
               whoDidThis={whoDidThis} onWhoCancel={() => setWhoDidThis(null)}
               soundEnabled={soundEnabled}
+              soloMode={soloMode}
             />
           )}
           {tab === "family" && <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />}
@@ -3495,7 +3554,7 @@ export default function RitualApp() {
 
       {/* Onboarding overlay — shown on first login per device */}
       {showOnboarding && family && (
-        <OnboardingFlow currentMember={currentMember} family={family} onComplete={completeOnboarding} />
+        <OnboardingFlow currentMember={currentMember} family={family} onComplete={completeOnboarding} soloMode={soloMode} />
       )}
 
       {/* Assign Tile Modal — shown whenever an unassigned tile is tapped */}

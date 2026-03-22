@@ -205,6 +205,30 @@ comment on column members.onboarding_complete is
   'True after member has completed or skipped onboarding. Checked on login; avoids re-showing onboarding on new devices.';
 
 
+-- 16. create_family RPC — SECURITY DEFINER family creation (March 2026)
+--     Direct anon INSERT on the families table is blocked when RLS policies are
+--     restrictive. This function runs as the table owner and bypasses that check,
+--     while also returning the new row so the caller doesn't need a second
+--     login_family RPC round-trip.
+create or replace function create_family(family_name text, family_pin text)
+returns table (id uuid, name text, pin text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into families (name, pin) values (family_name, family_pin);
+  return query
+    select f.id, f.name, f.pin
+    from families f
+    where f.pin = family_pin;
+end;
+$$;
+
+comment on function create_family(text, text) is
+  'Creates a new family row and returns it. SECURITY DEFINER so it works regardless of RLS insert policies on the families table.';
+
+
 -- ═══════════════════════════════════════════════════════════════════
 -- NOTES
 -- ═══════════════════════════════════════════════════════════════════
