@@ -2507,6 +2507,12 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
         ))}
       </div>
 
+      <button onClick={() => {
+        if (window.confirm(`Sign out? You'll need your PIN to log back in.`)) { onLogout(); }
+      }} style={{ width: "100%", padding: "14px", borderRadius: 16, border: `1.5px solid ${C.error}30`, background: `${C.error}10`, color: C.error, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 12 }}>
+        Sign Out
+      </button>
+
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 14 }}>Preferences</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -2563,15 +2569,18 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
             🔧 Test Streak Reset (dev only)
           </button>
         )}
+        {(window.location.hostname === 'localhost' || window.location.search.includes('debug=true')) && (
+          <button onClick={() => {
+            localStorage.removeItem("ritual_savedPin");
+            localStorage.removeItem("ritual_currentMemberId");
+            localStorage.removeItem("ritual_soloMode");
+            localStorage.removeItem("ritual_soundEnabled");
+            window.location.reload();
+          }} style={{ width: "100%", padding: "12px 16px", background: "#6366f1", border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 8 }}>
+            🧹 Clear all data &amp; sign out
+          </button>
+        )}
       </div>
-
-      <button onClick={() => {
-        if (window.confirm(`Sign out of ${family.name}? You'll need your PIN to log back in.`)) {
-          onLogout();
-        }
-      }} style={{ width: "100%", padding: "14px", borderRadius: 16, border: `1.5px solid ${C.error}30`, background: `${C.error}10`, color: C.error, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
-        Sign Out of {family.name}
-      </button>
 
       {/* Help section */}
       <div style={{ marginTop: 24 }}>
