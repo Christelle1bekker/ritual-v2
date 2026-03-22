@@ -1984,15 +1984,17 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
 }
 
 // ─── INSIGHTS SCREEN ──────────────────────────────────────────────
-function InsightsScreen({ habits, family, weekCompletions = [], currentMember, analyticsData, soloMode }) {
+function InsightsScreen({ habits, family, weekCompletions = [], currentMember, analyticsData, soloMode, forcePersonal }) {
   const [showFamily, setShowFamily] = useState(false);
   const members = family?.members || [];
   const kids = members.filter(m => m.isKid);
 
   // Filter completions by member when in "My Stats" mode
   // Also excludes completions for habits not assigned to this member
+  const showingFamily = !forcePersonal && showFamily;
+
   const filteredWeek = useMemo(() => {
-    if (showFamily || !currentMember) return weekCompletions;
+    if (showingFamily || !currentMember) return weekCompletions;
     return weekCompletions.filter(c => {
       if (c.memberId !== currentMember.id) return false;
       const habit = habits.find(h => h.id === c.habitId);
@@ -2000,11 +2002,11 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       if (!habit.assignedMemberIds || habit.assignedMemberIds.length === 0) return true;
       return habit.assignedMemberIds.includes(currentMember.id);
     });
-  }, [weekCompletions, currentMember, showFamily, habits]);
+  }, [weekCompletions, currentMember, showingFamily, habits]);
 
   const filteredAnalytics = useMemo(() => {
     if (!analyticsData) return null;
-    if (showFamily || !currentMember) return analyticsData;
+    if (showingFamily || !currentMember) return analyticsData;
     return analyticsData.filter(c => {
       if (c.memberId !== currentMember.id) return false;
       const habit = habits.find(h => h.id === c.habitId);
@@ -2012,7 +2014,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       if (!habit.assignedMemberIds || habit.assignedMemberIds.length === 0) return true;
       return habit.assignedMemberIds.includes(currentMember.id);
     });
-  }, [analyticsData, currentMember, showFamily, habits]);
+  }, [analyticsData, currentMember, showingFamily, habits]);
 
   // ── Family Highlights ──────────────────────────────────────────
   const highlights = useMemo(() => {
@@ -2122,7 +2124,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     const lwStartStr = lastWeekStart.toISOString().split("T")[0];
     const lwEndStr = lastWeekEnd.toISOString().split("T")[0];
 
-    const visibleHabits = (!showFamily && currentMember)
+    const visibleHabits = (!showingFamily && currentMember)
       ? habits.filter(h => !h.assignedMemberIds || h.assignedMemberIds.length === 0 || h.assignedMemberIds.includes(currentMember.id))
       : habits;
     return visibleHabits.map(h => {
@@ -2134,7 +2136,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       const twPct = Math.round(twRate * 100);
       return { habit: h, thisWeekDays: thisWeek.length, lastWeekDays: lastWeek.length, delta, twPct };
     }).filter(x => x.thisWeekDays > 0 || x.lastWeekDays > 0).slice(0, 6);
-  }, [filteredAnalytics, habits, showFamily, currentMember]);
+  }, [filteredAnalytics, habits, showingFamily, currentMember]);
 
   // ── Kids Leaderboard ──────────────────────────────────────────
   const kidsBoard = useMemo(() => {
@@ -2149,7 +2151,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
   // ── Personal Bests (needs analyticsData) ──────────────────────
   const personalBests = useMemo(() => {
     if (!filteredAnalytics || !currentMember) return null;
-    const myComps = showFamily ? filteredAnalytics : filteredAnalytics.filter(c => c.memberId === currentMember.id);
+    const myComps = showingFamily ? filteredAnalytics : filteredAnalytics.filter(c => c.memberId === currentMember.id);
     if (myComps.length === 0) return null;
 
     // Count completions per week
@@ -2173,7 +2175,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     const habitStreaks = habits.map(h => ({ habit: h, streak: h.streak || 0 })).filter(x => x.streak >= 3).sort((a, b) => b.streak - a.streak).slice(0, 2);
 
     return { thisWeekCount, allTimeRecord, previousRecord, isNewRecord, habitStreaks };
-  }, [filteredAnalytics, currentMember, habits, showFamily]);
+  }, [filteredAnalytics, currentMember, habits, showingFamily]);
 
   const insightCard = (content) => (
     <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -2210,7 +2212,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
   return (
     <div style={{ padding: "0 20px 110px" }}>
       {/* My Stats / Family toggle */}
-      {!soloMode && (
+      {!soloMode && !forcePersonal && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           {["My Stats", "Family"].map((label, i) => {
             const active = i === 0 ? !showFamily : showFamily;
@@ -2225,7 +2227,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       )}
 
       {/* 0. Your Weekly Summary (My Stats only) */}
-      {!showFamily && currentMember && weeklySummary && insightCard(<>
+      {!showingFamily && currentMember && weeklySummary && insightCard(<>
         {cardHeader("📊", "Your Weekly Summary", C.accent)}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2256,7 +2258,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       </>)}
 
       {/* 1. Family Highlights (Family view only) */}
-      {!soloMode && showFamily && insightCard(<>
+      {!soloMode && showingFamily && insightCard(<>
         {cardHeader("🏆", "Family Highlights", C.warm)}
         {!hasWeekData ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>Complete some habits this week to see highlights!</div>
@@ -2275,12 +2277,12 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 2. Streak Watch */}
       {(() => {
-        const toShow = showFamily
+        const toShow = showingFamily
           ? streakWatch.slice(0, 4)
           : streakWatch.filter(x => x.member.id === currentMember?.id);
         if (toShow.length === 0) return null;
         return insightCard(<>
-          {cardHeader("🔥", showFamily ? "Everyone's Streaks" : "Your Streaks", C.accent)}
+          {cardHeader("🔥", showingFamily ? "Everyone's Streaks" : "Your Streaks", C.accent)}
           {toShow.map((x, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < toShow.length - 1 ? 10 : 0 }}>
               <div style={{ width: 36, height: 36, borderRadius: 10, background: `${C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{x.member.avatar}</div>
@@ -2302,7 +2304,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 3. When You Work Best */}
       {insightCard(<>
-        {cardHeader("⏰", showFamily ? "When Your Family Works Best" : "When You Work Best", C.green)}
+        {cardHeader("⏰", showingFamily ? "When Your Family Works Best" : "When You Work Best", C.green)}
         {timePatterns.total === 0 ? (
           <div style={{ textAlign: "center", padding: "16px 0", color: C.slateLight, fontSize: 13, fontStyle: "italic" }}>
             Complete more habits to see when you're most productive! 🌟
@@ -2353,7 +2355,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       </>)}
 
       {/* 5. Kids Leaderboard (Family view only) */}
-      {!soloMode && showFamily && kidsBoard && insightCard(<>
+      {!soloMode && showingFamily && kidsBoard && insightCard(<>
         {cardHeader("🏆", "Kids Leaderboard", C.kids)}
         {kidsBoard.every(k => k.taps === 0) ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>No completions this week yet — let's go!</div>
@@ -2376,7 +2378,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 6. Personal Bests */}
       {currentMember && insightCard(<>
-        {cardHeader("🎉", showFamily ? "Family Records" : "Personal Bests", C.accent)}
+        {cardHeader("🎉", showingFamily ? "Family Records" : "Personal Bests", C.accent)}
         {!filteredAnalytics ? loadingSkeleton : personalBests ? (
           <div>
             {personalBests.isNewRecord && (
@@ -3525,57 +3527,58 @@ export default function RitualApp() {
         ))}
         {/* Header */}
         <div style={{ padding: "20px 24px 12px", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", letterSpacing: -0.3, lineHeight: 1.1 }}>{headings[tab]}</div>
-            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 3 }}>
-              {tab === "today" && `${new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })} · ${doneTodayCount} of ${myHabitsWithTaps.length} complete`}
-              {tab === "family" && (soloMode ? "personal dashboard" : `${family.members?.length || 0} members`)}
-              {tab === "add" && "Habits, tiles & rewards"}
-              {tab === "insights" && "Your habit data"}
-              {tab === "settings" && (soloMode ? currentMember?.name : family.name)}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 4 }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", letterSpacing: -0.3, lineHeight: 1.1 }}>{headings[tab]}</div>
+              <div style={{ fontSize: 12, color: C.slateLight, marginTop: 3 }}>
+                {tab === "today" && `${new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })} · ${doneTodayCount} of ${myHabitsWithTaps.length} complete`}
+                {tab === "family" && (soloMode ? "personal dashboard" : `${family.members?.length || 0} members`)}
+                {tab === "add" && "Habits, tiles & rewards"}
+                {tab === "insights" && "Your habit data"}
+                {tab === "settings" && (soloMode ? currentMember?.name : family.name)}
+              </div>
             </div>
+            {family.members?.length > 1 && (
+              <div style={{
+                display: "inline-flex", background: C.sand,
+                borderRadius: 20, padding: 3, gap: 2, flexShrink: 0, marginTop: 2,
+              }}>
+                {[
+                  { label: "Family", active: !soloMode },
+                  { label: "Just me", active: soloMode },
+                ].map(({ label, active }) => (
+                  <div key={label} onClick={toggleSoloMode} style={{
+                    padding: "5px 12px", borderRadius: 14, fontSize: 11,
+                    fontWeight: 500, cursor: "pointer", transition: "all 0.2s",
+                    background: active ? C.white : "transparent",
+                    color: active ? C.slate : C.slateLight,
+                    boxShadow: active ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                    whiteSpace: "nowrap",
+                  }}>{label}</div>
+                ))}
+              </div>
+            )}
           </div>
-          {!soloMode && family.members?.length > 0 && (
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              {family.members.map(m => {
-                const isActive = currentMember?.id === m.id;
-                return (
-                  <div key={m.id} onClick={() => setCurrentMember(m)} style={{
-                    width: 34, height: 34, borderRadius: "50%",
-                    background: `linear-gradient(135deg, ${m.color}, ${m.color}CC)`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 12, fontWeight: 700, color: C.white, cursor: "pointer",
-                    flexShrink: 0, transition: "all 0.2s ease",
-                    transform: isActive ? "scale(1.25)" : "scale(1)",
-                    opacity: isActive ? 1 : 0.4,
-                    boxShadow: isActive ? `0 0 0 2px ${C.white}, 0 0 16px ${m.color}, 0 4px 20px ${m.color}60` : "none",
-                    border: isActive ? `2px solid ${m.color}` : "2px solid transparent",
-                    zIndex: isActive ? 10 : 1,
-                    filter: isActive ? "none" : "grayscale(30%)",
-                  }}>{m.avatar}</div>
-                );
-              })}
-            </div>
-          )}
-          {family.members?.length > 1 && (
-            <div style={{
-              display: "inline-flex", background: C.sand,
-              borderRadius: 20, padding: 3, gap: 2, marginTop: 10,
-            }}>
-              {[
-                { label: "Family", active: !soloMode },
-                { label: "Just me", active: soloMode },
-              ].map(({ label, active }) => (
-                <div key={label} onClick={toggleSoloMode} style={{
-                  padding: "5px 14px", borderRadius: 14, fontSize: 11,
-                  fontWeight: 500, cursor: "pointer", transition: "all 0.2s",
-                  background: active ? C.white : "transparent",
-                  color: active ? C.slate : C.slateLight,
-                  boxShadow: active ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                }}>{label}</div>
-              ))}
-            </div>
-          )}
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", minHeight: soloMode ? 0 : "auto", marginTop: soloMode ? 0 : 4 }}>
+            {!soloMode && family.members?.length > 0 && family.members.map(m => {
+              const isActive = currentMember?.id === m.id;
+              return (
+                <div key={m.id} onClick={() => setCurrentMember(m)} style={{
+                  width: 34, height: 34, borderRadius: "50%",
+                  background: `linear-gradient(135deg, ${m.color}, ${m.color}CC)`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, fontWeight: 700, color: C.white, cursor: "pointer",
+                  flexShrink: 0, transition: "all 0.2s ease",
+                  transform: isActive ? "scale(1.25)" : "scale(1)",
+                  opacity: isActive ? 1 : 0.4,
+                  boxShadow: isActive ? `0 0 0 2px ${C.white}, 0 0 16px ${m.color}, 0 4px 20px ${m.color}60` : "none",
+                  border: isActive ? `2px solid ${m.color}` : "2px solid transparent",
+                  zIndex: isActive ? 10 : 1,
+                  filter: isActive ? "none" : "grayscale(30%)",
+                }}>{m.avatar}</div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Screen */}
@@ -3596,13 +3599,7 @@ export default function RitualApp() {
             <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />
           )}
           {tab === "family" && soloMode && (
-            <div style={{ padding: "20px 24px 110px" }}>
-              <div style={{ background: C.white, borderRadius: 20, padding: 32, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-                <div style={{ fontSize: 40, marginBottom: 16 }}>◎</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 8 }}>Your Progress</div>
-                <div style={{ fontSize: 13, color: C.slateLight, lineHeight: 1.6 }}>Personal insights and streak history coming soon.</div>
-              </div>
-            </div>
+            <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} forcePersonal={true} />
           )}
           {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} soloMode={soloMode} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} />}
