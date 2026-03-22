@@ -439,12 +439,14 @@ function LoginScreen({ onLogin }) {
 
   const handleCreateSolo = async () => {
     setError("");
+    const soloName = familyName.trim() || "Me";
+    if (pin.length !== 4 || !/^\d+$/.test(pin)) { setError("Choose a 4-digit PIN to get back in"); return; }
     if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
     setLoading(true);
     try {
-      const soloPin = String(Math.floor(Math.random() * 9000) + 1000);
-      const soloName = memberName.trim() || "Me";
-      const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: `${soloName}'s Rituals`, family_pin: soloPin });
+      const { data: existingRows } = await supabase.rpc('login_family', { family_pin: pin });
+      if (existingRows?.length > 0) { setError("That PIN is already taken. Choose another."); return; }
+      const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: `${soloName}'s Rituals`, family_pin: pin });
       if (fe || !newRows?.[0]) { setError("Failed to set up. Try again."); return; }
       const familyId = newRows[0].id;
       const { error: me } = await supabase.from("members").insert({
@@ -452,9 +454,9 @@ function LoginScreen({ onLogin }) {
         color: MEMBER_COLORS[0], is_kid: false, points: 0, streak: 0,
       });
       if (me) { setError("Failed to set up. Try again."); return; }
-      localStorage.setItem("ritual_savedPin", soloPin);
+      localStorage.setItem("ritual_savedPin", pin);
       localStorage.setItem("ritual_soloMode", "true");
-      const familyData = await fetchFamilyData(soloPin);
+      const familyData = await fetchFamilyData(pin);
       if (!familyData) { setError("Setup done but failed to load. Try logging in."); return; }
       onLogin(familyData);
     } catch { setError("Something went wrong. Please try again."); }
@@ -507,35 +509,66 @@ function LoginScreen({ onLogin }) {
       <div style={{ position: "relative", zIndex: 1 }}>
 
         {view === "welcome" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div style={{ textAlign: "center", padding: "32px 0 8px" }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>◈</div>
               <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.1, marginBottom: 8 }}>Welcome to Ritual</div>
-              <div style={{ fontSize: 14, color: "rgba(255,255,255,0.6)", lineHeight: 1.6 }}>Build habits that actually stick.<br />For families, couples, or just you.</div>
+              <div style={{ fontSize: 14, color: "rgba(255,255,255,0.6)", lineHeight: 1.6 }}>Build habits that actually stick.</div>
             </div>
-            <button onClick={() => setView("create")} style={btnPrimary}>Create a new family</button>
-            <button onClick={() => setView("join")} style={{ ...btnPrimary, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", boxShadow: "none" }}>Join existing family</button>
-            <button onClick={() => setView("createSolo")} style={{ background: "none", border: "none", fontSize: 14, color: "rgba(255,255,255,0.55)", cursor: "pointer", padding: "10px 0", minHeight: 44, letterSpacing: 0.2 }}>Just me →</button>
+
+            <div style={{ display: "flex", gap: 12 }}>
+              <div onClick={() => setView("createSolo")} style={{
+                flex: 1, padding: "28px 16px", borderRadius: 20, cursor: "pointer",
+                background: "rgba(255,255,255,0.12)", border: "1.5px solid rgba(255,255,255,0.25)",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center",
+                transition: "all 0.2s",
+              }}>
+                <div style={{ fontSize: 32 }}>🌿</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif" }}>Just me</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>Personal habits, your pace, your tiles</div>
+              </div>
+
+              <div onClick={() => setView("create")} style={{
+                flex: 1, padding: "28px 16px", borderRadius: 20, cursor: "pointer",
+                background: `linear-gradient(135deg, ${C.accent}40, ${C.accent}20)`,
+                border: `1.5px solid ${C.accent}60`,
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center",
+                transition: "all 0.2s",
+              }}>
+                <div style={{ fontSize: 32 }}>🏡</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif" }}>Family</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>Shared habits, tiles & rewards for everyone</div>
+              </div>
+            </div>
+
+            <button onClick={() => setView("join")} style={{
+              background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 14,
+              cursor: "pointer", fontSize: 13, color: "rgba(255,255,255,0.6)",
+              textAlign: "center", padding: "14px", width: "100%",
+              fontFamily: "'DM Sans', sans-serif",
+            }}>
+              Already have an account? Sign in →
+            </button>
           </div>
         )}
 
         {view === "join" && (
           <div>
-            <button onClick={() => { setView("welcome"); setError(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24 }}>← Back</button>
-            <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Join your family</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28 }}>Enter the name and PIN your family set up</div>
+            <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24 }}>← Back</button>
+            <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Sign in</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28 }}>Enter the name and PIN you chose when you signed up</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <input style={darkInput} placeholder="Family name" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
+              <input style={darkInput} placeholder="Your name or family name" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
               <input style={darkInput} placeholder="4-digit PIN" type="tel" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
               {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center" }}>{error}</div>}
-              <button onClick={handleJoin} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Joining…" : "Join Family"}</button>
+              <button onClick={handleJoin} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Joining…" : "Sign in →"}</button>
             </div>
           </div>
         )}
 
         {view === "create" && (
           <div>
-            <button onClick={() => { setView("welcome"); setError(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24 }}>← Back</button>
+            <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24 }}>← Back</button>
             <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Create your family</div>
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28 }}>Choose a name and PIN — share the PIN so family can join on other devices</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -549,13 +582,16 @@ function LoginScreen({ onLogin }) {
 
         {view === "createSolo" && (
           <div>
-            <button onClick={() => { setView("welcome"); setError(""); setMemberName(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24 }}>← Back</button>
-            <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Just you</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28 }}>Set up your personal ritual space — no family sharing needed</div>
+            <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24, fontFamily: "'DM Sans', sans-serif" }}>← Back</button>
+            <div style={{ fontSize: 28, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Just you</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28, lineHeight: 1.6 }}>Your space. Your pace.<br/>Choose a name and a PIN to get back in.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <input style={darkInput} placeholder="Your name" value={memberName} onChange={e => setMemberName(e.target.value)} autoComplete="off" />
+              <input style={darkInput} placeholder="Your name" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
+              <input style={darkInput} placeholder="Choose a 4-digit PIN" type="tel" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
               {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center" }}>{error}</div>}
-              <button onClick={handleCreateSolo} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Setting up…" : "Start my Rituals →"}</button>
+              <button onClick={handleCreateSolo} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>
+                {loading ? "Setting up…" : "Start my Rituals →"}
+              </button>
             </div>
           </div>
         )}
@@ -1448,7 +1484,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
 }
 
 // ─── ADD SCREEN ───────────────────────────────────────────────────
-function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, onAddReward, onEditReward, onDeleteReward, initialView = "menu", onMounted }) {
+function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, onAddReward, onEditReward, onDeleteReward, initialView = "menu", onMounted, soloMode }) {
   const [view, setView] = useState(initialView);
   useEffect(() => { onMounted?.(); }, []);
   const [selectedCat, setSelectedCat] = useState(null);
@@ -1680,10 +1716,10 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 24 }}>What would you like to set up?</div>
       {[
         { id: "addRitual", icon: "◈", label: "Add a Ritual", desc: "Browse templates or create your own", color: C.slate },
-        { id: "rewards", icon: "🎁", label: "Manage Rewards", desc: "Set up points rewards for your family", color: C.accent },
+        !soloMode ? { id: "rewards", icon: "🎁", label: "Manage Rewards", desc: "Set up points rewards for your family", color: C.accent } : null,
         { id: "tile", icon: <TileIcon size="24px" />, label: "Manage Tiles", desc: "Assign tiles to habits, detect new tiles", color: C.kidsBlue },
         { id: "habitsManage", icon: "✏️", label: "Manage Habits", desc: "Edit names, locations, targets or delete", color: C.slateLight },
-      ].map(item => (
+      ].filter(Boolean).map(item => (
         <div key={item.id} onClick={() => setView(item.id)} style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", cursor: "pointer", border: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ width: 50, height: 50, borderRadius: 15, background: `${item.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{item.icon}</div>
           <div style={{ flex: 1 }}>
@@ -1948,7 +1984,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
 }
 
 // ─── INSIGHTS SCREEN ──────────────────────────────────────────────
-function InsightsScreen({ habits, family, weekCompletions = [], currentMember, analyticsData }) {
+function InsightsScreen({ habits, family, weekCompletions = [], currentMember, analyticsData, soloMode }) {
   const [showFamily, setShowFamily] = useState(false);
   const members = family?.members || [];
   const kids = members.filter(m => m.isKid);
@@ -2174,17 +2210,19 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
   return (
     <div style={{ padding: "0 20px 110px" }}>
       {/* My Stats / Family toggle */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {["My Stats", "Family"].map((label, i) => {
-          const active = i === 0 ? !showFamily : showFamily;
-          return (
-            <button key={label} onClick={() => setShowFamily(i === 1)}
-              style={{ flex: 1, padding: "9px 0", borderRadius: 12, border: `1.5px solid ${active ? C.accent : C.sandDark}`, background: active ? `${C.accent}12` : C.white, color: active ? C.accent : C.slateLight, fontSize: 13, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
-              {label}
-            </button>
-          );
-        })}
-      </div>
+      {!soloMode && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {["My Stats", "Family"].map((label, i) => {
+            const active = i === 0 ? !showFamily : showFamily;
+            return (
+              <button key={label} onClick={() => setShowFamily(i === 1)}
+                style={{ flex: 1, padding: "9px 0", borderRadius: 12, border: `1.5px solid ${active ? C.accent : C.sandDark}`, background: active ? `${C.accent}12` : C.white, color: active ? C.accent : C.slateLight, fontSize: 13, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* 0. Your Weekly Summary (My Stats only) */}
       {!showFamily && currentMember && weeklySummary && insightCard(<>
@@ -2218,7 +2256,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       </>)}
 
       {/* 1. Family Highlights (Family view only) */}
-      {showFamily && insightCard(<>
+      {!soloMode && showFamily && insightCard(<>
         {cardHeader("🏆", "Family Highlights", C.warm)}
         {!hasWeekData ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>Complete some habits this week to see highlights!</div>
@@ -2315,7 +2353,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       </>)}
 
       {/* 5. Kids Leaderboard (Family view only) */}
-      {showFamily && kidsBoard && insightCard(<>
+      {!soloMode && showFamily && kidsBoard && insightCard(<>
         {cardHeader("🏆", "Kids Leaderboard", C.kids)}
         {kidsBoard.every(k => k.taps === 0) ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>No completions this week yet — let's go!</div>
@@ -2609,7 +2647,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
       <div key={`a0i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Welcome to Ritual</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode ? "Habit tracking, just for you" : "Habit tracking for the whole family"}</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode ? "Your habits. Your pace. Your ritual." : "Habit tracking for the whole family"}</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
         <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto" }}>New to Ritual? Let's get set up →</button>
@@ -2621,7 +2659,9 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
       <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>{soloMode ? "Build habits that stick" : "Build habits as a family"}</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Ritual uses physical tiles placed around your home. Tap your phone to a tile and the habit logs instantly — no app hunting, no friction.</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode
+          ? "Ritual uses physical tiles placed around your home. Tap your phone to a tile and it logs instantly — no friction, no forgetting."
+          : "Ritual uses physical tiles placed around your home. Tap your phone to a tile and the habit logs instantly — no app hunting, no friction."}</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
         <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto" }}>Next →</button>
@@ -2693,14 +2733,21 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
       <div key={`a5i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>You're all set</div>
-        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode ? "Every time you tap a tile, you'll see your streak and your points grow. Your rituals, your progress." : "When someone taps a tile, you'll see who did it, their streak, and their points. The whole family in one place."}</div>
+        <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode
+          ? "Tap a tile and the habit logs instantly. Your streak grows. Your rituals become automatic."
+          : "When someone taps a tile, you'll see who did it, their streak, and their points. The whole family in one place."}</div>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-        {(soloMode ? [["🔥", "Streaks"], ["⭐", "Points"], ["🎯", "Goals"]] : [["🔥", "Streaks"], ["⭐", "Points"], ["👨‍👩‍👧", "Family"]]).map(([icon, label], i) => (
+        {[["🔥", "Streaks"], ["⭐", "Points"]].map(([icon, label], i) => (
           <div key={i} style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.white, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
             <span>{icon}</span><span>{label}</span>
           </div>
         ))}
+        {!soloMode && (
+          <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.white, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
+            <span>👨‍👩‍👧</span><span>Family</span>
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: "100%", marginTop: 4 }}>
         <button onClick={(e) => { e.stopPropagation(); onComplete(); }} style={{ ...btnPrimary, width: "100%", pointerEvents: "auto" }}>Let's add your first ritual →</button>
@@ -2822,6 +2869,7 @@ export default function RitualApp() {
     const todayConverted = getTodayIndex();
     return habits
       .filter(h => {
+        if (soloMode && h.isKid) return false;
         if (h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
         if (h.daysActive && h.daysActive.length > 0 && !h.daysActive.includes(todayConverted)) return false;
         return true;
@@ -2992,7 +3040,7 @@ export default function RitualApp() {
     const habit = habitsWithTaps.find(h => h.id === habitId);
     if (!habit) return;
     // Show "Who did this?" for kids habits OR shared habits when no member specified
-    if ((habit.isKid || habit.isShared) && !member) { setWhoDidThis(habit); return; }
+    if (!soloMode && (habit.isKid || habit.isShared) && !member) { setWhoDidThis(habit); return; }
     const resolvedMember = member || currentMember;
     const today = todayKey();
     const currentTaps = habit.taps || 0;
@@ -3401,15 +3449,15 @@ export default function RitualApp() {
 
   const TABS = [
     { id: "today", icon: "◈", label: "Today" },
-    { id: "family", icon: "◉", label: soloMode ? "Progress" : "Family" },
+    { id: "family", icon: soloMode ? "◎" : "◉", label: soloMode ? "Progress" : "Family" },
     { id: "add", icon: "⊕", label: "Add" },
-    { id: "insights", icon: "◎", label: "Insights" },
+    { id: "insights", icon: soloMode ? "◉" : "◎", label: "Insights" },
     { id: "settings", icon: "⚙", label: "Settings" },
   ];
 
   const headings = {
     today: `${getGreeting()}, ${currentMember?.name || family.name}`,
-    family: soloMode ? "My Progress" : `The ${family.name}s`,
+    family: soloMode ? "Your Progress" : `The ${family.name}s`,
     add: "Set Up",
     insights: "Insights",
     settings: "Settings",
@@ -3475,7 +3523,7 @@ export default function RitualApp() {
               {tab === "family" && (soloMode ? "personal dashboard" : `${family.members?.length || 0} members`)}
               {tab === "add" && "Habits, tiles & rewards"}
               {tab === "insights" && "Your habit data"}
-              {tab === "settings" && family.name}
+              {tab === "settings" && (soloMode ? currentMember?.name : family.name)}
             </div>
           </div>
           {!soloMode && family.members?.length > 0 && (
@@ -3501,15 +3549,22 @@ export default function RitualApp() {
             </div>
           )}
           {family.members?.length > 1 && (
-            <div onClick={toggleSoloMode} style={{
-              display: "inline-flex", alignItems: "center", gap: 5,
-              padding: "4px 12px", borderRadius: 20, cursor: "pointer",
-              background: soloMode ? `${C.accent}20` : "rgba(0,0,0,0.06)",
-              border: `1px solid ${soloMode ? C.accent + "50" : "rgba(0,0,0,0.1)"}`,
-              fontSize: 11, fontWeight: 600, color: soloMode ? C.accent : C.slateLight,
-              letterSpacing: 0.3, transition: "all 0.2s ease", marginTop: 4,
+            <div style={{
+              display: "inline-flex", background: C.sand,
+              borderRadius: 20, padding: 3, gap: 2, marginTop: 10,
             }}>
-              {soloMode ? "Solo" : "Family"}
+              {[
+                { label: "Family", active: !soloMode },
+                { label: "Just me", active: soloMode },
+              ].map(({ label, active }) => (
+                <div key={label} onClick={toggleSoloMode} style={{
+                  padding: "5px 14px", borderRadius: 14, fontSize: 11,
+                  fontWeight: 500, cursor: "pointer", transition: "all 0.2s",
+                  background: active ? C.white : "transparent",
+                  color: active ? C.slate : C.slateLight,
+                  boxShadow: active ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                }}>{label}</div>
+              ))}
             </div>
           )}
         </div>
@@ -3528,9 +3583,20 @@ export default function RitualApp() {
               soloMode={soloMode}
             />
           )}
-          {tab === "family" && <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />}
-          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} />}
-          {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} />}
+          {tab === "family" && !soloMode && (
+            <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />
+          )}
+          {tab === "family" && soloMode && (
+            <div style={{ padding: "20px 24px 110px" }}>
+              <div style={{ background: C.white, borderRadius: 20, padding: 32, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+                <div style={{ fontSize: 40, marginBottom: 16 }}>◎</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 8 }}>Your Progress</div>
+                <div style={{ fontSize: 13, color: C.slateLight, lineHeight: 1.6 }}>Personal insights and streak history coming soon.</div>
+              </div>
+            </div>
+          )}
+          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} soloMode={soloMode} />}
+          {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} />}
           {tab === "settings" && <SettingsScreen family={family} currentMember={currentMember} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} />}
         </div>
 
