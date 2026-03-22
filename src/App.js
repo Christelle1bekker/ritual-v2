@@ -902,9 +902,9 @@ function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, 
         {/* Week chart */}
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>{soloMode ? "My Progress This Week" : "Family Progress This Week"}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>{soloMode ? "Your Progress This Week" : "Family Progress This Week"}</div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>{soloMode ? "Personal completion rate" : "Household completion rate"}</div>
+              <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>{soloMode ? "Your completion rate" : "Household completion rate"}</div>
               <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
                 {weekData[todayIndex] !== null ? `${weekData[todayIndex]}%` : "—"}
               </div>
