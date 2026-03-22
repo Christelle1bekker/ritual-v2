@@ -429,7 +429,7 @@ function LoginScreen({ onLogin }) {
     try {
       const { data: existingRows } = await supabase.rpc('login_family', { family_pin: pin });
       if (existingRows?.length > 0) { setError("That PIN is already taken. Choose another."); return; }
-      const { data: newRows, error: fe } = await supabase.from("families").insert({ name: familyName.trim(), pin }).select();
+      const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: familyName.trim(), family_pin: pin });
       if (fe || !newRows?.[0]) { setError("Failed to create family. Try again."); return; }
       setCreatedFamilyId(newRows[0].id);
       setView("addMembers");
@@ -444,7 +444,7 @@ function LoginScreen({ onLogin }) {
     try {
       const soloPin = String(Math.floor(Math.random() * 9000) + 1000);
       const soloName = memberName.trim() || "Me";
-      const { data: newRows, error: fe } = await supabase.from("families").insert({ name: `${soloName}'s Rituals`, pin: soloPin }).select();
+      const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: `${soloName}'s Rituals`, family_pin: soloPin });
       if (fe || !newRows?.[0]) { setError("Failed to set up. Try again."); return; }
       const familyId = newRows[0].id;
       const { error: me } = await supabase.from("members").insert({
