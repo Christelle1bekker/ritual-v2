@@ -117,9 +117,9 @@ function normalizeCompletion(c) {
 }
 
 // ─── SUPABASE FETCH HELPERS ───────────────────────────────────────
-async function fetchFamilyData(pin) {
+async function fetchFamilyData(pin, familyName) {
   if (!supabase) return null;
-  const { data: famRows, error: famErr } = await supabase.rpc('login_family', { family_pin: pin });
+  const { data: famRows, error: famErr } = await supabase.rpc('login_family', { family_name: familyName, family_pin: pin });
   if (famErr || !famRows?.[0]) { console.error("❌ fetchFamilyData error:", famErr); return null; }
   const fam = famRows[0];
   const [{ data: members }, { data: habits }, { data: rewards }] = await Promise.all([
@@ -411,10 +411,10 @@ function LoginScreen({ onLogin }) {
     if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
     setLoading(true);
     try {
-      const familyData = await fetchFamilyData(pin);
-      if (!familyData) { setError("No family found with that PIN."); return; }
-      if (familyData.name.toLowerCase() !== familyName.trim().toLowerCase()) { setError("Family name doesn't match that PIN."); return; }
+      const familyData = await fetchFamilyData(pin, familyName.trim());
+      if (!familyData) { setError("No family found with that name and PIN combination."); return; }
       localStorage.setItem("ritual_savedPin", pin);
+      localStorage.setItem("ritual_savedFamilyName", familyData.name);
       onLogin(familyData);
     } catch { setError("Something went wrong. Please try again."); }
     finally { setLoading(false); }
@@ -427,8 +427,8 @@ function LoginScreen({ onLogin }) {
     if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
     setLoading(true);
     try {
-      const { data: existingRows } = await supabase.rpc('login_family', { family_pin: pin });
-      if (existingRows?.length > 0) { setError("That PIN is already taken. Choose another."); return; }
+      const { data: existingRows } = await supabase.rpc('login_family', { family_name: familyName.trim(), family_pin: pin });
+      if (existingRows?.length > 0) { setError("A family with this name and PIN already exists. Try a different name or PIN."); return; }
       const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: familyName.trim(), family_pin: pin });
       if (fe || !newRows?.[0]) { setError("Failed to create family. Try again."); return; }
       setCreatedFamilyId(newRows[0].id);
@@ -440,13 +440,14 @@ function LoginScreen({ onLogin }) {
   const handleCreateSolo = async () => {
     setError("");
     const soloName = familyName.trim() || "Me";
+    const createdName = `${soloName}'s Rituals`;
     if (pin.length !== 4 || !/^\d+$/.test(pin)) { setError("Choose a 4-digit PIN to get back in"); return; }
     if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
     setLoading(true);
     try {
-      const { data: existingRows } = await supabase.rpc('login_family', { family_pin: pin });
-      if (existingRows?.length > 0) { setError("That PIN is already taken. Choose another."); return; }
-      const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: `${soloName}'s Rituals`, family_pin: pin });
+      const { data: existingRows } = await supabase.rpc('login_family', { family_name: createdName, family_pin: pin });
+      if (existingRows?.length > 0) { setError("That name and PIN combination is already taken. Choose another."); return; }
+      const { data: newRows, error: fe } = await supabase.rpc('create_family', { family_name: createdName, family_pin: pin });
       if (fe || !newRows?.[0]) { setError("Failed to set up. Try again."); return; }
       const familyId = newRows[0].id;
       const { error: me } = await supabase.from("members").insert({
@@ -455,8 +456,9 @@ function LoginScreen({ onLogin }) {
       });
       if (me) { setError("Failed to set up. Try again."); return; }
       localStorage.setItem("ritual_savedPin", pin);
+      localStorage.setItem("ritual_savedFamilyName", createdName);
       localStorage.setItem("ritual_soloMode", "true");
-      const familyData = await fetchFamilyData(pin);
+      const familyData = await fetchFamilyData(pin, createdName);
       if (!familyData) { setError("Setup done but failed to load. Try logging in."); return; }
       onLogin(familyData);
     } catch { setError("Something went wrong. Please try again."); }
@@ -488,9 +490,10 @@ function LoginScreen({ onLogin }) {
         { family_id: createdFamilyId, name: "Choose dinner", points: 20, icon: "🍕", who: "Everyone", color: C.accent },
         { family_id: createdFamilyId, name: "Family movie night", points: 30, icon: "🎬", who: "Everyone", color: C.green },
       ]);
-      const familyData = await fetchFamilyData(pin);
+      const familyData = await fetchFamilyData(pin, familyName.trim());
       if (!familyData) { setError("Setup done but failed to load. Try logging in."); return; }
       localStorage.setItem("ritual_savedPin", pin);
+      localStorage.setItem("ritual_savedFamilyName", familyName.trim());
       onLogin(familyData);
     } catch { setError("Something went wrong. Please try again."); }
     finally { setLoading(false); }
@@ -2027,7 +2030,8 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     const earlyTaps = {}, nightTaps = {};
     weekCompletions.forEach(c => {
       if (!c.completedAt || c.taps <= 0) return;
-      const h = new Date(c.completedAt).getHours();
+      const rawTs = c.completedAt;
+      const h = new Date(/Z|[+-]\d{2}:?\d{2}$/.test(rawTs) ? rawTs : rawTs + 'Z').getHours();
       if (h < 9) earlyTaps[c.memberId] = (earlyTaps[c.memberId] || 0) + 1;
       if (h >= 20) nightTaps[c.memberId] = (nightTaps[c.memberId] || 0) + 1;
     });
@@ -2064,7 +2068,8 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     let total = 0;
     filteredWeek.forEach(c => {
       if (!c.completedAt || c.taps <= 0) return;
-      const h = new Date(c.completedAt).getHours();
+      const rawTs = c.completedAt;
+      const h = new Date(/Z|[+-]\d{2}:?\d{2}$/.test(rawTs) ? rawTs : rawTs + 'Z').getHours();
       total++;
       if (h >= 6 && h < 12) counts[0]++;
       else if (h >= 12 && h < 18) counts[1]++;
@@ -2574,6 +2579,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
         {(window.location.hostname === 'localhost' || window.location.search.includes('debug=true')) && (
           <button onClick={() => {
             localStorage.removeItem("ritual_savedPin");
+            localStorage.removeItem("ritual_savedFamilyName");
             localStorage.removeItem("ritual_currentMemberId");
             localStorage.removeItem("ritual_soloMode");
             localStorage.removeItem("ritual_soundEnabled");
@@ -2874,29 +2880,30 @@ export default function RitualApp() {
     });
   }, [habits, todayCompletions, family?.members]);
 
-  // ─── myHabitsWithTaps: habits visible to current member, per-member taps ────
+  // ─── myHabitsWithTaps: habits for Today tab, soloMode-aware ────
   const myHabitsWithTaps = useMemo(() => {
     if (!currentMember) return habitsWithTaps;
-    const todayConverted = getTodayIndex();
     return habits
       .filter(h => {
         if (soloMode && h.isKid) return false;
-        if (h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
-        if (h.daysActive && h.daysActive.length > 0 && !h.daysActive.includes(todayConverted)) return false;
+        if (soloMode && h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
+        if (h.daysActive && h.daysActive.length > 0 && !h.daysActive.includes(todayIndex)) return false;
         return true;
       })
       .map(h => {
-        const myCompletions = todayCompletions.filter(c => c.habitId === h.id && c.memberId === currentMember.id);
-        const myTaps = myCompletions.reduce((sum, c) => sum + c.taps, 0);
-        const topCompletion = [...myCompletions].sort((a, b) => b.taps - a.taps)[0];
-        return {
-          ...h,
-          taps: myTaps,
-          completedById: topCompletion?.memberId || null,
-          completedBy: topCompletion ? family?.members?.find(m => m.id === topCompletion.memberId)?.name : null,
-        };
+        if (soloMode) {
+          const myCompletions = todayCompletions.filter(c => c.habitId === h.id && c.memberId === currentMember.id);
+          const myTaps = myCompletions.reduce((sum, c) => sum + c.taps, 0);
+          const topCompletion = [...myCompletions].sort((a, b) => b.taps - a.taps)[0];
+          return { ...h, taps: myTaps, completedById: topCompletion?.memberId || null, completedBy: topCompletion ? family?.members?.find(m => m.id === topCompletion.memberId)?.name : null };
+        } else {
+          const allCompletions = todayCompletions.filter(c => c.habitId === h.id);
+          const totalTaps = allCompletions.reduce((sum, c) => sum + c.taps, 0);
+          const topCompletion = [...allCompletions].sort((a, b) => b.taps - a.taps)[0];
+          return { ...h, taps: totalTaps, completedById: topCompletion?.memberId || null, completedBy: topCompletion ? family?.members?.find(m => m.id === topCompletion.memberId)?.name : null };
+        }
       });
-  }, [habits, todayCompletions, currentMember, family?.members, habitsWithTaps]);
+  }, [habits, todayCompletions, currentMember, family?.members, soloMode, todayIndex, habitsWithTaps]);
 
   // ─── weekData: compute from completions ─────────────────────────
   const weekData = useMemo(() => {
@@ -3002,10 +3009,15 @@ export default function RitualApp() {
     const init = async () => {
       try {
         const savedPin = localStorage.getItem("ritual_savedPin");
-        if (savedPin && supabase) {
-          const familyData = await fetchFamilyData(savedPin);
+        const savedFamilyName = localStorage.getItem("ritual_savedFamilyName");
+        if (savedPin && savedFamilyName && supabase) {
+          const familyData = await fetchFamilyData(savedPin, savedFamilyName);
           if (familyData) { await loadDataForFamily(familyData); return; }
-          console.warn("⚠️ Saved PIN invalid, clearing");
+          console.warn("⚠️ Saved credentials invalid, clearing");
+          localStorage.removeItem("ritual_savedPin");
+          localStorage.removeItem("ritual_savedFamilyName");
+        } else if (savedPin) {
+          // Migration: old session without family name — force re-login
           localStorage.removeItem("ritual_savedPin");
         }
       } catch (e) {
@@ -3043,7 +3055,7 @@ export default function RitualApp() {
     setFamily(null); setHabits([]); setTodayCompletions([]); setWeekCompletions([]);
     setCurrentMember(null); setFlashData(null); setWhoDidThis(null);
     setSoloMode(false);
-    localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_currentMemberId");
+    localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_savedFamilyName"); localStorage.removeItem("ritual_currentMemberId");
     localStorage.removeItem("ritual_soloMode");
   };
 
