@@ -83,6 +83,13 @@ function getWeekDates() {
   });
 }
 
+// Safe date arithmetic on YYYY-MM-DD strings — avoids UTC parsing issues (#11)
+function isoAddDays(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return [dt.getFullYear(), String(dt.getMonth() + 1).padStart(2, '0'), String(dt.getDate()).padStart(2, '0')].join('-');
+}
+
 // ─── SUPABASE NORMALISERS ─────────────────────────────────────────
 function normalizeMember(m) {
   return {
@@ -539,6 +546,12 @@ function LoginScreen({ onLogin }) {
         color: SETUP_MEMBER_COLORS[0], is_kid: false, points: 0, streak: 0,
       });
       if (me) { setError("Failed to set up. Try again."); return; }
+      // Seed starter rewards for solo users (#17)
+      await supabase.from("rewards").insert([
+        { family_id: familyId, name: "Movie night pick", points: 30, icon: "🎬", who: "Everyone", color: C.accent },
+        { family_id: familyId, name: "Choose dinner tonight", points: 20, icon: "🍕", who: "Everyone", color: C.accent },
+        { family_id: familyId, name: "30 min guilt-free downtime", points: 25, icon: "📱", who: "Everyone", color: C.green },
+      ]);
       localStorage.setItem("ritual_savedPin", pin);
       localStorage.setItem("ritual_savedFamilyName", createdName);
       localStorage.setItem("ritual_soloMode", "true");
@@ -630,9 +643,11 @@ function LoginScreen({ onLogin }) {
           >
             <span>Get started</span><span>→</span>
           </button>
-          <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setView("join"); }} style={btnGhost}>
-            I already have a family code
-          </button>
+          {useMode === "family" && (
+            <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setView("join"); }} style={btnGhost}>
+              I already have a family code
+            </button>
+          )}
         </div>
       </>)}
 
@@ -1032,8 +1047,12 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
 
 // ─── KIDS JAR VIEW ────────────────────────────────────────────────
 function KidsJarView({ habits, currentMember, allMembers, onComplete, onUndo, onClaimReward, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled }) {
-  const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
-  const total = habits.length;
+  // Fix #5: only count habits assigned to this kid (or unassigned = everyone)
+  const myHabits = habits.filter(h =>
+    !h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember?.id)
+  );
+  const done = myHabits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
+  const total = myHabits.length;
   const pct = total > 0 ? done / total : 0;
   const allDone = total > 0 && done === total;
   const pts = currentMember?.points || 0;
@@ -1127,7 +1146,7 @@ function KidsJarView({ habits, currentMember, allMembers, onComplete, onUndo, on
           <>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#7A7060", marginBottom: 10, letterSpacing: 0.5 }}>Today's Habits</div>
             <div className="habit-grid">
-              {habits.map(h => (
+              {myHabits.map(h => (
                 <HabitCard key={h.id} habit={h} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} />
               ))}
             </div>
@@ -2394,12 +2413,14 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       if (!h.assignedMemberIds || h.assignedMemberIds.length === 0) return myCompletions.some(c => c.habitId === h.id);
       return h.assignedMemberIds.includes(currentMember.id);
     });
-    const totalPossible = myHabits.length * 7;
+    // Fix #8: denominator = days elapsed this week, not a full 7 (avoids deflated % early in week)
+    const daysElapsed = Math.max(getTodayIndex() + 1, 1);
+    const totalPossible = myHabits.length * daysElapsed;
     const completed = myCompletions.length;
     const percentage = totalPossible > 0 ? Math.round((completed / totalPossible) * 100) : 0;
     const habitStats = myHabits.map(h => {
       const count = myCompletions.filter(c => c.habitId === h.id).length;
-      return { name: h.name, icon: h.icon, rate: Math.round((count / 7) * 100) };
+      return { name: h.name, icon: h.icon, rate: Math.round((count / daysElapsed) * 100) };
     }).sort((a, b) => b.rate - a.rate);
     return { completed, totalPossible, percentage, bestHabit: habitStats[0] || null, streak: currentMember.streak || 0 };
   }, [weekCompletions, habits, currentMember]);
@@ -2409,12 +2430,9 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     if (!filteredAnalytics) return null;
     const weekDates = getWeekDates();
     const thisWeekStart = weekDates[0];
-    const lastWeekEnd = new Date(weekDates[0]);
-    lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
-    const lastWeekStart = new Date(lastWeekEnd);
-    lastWeekStart.setDate(lastWeekStart.getDate() - 6);
-    const lwStartStr = lastWeekStart.toISOString().split("T")[0];
-    const lwEndStr = lastWeekEnd.toISOString().split("T")[0];
+    // Fix #11: use isoAddDays to avoid UTC-parse timezone drift
+    const lwEndStr = isoAddDays(weekDates[0], -1);   // last Sunday
+    const lwStartStr = isoAddDays(weekDates[0], -7); // last Monday
 
     const visibleHabits = (!showingFamily && currentMember)
       ? habits.filter(h => !h.assignedMemberIds || h.assignedMemberIds.length === 0 || h.assignedMemberIds.includes(currentMember.id))
@@ -3362,23 +3380,39 @@ export default function RitualApp() {
       });
   }, [habits, todayCompletions, currentMember, family?.members, soloMode, todayIndex, habitsWithTaps]);
 
-  // ─── weekData: compute from completions ─────────────────────────
+  // ─── weekData: compute from completions, soloMode-aware (#4) ────
   const weekData = useMemo(() => {
     if (habits.length === 0) return [null, null, null, null, null, null, null];
     const weekDates = getWeekDates();
     const result = Array(7).fill(null);
-    // Today
-    const todayDone = habitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
-    result[todayIndex] = Math.round((todayDone / habits.length) * 100);
-    // Past days
-    for (let i = 0; i < todayIndex; i++) {
-      const dateStr = weekDates[i];
-      const dayCompletions = weekCompletions.filter(c => c.date === dateStr);
-      const completedIds = new Set(dayCompletions.filter(c => c.taps > 0).map(c => c.habitId));
-      result[i] = Math.round((completedIds.size / habits.length) * 100);
+    if (soloMode && currentMember) {
+      // Solo mode: show only this member's personal completions
+      const myHabitIds = new Set(habits
+        .filter(h => !h.isKid && (!h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember.id)))
+        .map(h => h.id));
+      const denominator = Math.max(myHabitIds.size, 1);
+      // Today: count from myHabitsWithTaps (already filtered to member)
+      const todayDone = myHabitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
+      result[todayIndex] = Math.round((todayDone / denominator) * 100);
+      // Past days: filter completions to this member's habits only
+      for (let i = 0; i < todayIndex; i++) {
+        const dateStr = weekDates[i];
+        const dayCompletions = weekCompletions.filter(c => c.date === dateStr && c.memberId === currentMember.id && c.taps > 0 && myHabitIds.has(c.habitId));
+        result[i] = Math.round((dayCompletions.length / denominator) * 100);
+      }
+    } else {
+      // Family mode: household aggregate (any habit done by anyone)
+      const todayDone = habitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
+      result[todayIndex] = Math.round((todayDone / habits.length) * 100);
+      for (let i = 0; i < todayIndex; i++) {
+        const dateStr = weekDates[i];
+        const dayCompletions = weekCompletions.filter(c => c.date === dateStr);
+        const completedIds = new Set(dayCompletions.filter(c => c.taps > 0).map(c => c.habitId));
+        result[i] = Math.round((completedIds.size / habits.length) * 100);
+      }
     }
     return result;
-  }, [habitsWithTaps, habits, weekCompletions, todayIndex]);
+  }, [habitsWithTaps, myHabitsWithTaps, habits, weekCompletions, todayIndex, soloMode, currentMember]);
 
   // ─── Daily reset detection ───────────────────────────────────────
   const checkDateBoundary = useCallback(() => {
@@ -3444,8 +3478,9 @@ export default function RitualApp() {
       // Migration path: members created before this column existed should be treated as onboarded
       const isReturning = activeMember.createdAt &&
         (Date.now() - new Date(activeMember.createdAt).getTime()) > 24 * 60 * 60 * 1000;
-      if (isReturning || activeMember.isKid) {
-        // Silently backfill the flag so this only runs once (kids have no onboarding)
+      const activeMemberIsAdmin = familyData.members?.[0]?.id === activeMember.id;
+      if (isReturning || (activeMember.isKid && !activeMemberIsAdmin)) {
+        // Silently backfill: kids skip onboarding unless they're the account admin (#12)
         supabase?.from("members").update({ onboarding_complete: true }).eq("id", activeMember.id);
       } else {
         setShowOnboarding(true);
@@ -3519,12 +3554,35 @@ export default function RitualApp() {
   const handleComplete = async (habitId, member, fromDigital) => {
     const habit = habitsWithTaps.find(h => h.id === habitId);
     if (!habit) return;
-    // Show "Who did this?" for kids habits OR shared habits when no member specified
-    if (!soloMode && (habit.isKid || habit.isShared) && !member) { setWhoDidThis(habit); return; }
-    const resolvedMember = member || currentMember;
+
+    // ── Resolve who completed this habit (#6, #7) ──────────────────
+    // Logic mirrors tile-tap: ask WhoDidThis for kid/unassigned/multi-person habits;
+    // auto-assign individual habits to their single assigned member.
+    let resolvedMember = member;
+    if (!resolvedMember) {
+      const ids = habit.assignedMemberIds;
+      const askWho = !soloMode && (
+        habit.isKid ||          // kid habit always asks
+        !ids ||                 // unassigned = everyone
+        ids.length === 0 ||     // unassigned = everyone
+        ids.length > 1          // multi-person habit
+      );
+      if (askWho) { setWhoDidThis(habit); return; }
+      // Individual habit assigned to exactly one specific member: auto-assign (#6)
+      if (ids?.length === 1 && ids[0] !== currentMember?.id) {
+        resolvedMember = family?.members?.find(m => m.id === ids[0]) || currentMember;
+      } else {
+        resolvedMember = currentMember;
+      }
+    }
+
     const today = todayKey();
-    const currentTaps = habit.taps || 0;
-    const newTaps = currentTaps + 1;
+    // Fix #13: use this member's own tap count, not the family aggregate from habit.taps
+    const memberCompletion = todayCompletions.find(c => c.habitId === habitId && c.memberId === resolvedMember?.id);
+    const memberCurrentTaps = memberCompletion?.taps || 0;
+    const memberNewTaps = memberCurrentTaps + 1;
+    // Display taps = aggregate + 1, used for flash animation and UI "done" check
+    const displayTaps = (habit.taps || 0) + 1;
 
     // Optimistic update first (instant UI feedback)
     setTodayCompletions(prev => {
@@ -3535,14 +3593,19 @@ export default function RitualApp() {
     const habitPointValue = habit.points || 10;
     if (resolvedMember) {
       setFamily(f => ({ ...f, members: f.members.map(m => m.id === resolvedMember.id ? { ...m, points: (m.points || 0) + habitPointValue } : m) }));
+      // Fix #2: keep currentMember in sync so KidsJarView points badge updates live
+      if (currentMember?.id === resolvedMember.id) {
+        setCurrentMember(m => ({ ...m, points: (m.points || 0) + habitPointValue }));
+      }
     }
     setWhoDidThis(null);
-    setFlashData({ habit: { ...habit, taps: newTaps }, member: resolvedMember });
+    setFlashData({ habit: { ...habit, taps: displayTaps }, member: resolvedMember });
 
     // Await Supabase sync (ensures multi-device consistency)
     if (supabase && resolvedMember) {
+      // Fix #13: upsert uses per-member tap count, not aggregate
       const { error } = await supabase.from("completions").upsert(
-        { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: newTaps },
+        { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: memberNewTaps },
         { onConflict: "habit_id,member_id,date" }
       );
       if (error) console.error("❌ Completion sync failed:", error);
@@ -3552,16 +3615,15 @@ export default function RitualApp() {
         const otherMembers = habit.assignedMemberIds.filter(id => id !== resolvedMember.id);
         if (otherMembers.length > 0) {
           const sharedCompletions = otherMembers.map(memberId => ({
-            habit_id: habitId, member_id: memberId, family_id: family.id, date: today, taps: newTaps,
+            habit_id: habitId, member_id: memberId, family_id: family.id, date: today, taps: memberNewTaps,
           }));
           await supabase.from("completions").upsert(sharedCompletions, { onConflict: 'habit_id,member_id,date' });
-          // Also update local state so switching members shows correct progress
           setTodayCompletions(prev => {
             let updated = [...prev];
             otherMembers.forEach(memberId => {
               const idx = updated.findIndex(c => c.habitId === habitId && c.memberId === memberId);
-              if (idx >= 0) { updated[idx] = { ...updated[idx], taps: newTaps }; }
-              else { updated.push({ id: `opt_shared_${Date.now()}_${memberId}`, habitId, memberId, familyId: family.id, date: today, taps: newTaps }); }
+              if (idx >= 0) { updated[idx] = { ...updated[idx], taps: memberNewTaps }; }
+              else { updated.push({ id: `opt_shared_${Date.now()}_${memberId}`, habitId, memberId, familyId: family.id, date: today, taps: memberNewTaps }); }
             });
             return updated;
           });
@@ -3574,20 +3636,24 @@ export default function RitualApp() {
       const { error: pe } = await supabase.from("members").update({ points: freshPoints + habitPointValue }).eq("id", resolvedMember.id);
       if (pe) console.error("❌ Points sync failed:", pe);
 
-      // ── Streak logic: only on first tap of this habit today ──────
-      if (currentTaps === 0) {
+      // Streak logic: only on first tap of this habit by this member today
+      if (memberCurrentTaps === 0) {
         const { data: yComp } = await supabase.from("completions").select("id").eq("habit_id", habitId).eq("date", getYesterdayKey()).maybeSingle();
         const newHabitStreak = yComp ? (habit.streak || 0) + 1 : 1;
         await supabase.from("habits").update({ streak: newHabitStreak }).eq("id", habitId);
         setHabits(prev => prev.map(h => h.id === habitId ? { ...h, streak: newHabitStreak } : h));
 
-        // Member streak: only on their first completion of any habit today
+        // Member streak: only on their very first completion of ANY habit today (#3 fix: === 0 not <= 1)
         const memberTodayCount = todayCompletions.filter(c => c.memberId === resolvedMember.id).length;
-        if (memberTodayCount <= 1) {
+        if (memberTodayCount === 0) {
           const { data: mYest } = await supabase.from("completions").select("id").eq("member_id", resolvedMember.id).eq("date", getYesterdayKey()).limit(1).maybeSingle();
           const newMemberStreak = mYest ? (resolvedMember.streak || 0) + 1 : 1;
           await supabase.from("members").update({ streak: newMemberStreak }).eq("id", resolvedMember.id);
           setFamily(f => ({ ...f, members: f.members.map(m => m.id === resolvedMember.id ? { ...m, streak: newMemberStreak } : m) }));
+          // Fix #2: sync currentMember streak so KidsJarView badge updates live
+          if (currentMember?.id === resolvedMember.id) {
+            setCurrentMember(m => ({ ...m, streak: newMemberStreak }));
+          }
         }
       }
     }
@@ -3721,7 +3787,12 @@ export default function RitualApp() {
   const handleDeleteHabit = async (habitId) => {
     setHabits(prev => prev.filter(h => h.id !== habitId));
     setTodayCompletions(prev => prev.filter(c => c.habitId !== habitId));
-    if (supabase) await supabase.from("habits").delete().eq("id", habitId);
+    setWeekCompletions(prev => prev.filter(c => c.habitId !== habitId));
+    if (supabase) {
+      // Delete all historical completions first (#9), then the habit itself
+      await supabase.from("completions").delete().eq("habit_id", habitId);
+      await supabase.from("habits").delete().eq("id", habitId);
+    }
   };
 
   // ─── Reward handlers ─────────────────────────────────────────────
@@ -3830,7 +3901,7 @@ export default function RitualApp() {
   const handleRefreshData = async () => {
     if (!supabase || !family) return;
     const [freshFamily, todayData, weekData] = await Promise.all([
-      fetchFamilyData(family.pin),
+      fetchFamilyData(family.pin, family.name),
       fetchTodayCompletions(family.id),
       fetchWeekCompletions(family.id),
     ]);
@@ -3865,8 +3936,22 @@ export default function RitualApp() {
 
   const handleRemoveMember = async (memberId) => {
     setFamily(f => ({ ...f, members: f.members.filter(m => m.id !== memberId) }));
+    // Clean this member's ID out of all habit assignedMemberIds (#10)
+    setHabits(prev => prev.map(h => {
+      if (!h.assignedMemberIds?.includes(memberId)) return h;
+      const updated = h.assignedMemberIds.filter(id => id !== memberId);
+      return { ...h, assignedMemberIds: updated.length > 0 ? updated : null };
+    }));
     if (currentMember?.id === memberId) setCurrentMember(family?.members?.find(m => m.id !== memberId) || null);
-    if (supabase) await supabase.from("members").delete().eq("id", memberId);
+    if (supabase) {
+      await supabase.from("members").delete().eq("id", memberId);
+      // Update any habits in Supabase that referenced this member
+      const affectedHabits = habits.filter(h => h.assignedMemberIds?.includes(memberId));
+      for (const h of affectedHabits) {
+        const updated = h.assignedMemberIds.filter(id => id !== memberId);
+        await supabase.from("habits").update({ assigned_member_ids: updated.length > 0 ? updated : null }).eq("id", h.id);
+      }
+    }
   };
 
   // ─── Tile URL trigger ────────────────────────────────────────────
@@ -3923,8 +4008,9 @@ export default function RitualApp() {
   }, [family, mounted, habitsWithTaps, deepLinkTileUID]);
 
   if (!mounted) return (
-    <div style={{ minHeight: "100vh", background: C.sandLight, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ fontSize: 40, color: C.sandDark, opacity: 0.5 }}>◈</div>
+    <div style={{ minHeight: "100vh", background: C.sandLight, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+      <div style={{ fontSize: 40, color: C.sandDark, opacity: 0.5, animation: "pulse 1.5s ease-in-out infinite" }}>◈</div>
+      <div style={{ fontSize: 12, color: C.sandDark, opacity: 0.4, fontFamily: "'DM Sans', sans-serif", letterSpacing: 1 }}>Loading…</div>
     </div>
   );
   if (!family) return <LoginScreen onLogin={handleLogin} />;
@@ -3939,7 +4025,7 @@ export default function RitualApp() {
 
   const headings = {
     today: `${getGreeting()}, ${currentMember?.name || family.name}`,
-    family: soloMode ? "Your Progress" : `The ${family.name}s`,
+    family: soloMode ? "Your Progress" : `The ${family.name}${/[sxz]$|[^aeiou]h$/i.test(family.name) ? 'es' : 's'}`,
     add: "Set Up",
     insights: "Insights",
     settings: "Settings",
@@ -4000,7 +4086,7 @@ export default function RitualApp() {
         <div style={{ padding: "20px 24px 12px", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 4 }}>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", letterSpacing: -0.3, lineHeight: 1.1 }}>{headings[tab]}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", letterSpacing: -0.3, lineHeight: 1.1 }}>{headings[tab]}</div>
               <div style={{ fontSize: 12, color: C.slateLight, marginTop: 3 }}>
                 {tab === "today" && `${new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })} · ${doneTodayCount} of ${myHabitsWithTaps.length} complete`}
                 {tab === "family" && (soloMode ? "personal dashboard" : `${family.members?.length || 0} members`)}
