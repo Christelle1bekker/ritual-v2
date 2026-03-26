@@ -3,6 +3,7 @@ build/
 .env
 .env.local
 .env.production
+.env.vercel
 .DS_Store
 
 .vercel
