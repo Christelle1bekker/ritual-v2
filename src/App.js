@@ -406,10 +406,10 @@ function PinInput({ value, onChange }) {
           type="tel" inputMode="numeric" maxLength={2}
           value={value[i] || ''} onChange={e => handleChange(i, e)} onKeyDown={e => handleKeyDown(i, e)}
           style={{
-            flex: 1, height: 54, borderRadius: 8,
-            border: `1.5px solid ${value[i] ? 'rgba(196,123,74,0.4)' : '#E5DED4'}`,
+            flex: 1, maxWidth: 60, height: 52, borderRadius: 10,
+            border: `1.5px solid ${value[i] ? '#C47B4A' : '#E5DED4'}`,
             background: '#F7F4EF', textAlign: 'center',
-            fontSize: 20, fontWeight: 600, color: '#1E1C18',
+            fontSize: 20, fontWeight: 500, color: '#1E1C18',
             outline: 'none', fontFamily: "'DM Sans', sans-serif", caretColor: '#C47B4A',
           }}
         />
@@ -474,11 +474,12 @@ function LoginScreen({ onLogin }) {
     width: "100%", padding: "8px 0", cursor: "pointer", display: "block",
   };
   const twoToneOuter = {
-    minHeight: "100vh", maxWidth: 390, margin: "0 auto",
+    minHeight: "100vh", width: "100%", maxWidth: 390, margin: "0 auto",
     background: D.bgCream, display: "flex", flexDirection: "column",
+    boxSizing: "border-box",
     opacity: mounted ? 1 : 0, transition: "opacity 0.5s ease",
   };
-  const topSection = { padding: "64px 28px 40px" };
+  const topSection = { padding: "64px 24px 40px" };
   const bottomCard = {
     background: D.bgWhite, borderRadius: "20px 20px 0 0",
     flex: 1, padding: "28px 24px calc(40px + env(safe-area-inset-bottom))",
@@ -1029,8 +1030,126 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
   );
 }
 
+// ─── KIDS JAR VIEW ────────────────────────────────────────────────
+function KidsJarView({ habits, currentMember, allMembers, onComplete, onUndo, onClaimReward, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled }) {
+  const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
+  const total = habits.length;
+  const pct = total > 0 ? done / total : 0;
+  const allDone = total > 0 && done === total;
+  const pts = currentMember?.points || 0;
+  const streak = currentMember?.streak || 0;
+  // jar fill: 0px = empty, 108px = full (jar inner height)
+  const fillH = Math.round(pct * 108);
+  const jarY = 168 - fillH; // top of fill rect (jar bottom inner is ~168)
+
+  return (
+    <>
+      {whoDidThis && <WhoDidThis habit={whoDidThis} members={allMembers} onSelect={(m) => onComplete(whoDidThis.id, m, false)} onCancel={onWhoCancel} />}
+      {flashData && <CompletionFlash habit={flashData.habit} member={flashData.member} onDone={onFlashDone} onUndo={onFlashUndo} soundEnabled={soundEnabled} />}
+      <div style={{ padding: "0 20px 110px" }}>
+
+        {/* All-done celebration banner */}
+        {allDone && (
+          <div style={{ background: "linear-gradient(135deg, #C47B4A, #D4956A)", borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(196,123,74,0.3)" }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: "'DM Serif Display', serif" }}>Jar full! 🎉</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>All habits done — claim your reward!</div>
+            </div>
+            <button onClick={onClaimReward} style={{ background: "#fff", border: "none", borderRadius: 50, padding: "9px 16px", fontSize: 13, fontWeight: 700, color: "#C47B4A", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
+              Claim →
+            </button>
+          </div>
+        )}
+
+        {/* Jar + stats */}
+        <div style={{ background: "#fff", borderRadius: 24, padding: 24, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 24 }}>
+          {/* SVG Jar */}
+          <div style={{ flexShrink: 0 }}>
+            <svg width="90" height="120" viewBox="0 0 90 120" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <clipPath id="jarBodyClip">
+                  <path d="M14,38 L14,102 Q14,116 45,116 Q76,116 76,102 L76,38 Z" />
+                </clipPath>
+                <linearGradient id="jarFill" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#C47B4A" stopOpacity="0.7" />
+                  <stop offset="100%" stopColor="#D4956A" stopOpacity="0.85" />
+                </linearGradient>
+              </defs>
+              {/* Jar body */}
+              <path d="M14,38 L14,102 Q14,116 45,116 Q76,116 76,102 L76,38 Z"
+                fill="#F7F4EF" stroke="#D5CECC" strokeWidth="2" />
+              {/* Fill level */}
+              <rect x="14" y={jarY} width="62" height={fillH}
+                fill="url(#jarFill)" clipPath="url(#jarBodyClip)"
+                style={{ transition: "y 0.8s cubic-bezier(0.34,1.56,0.64,1), height 0.8s cubic-bezier(0.34,1.56,0.64,1)" }} />
+              {/* Jar neck */}
+              <rect x="26" y="20" width="38" height="20" rx="4"
+                fill="#F7F4EF" stroke="#D5CECC" strokeWidth="2" />
+              {/* Lid */}
+              <rect x="20" y="10" width="50" height="13" rx="5"
+                fill="#C47B4A" />
+              {/* Coin slot */}
+              <rect x="38" y="7" width="14" height="5" rx="2.5"
+                fill="#A85E35" />
+              {/* Jar highlight */}
+              <path d="M22,50 Q22,108 30,112" stroke="rgba(255,255,255,0.5)" strokeWidth="3" fill="none" strokeLinecap="round" />
+            </svg>
+          </div>
+
+          {/* Stats */}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, color: "#9A8E80", marginBottom: 4 }}>Today</div>
+            <div style={{ fontSize: 36, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>
+              {done}<span style={{ fontSize: 18, color: "#B0A498", fontWeight: 400 }}>/{total}</span>
+            </div>
+            <div style={{ fontSize: 12, color: "#9A8E80", marginBottom: 12 }}>habits done</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {streak > 0 && (
+                <div style={{ padding: "4px 10px", borderRadius: 20, background: "#FFF3EB", border: "1px solid #F5D9C4", fontSize: 12, fontWeight: 600, color: "#C47B4A" }}>
+                  🔥 {streak} day streak
+                </div>
+              )}
+              <div style={{ padding: "4px 10px", borderRadius: 20, background: "#F0EDE6", border: "1px solid #E5DED4", fontSize: 12, fontWeight: 600, color: "#7A7060" }}>
+                ⭐ {pts} pts
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Habits */}
+        {total === 0 ? (
+          <div style={{ background: "#fff", borderRadius: 24, padding: 36, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🫙</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Your jar is empty</div>
+            <div style={{ fontSize: 13, color: "#9A8E80", lineHeight: 1.6 }}>No habits yet — ask a parent to add some!</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#7A7060", marginBottom: 10, letterSpacing: 0.5 }}>Today's Habits</div>
+            <div className="habit-grid">
+              {habits.map(h => (
+                <HabitCard key={h.id} habit={h} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Claim reward CTA */}
+        <button onClick={onClaimReward} style={{ marginTop: 20, width: "100%", padding: "14px 20px", borderRadius: 50, background: allDone ? "#C47B4A" : "#F0EDE6", border: `1.5px solid ${allDone ? "#C47B4A" : "#D5CECC"}`, color: allDone ? "#fff" : "#9A8E80", fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", transition: "all 0.2s" }}>
+          <span>Claim a Reward</span>
+          <span>→</span>
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ─── TODAY SCREEN ─────────────────────────────────────────────────
-function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode }) {
+function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward }) {
+  if (currentMember?.isKid) {
+    return <KidsJarView habits={habits} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} />;
+  }
+
   const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
   const total = habits.length;
   const todayPct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -2430,6 +2549,39 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
         </div>
       </>)}
 
+      {/* Kids: Weekly Jar Strip */}
+      {!showingFamily && currentMember?.isKid && insightCard(<>
+        {cardHeader("🫙", "This Week's Jars", C.accent)}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
+          {getWeekDates().map((date, i) => {
+            const dayDone = filteredWeek.filter(c => c.date === date && c.taps > 0).length;
+            const dayHabits = habits.filter(h => !h.assignedMemberIds || h.assignedMemberIds.length === 0 || h.assignedMemberIds.includes(currentMember.id));
+            const possible = dayHabits.length;
+            const fillPct = possible > 0 ? dayDone / possible : 0;
+            const fillH = Math.round(fillPct * 38);
+            const jarY = 58 - fillH;
+            const dayLabel = ["M","T","W","T","F","S","S"][i];
+            const isToday = i === getTodayIndex();
+            return (
+              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                <svg width="28" height="38" viewBox="0 0 28 38" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <clipPath id={`mc${i}`}>
+                      <path d="M4,12 L4,32 Q4,37 14,37 Q24,37 24,32 L24,12 Z" />
+                    </clipPath>
+                  </defs>
+                  <path d="M4,12 L4,32 Q4,37 14,37 Q24,37 24,32 L24,12 Z" fill="#F7F4EF" stroke="#D5CECC" strokeWidth="1.5" />
+                  <rect x="4" y={jarY} width="20" height={fillH} fill={isToday ? "#C47B4A" : "#D4956A"} opacity="0.75" clipPath={`url(#mc${i})`} />
+                  <rect x="8" y="6" width="12" height="7" rx="1.5" fill="#F7F4EF" stroke="#D5CECC" strokeWidth="1.5" />
+                  <rect x="5" y="3" width="18" height="5" rx="2" fill={isToday ? "#C47B4A" : "#C4AA70"} />
+                </svg>
+                <div style={{ fontSize: 9, fontWeight: isToday ? 700 : 400, color: isToday ? C.accent : C.slateLight }}>{dayLabel}</div>
+              </div>
+            );
+          })}
+        </div>
+      </>)}
+
       {/* 1. Family Highlights (Family view only) */}
       {!soloMode && showingFamily && insightCard(<>
         {cardHeader("🏆", "Family Highlights", C.warm)}
@@ -2641,9 +2793,40 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 }
 
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────
-function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding, onToast }) {
+function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding, onToast, onEditMember, onRemoveMember }) {
   const [openHelp, setOpenHelp] = useState(null);
   const toggleHelp = (id) => setOpenHelp(prev => prev === id ? null : id);
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editIsKid, setEditIsKid] = useState(false);
+  const [editColor, setEditColor] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const isAdmin = family.members[0]?.id === currentMember?.id;
+
+  const startEdit = (m) => {
+    setEditingId(m.id);
+    setEditName(m.name);
+    setEditIsKid(!!m.isKid);
+    setEditColor(m.color || SETUP_MEMBER_COLORS[0]);
+    setConfirmDeleteId(null);
+  };
+  const cancelEdit = () => setEditingId(null);
+  const saveEdit = async () => {
+    if (!editName.trim()) return;
+    try {
+      await onEditMember(editingId, { name: editName.trim(), isKid: editIsKid, color: editColor, avatar: editName.trim()[0].toUpperCase() });
+      setEditingId(null);
+      onToast("Member updated");
+    } catch { onToast("❌ Failed to update member", "error"); }
+  };
+  const confirmDelete = (id) => setConfirmDeleteId(id);
+  const doDelete = async (id) => {
+    try {
+      await onRemoveMember(id);
+      setConfirmDeleteId(null);
+      onToast("Member removed");
+    } catch { onToast("❌ Failed to remove member", "error"); }
+  };
 
   const HELP_TOPICS = [
     { id: "add-first", icon: "⊕", title: "Add a habit before anything else", content: `Your tiles don't do anything until you've connected them to a habit. Think of the tile as the button — but first you need to tell Ritual what that button does. Start simple: go to the Add tab, pick a category, choose one habit, and save it. Then connect a tile. That's it — you're ready to go. Don't overthink your first habit. Pick something you already do most days and make it official.` },
@@ -2671,13 +2854,60 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
 
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Members</div>
-        {family.members.map(m => (
-          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 10, marginBottom: 10, borderBottom: `1px solid ${C.sandLight}` }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white }}>{m.avatar}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{m.name}</div>
-              <div style={{ fontSize: 11, color: C.slateLight }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · 🔥 {m.streak || 0}</div>
-            </div>
+        {family.members.map((m, idx) => (
+          <div key={m.id} style={{ paddingBottom: 10, marginBottom: 10, borderBottom: `1px solid ${C.sandLight}` }}>
+            {/* confirm delete banner */}
+            {confirmDeleteId === m.id && (
+              <div style={{ background: `${C.error}10`, border: `1px solid ${C.error}30`, borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+                <div style={{ fontSize: 13, color: C.slate, marginBottom: 8 }}>Remove <strong>{m.name}</strong>? This cannot be undone.</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => doDelete(m.id)} style={{ flex: 1, padding: "8px", borderRadius: 8, background: C.error, border: "none", color: C.white, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Remove</button>
+                  <button onClick={() => setConfirmDeleteId(null)} style={{ flex: 1, padding: "8px", borderRadius: 8, background: C.sandLight, border: "none", color: C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {editingId === m.id ? (
+              /* inline edit form */
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <input
+                  value={editName} onChange={e => setEditName(e.target.value)}
+                  placeholder="Name"
+                  style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${C.sandLight}`, fontSize: 14, fontFamily: "'DM Sans', sans-serif", outline: "none", color: C.slate, background: "#F7F4EF" }}
+                />
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 13, color: C.slateLight }}>Child account</span>
+                  <div onClick={() => setEditIsKid(v => !v)} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: editIsKid ? C.accent : C.sandDark, position: "relative", transition: "background 0.2s" }}>
+                    <div style={{ width: 18, height: 18, borderRadius: "50%", background: C.white, position: "absolute", top: 2, left: editIsKid ? 20 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {SETUP_MEMBER_COLORS.map(c => (
+                    <div key={c} onClick={() => setEditColor(c)} style={{ width: 26, height: 26, borderRadius: "50%", background: c, cursor: "pointer", border: editColor === c ? "2.5px solid #1E1C18" : "2.5px solid transparent", boxSizing: "border-box" }} />
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveEdit} style={{ flex: 1, padding: "9px", borderRadius: 8, background: C.accent, border: "none", color: C.white, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Save</button>
+                  <button onClick={cancelEdit} style={{ flex: 1, padding: "9px", borderRadius: 8, background: C.sandLight, border: "none", color: C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              /* read row */
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{m.name}{idx === 0 ? " 👑" : ""}</div>
+                  <div style={{ fontSize: 11, color: C.slateLight }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · 🔥 {m.streak || 0}</div>
+                </div>
+                {isAdmin && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => startEdit(m)} style={{ background: "none", border: "none", padding: "4px 6px", cursor: "pointer", fontSize: 14, color: C.slateLight, lineHeight: 1 }} title="Edit">✏️</button>
+                    {idx !== 0 && (
+                      <button onClick={() => confirmDelete(m.id)} style={{ background: "none", border: "none", padding: "4px 6px", cursor: "pointer", fontSize: 14, color: `${C.error}99`, lineHeight: 1 }} title="Remove">🗑</button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -3834,6 +4064,7 @@ export default function RitualApp() {
               whoDidThis={whoDidThis} onWhoCancel={() => setWhoDidThis(null)}
               soundEnabled={soundEnabled}
               soloMode={soloMode}
+              onClaimReward={() => setTab("family")}
             />
           )}
           {tab === "family" && !soloMode && (
@@ -3844,7 +4075,7 @@ export default function RitualApp() {
           )}
           {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} soloMode={soloMode} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} />}
-          {tab === "settings" && <SettingsScreen family={family} currentMember={currentMember} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} />}
+          {tab === "settings" && <SettingsScreen family={family} currentMember={currentMember} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} />}
         </div>
 
         {/* Branding footer */}
