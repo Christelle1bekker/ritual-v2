@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { supabase } from "./supabase";
+import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
 const C = {
@@ -15,6 +19,16 @@ const C = {
 };
 
 const MEMBER_COLORS = [C.accent, C.green, C.warm, C.kids, C.kidsBlue, C.slateLight, C.kidsPurple, C.warmLight];
+
+// ─── SETUP / ONBOARDING DESIGN TOKENS ────────────────────────────
+const SETUP_MEMBER_COLORS = ['#C47B4A', '#D4956A', '#7A9E87', '#8B9EC4', '#B07DB8', '#C4AA70'];
+const D = {
+  bgCream: "#F0EDE6", bgWhite: "#FFFFFF", bgInput: "#F7F4EF",
+  border: "#E5DED4", borderDashed: "#D5CECC",
+  terracotta: "#C47B4A", terracottaLt: "#D4956A",
+  textDark: "#1E1C18", textMid: "#7A7060", textMuted: "#9A8E80", textFaint: "#B0A498",
+  fontHeading: "'DM Serif Display', serif", fontBody: "'DM Sans', sans-serif",
+};
 
 // ─── NAMED CONSTANTS ──────────────────────────────────────────────
 const ANALYTICS_WINDOW_DAYS = 30;      // days of history for analytics tab
@@ -369,15 +383,53 @@ function TileIcon({ size = "1em", style = {} }) {
   );
 }
 
+// ─── PIN INPUT ────────────────────────────────────────────────────
+function PinInput({ value, onChange }) {
+  const inputRefs = useRef([]);
+  const handleChange = (i, e) => {
+    const char = e.target.value.replace(/\D/g, '').slice(-1);
+    if (!char) return;
+    const newVal = (value.slice(0, i) + char + value.slice(i + 1)).slice(0, 4);
+    onChange(newVal);
+    if (i < 3) setTimeout(() => inputRefs.current[i + 1]?.focus(), 0);
+  };
+  const handleKeyDown = (i, e) => {
+    if (e.key === 'Backspace') {
+      if (value[i]) { onChange(value.slice(0, i) + value.slice(i + 1)); }
+      else if (i > 0) { inputRefs.current[i - 1]?.focus(); onChange(value.slice(0, i - 1) + value.slice(i)); }
+    }
+  };
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      {[0, 1, 2, 3].map(i => (
+        <input key={i} ref={el => { inputRefs.current[i] = el; }}
+          type="tel" inputMode="numeric" maxLength={2}
+          value={value[i] || ''} onChange={e => handleChange(i, e)} onKeyDown={e => handleKeyDown(i, e)}
+          style={{
+            flex: 1, height: 54, borderRadius: 8,
+            border: `1.5px solid ${value[i] ? 'rgba(196,123,74,0.4)' : '#E5DED4'}`,
+            background: '#F7F4EF', textAlign: 'center',
+            fontSize: 20, fontWeight: 600, color: '#1E1C18',
+            outline: 'none', fontFamily: "'DM Sans', sans-serif", caretColor: '#C47B4A',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [view, setView] = useState("welcome");
+  const [useMode, setUseMode] = useState("solo"); // "solo" | "family"
   const [familyName, setFamilyName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [createdFamilyId, setCreatedFamilyId] = useState(null);
   const [members, setMembers] = useState([]);
+  const [expandedMemberId, setExpandedMemberId] = useState(null);
+  const [addingNew, setAddingNew] = useState(false);
   const [memberName, setMemberName] = useState("");
   const [memberIsKid, setMemberIsKid] = useState(false);
   const [memberColorIdx, setMemberColorIdx] = useState(0);
@@ -391,20 +443,49 @@ function LoginScreen({ onLogin }) {
       if (view === "join") handleJoin();
       else if (view === "create") handleCreate();
       else if (view === "createSolo") handleCreateSolo();
-      else if (view === "addMembers") { if (memberName.trim()) addMember(); else if (members.length > 0) finishSetup(); }
+      else if (view === "addMembers") { if (memberName.trim() && addingNew) addMember(); else if (members.length > 0 && !addingNew) finishSetup(); }
     };
     document.addEventListener("keydown", handle);
     return () => document.removeEventListener("keydown", handle);
-  }, [view, familyName, pin, loading, memberName, members]);
+  }, [view, familyName, pin, loading, memberName, members, addingNew]);
 
-
-  const darkInput = {
-    ...inputStyle,
-    background: "rgba(255,255,255,0.1)",
-    border: "1.5px solid rgba(255,255,255,0.2)",
-    color: C.white,
+  // ── Shared setup styles ────────────────────────────────────────
+  const lightInput = {
+    width: "100%", padding: "13px 16px", borderRadius: 10,
+    border: `1.5px solid ${D.border}`, background: D.bgInput,
+    fontSize: 15, color: D.textDark, outline: "none",
+    fontFamily: D.fontBody, boxSizing: "border-box",
+  };
+  const labelStyle = {
+    fontSize: 11, fontFamily: D.fontBody, color: D.textMuted,
+    letterSpacing: "0.08em", textTransform: "uppercase",
+    marginBottom: 6, display: "block",
+  };
+  const btnSetup = {
+    background: D.terracotta, color: "#F5EFE6", border: "none",
+    borderRadius: 50, padding: "14px 20px", fontFamily: D.fontBody,
+    fontWeight: 500, fontSize: 15, width: "100%",
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    cursor: "pointer",
+  };
+  const btnGhost = {
+    background: "transparent", border: "none", color: D.textFaint,
+    fontFamily: D.fontBody, fontSize: 13, textAlign: "center",
+    width: "100%", padding: "8px 0", cursor: "pointer", display: "block",
+  };
+  const twoToneOuter = {
+    minHeight: "100vh", maxWidth: 390, margin: "0 auto",
+    background: D.bgCream, display: "flex", flexDirection: "column",
+    opacity: mounted ? 1 : 0, transition: "opacity 0.5s ease",
+  };
+  const topSection = { padding: "64px 28px 40px" };
+  const bottomCard = {
+    background: D.bgWhite, borderRadius: "20px 20px 0 0",
+    flex: 1, padding: "28px 24px calc(40px + env(safe-area-inset-bottom))",
+    marginTop: -20,
   };
 
+  // ── Handlers ───────────────────────────────────────────────────
   const handleJoin = async () => {
     setError("");
     if (!familyName.trim() || pin.length < 4) { setError("Enter your family name and a 4-digit PIN"); return; }
@@ -433,6 +514,8 @@ function LoginScreen({ onLogin }) {
       if (fe || !newRows?.[0]) { setError("Failed to create family. Try again."); return; }
       setCreatedFamilyId(newRows[0].id);
       setView("addMembers");
+      setAddingNew(true);
+      setMemberColorIdx(0);
     } catch { setError("Something went wrong. Please try again."); }
     finally { setLoading(false); }
   };
@@ -452,7 +535,7 @@ function LoginScreen({ onLogin }) {
       const familyId = newRows[0].id;
       const { error: me } = await supabase.from("members").insert({
         family_id: familyId, name: soloName, avatar: soloName[0].toUpperCase(),
-        color: MEMBER_COLORS[0], is_kid: false, points: 0, streak: 0,
+        color: SETUP_MEMBER_COLORS[0], is_kid: false, points: 0, streak: 0,
       });
       if (me) { setError("Failed to set up. Try again."); return; }
       localStorage.setItem("ritual_savedPin", pin);
@@ -467,14 +550,21 @@ function LoginScreen({ onLogin }) {
 
   const addMember = () => {
     if (!memberName.trim()) return;
-    setMembers(prev => [...prev, {
+    const newMember = {
       id: `local_${Date.now()}`, name: memberName.trim(),
       avatar: memberName.trim()[0].toUpperCase(),
-      isKid: memberIsKid, color: MEMBER_COLORS[memberColorIdx],
+      isKid: memberIsKid, color: SETUP_MEMBER_COLORS[memberColorIdx % SETUP_MEMBER_COLORS.length],
       points: 0, streak: 0,
-    }]);
+    };
+    setMembers(prev => [...prev, newMember]);
+    setExpandedMemberId(newMember.id);
     setMemberName(""); setMemberIsKid(false);
-    setMemberColorIdx(prev => (prev + 1) % MEMBER_COLORS.length);
+    setMemberColorIdx(prev => (prev + 1) % SETUP_MEMBER_COLORS.length);
+    setAddingNew(false);
+  };
+
+  const updateMember = (id, updates) => {
+    setMembers(ms => ms.map(m => m.id === id ? { ...m, ...updates } : m));
   };
 
   const finishSetup = async () => {
@@ -499,144 +589,222 @@ function LoginScreen({ onLogin }) {
     finally { setLoading(false); }
   };
 
+  // ── JSX ────────────────────────────────────────────────────────
   return (
-    <div style={{
-      minHeight: "100vh", maxWidth: 390, margin: "0 auto",
-      background: `linear-gradient(160deg, ${C.slateDark} 0%, ${C.slate} 60%, ${C.warm}40 100%)`,
-      padding: "48px 28px 40px",
-      opacity: mounted ? 1 : 0, transition: "opacity 0.5s ease",
-      position: "relative", overflow: "hidden",
-    }}>
-      <div style={{ position: "absolute", top: -60, right: -60, width: 200, height: 200, borderRadius: "50%", background: `${C.accent}15` }} />
-      <div style={{ position: "absolute", bottom: -40, left: -40, width: 160, height: 160, borderRadius: "50%", background: `${C.warm}10` }} />
-      <div style={{ position: "relative", zIndex: 1 }}>
+    <div style={twoToneOuter}>
 
-        {view === "welcome" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            <div style={{ textAlign: "center", padding: "32px 0 8px" }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>◈</div>
-              <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.1, marginBottom: 8 }}>Welcome to Ritual</div>
-              <div style={{ fontSize: 14, color: "rgba(255,255,255,0.6)", lineHeight: 1.6 }}>Build habits that actually stick.</div>
-            </div>
-
-            <div style={{ display: "flex", gap: 12 }}>
-              <div onClick={() => setView("createSolo")} style={{
-                flex: 1, padding: "28px 16px", borderRadius: 20, cursor: "pointer",
-                background: "rgba(255,255,255,0.12)", border: "1.5px solid rgba(255,255,255,0.25)",
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center",
+      {/* ── Screen 1: Welcome ─────────────────────────────────── */}
+      {view === "welcome" && (<>
+        <div style={topSection}>
+          <div style={{ fontSize: 30, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.2, color: D.textDark, marginBottom: 10 }}>
+            Habits that{" "}
+            <span style={{ color: D.terracotta }}>stick.</span>
+          </div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid, lineHeight: 1.6 }}>
+            A physical tile where the habit happens. A tap to say it's done.
+          </div>
+        </div>
+        <div style={bottomCard}>
+          <label style={labelStyle}>How will you use Ritual?</label>
+          <div style={{ display: "flex", borderRadius: 50, overflow: "hidden", border: `1.5px solid ${D.border}`, marginBottom: 10 }}>
+            {[{ val: "solo", label: "Just me" }, { val: "family", label: "Family" }].map(opt => (
+              <div key={opt.val} onClick={() => setUseMode(opt.val)} style={{
+                flex: 1, padding: "11px 0", textAlign: "center", cursor: "pointer",
+                fontSize: 14, fontFamily: D.fontBody, fontWeight: 500,
+                borderRadius: 50,
+                background: useMode === opt.val ? D.terracotta : D.bgInput,
+                color: useMode === opt.val ? "#F5EFE6" : D.textMuted,
                 transition: "all 0.2s",
-              }}>
-                <div style={{ fontSize: 32 }}>🌿</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif" }}>Just me</div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>Personal habits, your pace, your tiles</div>
-              </div>
+              }}>{opt.label}</div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, marginBottom: 20 }}>
+            {useMode === "solo"
+              ? "Track habits solo — upgrade to family any time."
+              : "Set up a shared space for everyone at home."}
+          </div>
+          <button
+            onClick={() => { setError(""); setFamilyName(""); setPin(""); setView(useMode === "solo" ? "createSolo" : "create"); }}
+            style={{ ...btnSetup, marginBottom: 8 }}
+          >
+            <span>Get started</span><span>→</span>
+          </button>
+          <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setView("join"); }} style={btnGhost}>
+            I already have a family code
+          </button>
+        </div>
+      </>)}
 
-              <div onClick={() => setView("create")} style={{
-                flex: 1, padding: "28px 16px", borderRadius: 20, cursor: "pointer",
-                background: `linear-gradient(135deg, ${C.accent}40, ${C.accent}20)`,
-                border: `1.5px solid ${C.accent}60`,
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center",
-                transition: "all 0.2s",
-              }}>
-                <div style={{ fontSize: 32 }}>🏡</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif" }}>Family</div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>Shared habits, tiles & rewards for everyone</div>
-              </div>
+      {/* ── Screen 2: Create family ────────────────────────────── */}
+      {view === "create" && (<>
+        <div style={topSection}>
+          <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: D.textMuted, fontSize: 13, fontFamily: D.fontBody, padding: 0, marginBottom: 16, display: "block" }}>← Back</button>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Create your family.</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid }}>You'll share this with everyone at home.</div>
+        </div>
+        <div style={bottomCard}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Family name</label>
+              <input style={lightInput} placeholder="e.g. Jones" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
             </div>
-
-            <button onClick={() => setView("join")} style={{
-              background: "none", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 14,
-              cursor: "pointer", fontSize: 13, color: "rgba(255,255,255,0.6)",
-              textAlign: "center", padding: "14px", width: "100%",
-              fontFamily: "'DM Sans', sans-serif",
-            }}>
-              Already have an account? Sign in →
+            <div>
+              <label style={labelStyle}>4-digit PIN</label>
+              <PinInput value={pin} onChange={setPin} />
+              <div style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, marginTop: 6 }}>Members use this PIN to join on their own device.</div>
+            </div>
+            {error && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{error}</div>}
+            <button onClick={handleCreate} disabled={loading} style={{ ...btnSetup, opacity: loading ? 0.7 : 1 }}>
+              <span>{loading ? "Creating…" : "Next"}</span><span>→</span>
             </button>
+            <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={btnGhost}>Back</button>
           </div>
-        )}
+        </div>
+      </>)}
 
-        {view === "join" && (
-          <div>
-            <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24 }}>← Back</button>
-            <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Sign in</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28 }}>Enter the name and PIN you chose when you signed up</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <input style={darkInput} placeholder="Your name or family name" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
-              <input style={darkInput} placeholder="4-digit PIN" type="tel" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
-              {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center" }}>{error}</div>}
-              <button onClick={handleJoin} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Joining…" : "Sign in →"}</button>
-            </div>
-          </div>
-        )}
-
-        {view === "create" && (
-          <div>
-            <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24 }}>← Back</button>
-            <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Create your family</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28 }}>Choose a name and PIN — share the PIN so family can join on other devices</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <input style={darkInput} placeholder="Family name e.g. The Bekkers" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
-              <input style={darkInput} placeholder="Choose a 4-digit PIN" type="tel" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
-              {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center" }}>{error}</div>}
-              <button onClick={handleCreate} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Creating…" : "Continue →"}</button>
-            </div>
-          </div>
-        )}
-
-        {view === "createSolo" && (
-          <div>
-            <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 24, fontFamily: "'DM Sans', sans-serif" }}>← Back</button>
-            <div style={{ fontSize: 28, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 6 }}>Just you</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 28, lineHeight: 1.6 }}>Your space. Your pace.<br/>Choose a name and a PIN to get back in.</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <input style={darkInput} placeholder="Your name" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
-              <input style={darkInput} placeholder="Choose a 4-digit PIN" type="tel" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
-              {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center" }}>{error}</div>}
-              <button onClick={handleCreateSolo} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>
-                {loading ? "Setting up…" : "Start my Rituals →"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {view === "addMembers" && (
-          <div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Add family members</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 20 }}>Add everyone who'll be using Ritual</div>
-            {members.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-                {members.map(m => (
-                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 6px", background: "rgba(255,255,255,0.12)", borderRadius: 30 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: C.white }}>{m.avatar}</div>
-                    <span style={{ fontSize: 13, color: C.white }}>{m.name}</span>
-                    {m.isKid && <span style={{ fontSize: 10, color: C.kids }}>⭐</span>}
-                    <button onClick={() => setMembers(ms => ms.filter(x => x.id !== m.id))} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", fontSize: 14, padding: 0 }}>×</button>
+      {/* ── Screen 3: Add members ──────────────────────────────── */}
+      {view === "addMembers" && (<>
+        <div style={topSection}>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Who's in your home?</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid }}>Add everyone who'll use Ritual.</div>
+        </div>
+        <div style={bottomCard}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+            {members.map((m, idx) => {
+              const isExpanded = expandedMemberId === m.id;
+              const roleLabel = idx === 0 ? "Admin" : m.isKid ? "Child" : "Adult";
+              return (
+                <div key={m.id} style={{ background: D.bgWhite, border: `1.5px solid ${D.border}`, borderRadius: 11, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", cursor: "pointer" }}
+                    onClick={() => setExpandedMemberId(isExpanded ? null : m.id)}>
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#FFF", flexShrink: 0 }}>{m.avatar}</div>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500, fontFamily: D.fontBody, color: D.textDark }}>{m.name}</span>
+                    <span style={{ fontSize: 10, fontFamily: D.fontBody, color: D.textMuted, marginRight: 8 }}>{roleLabel}</span>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {["Adult", "Child"].map(role => (
+                        <div key={role} onClick={e => { e.stopPropagation(); updateMember(m.id, { isKid: role === "Child" }); }}
+                          style={{ padding: "3px 8px", borderRadius: 50, fontSize: 10, fontFamily: D.fontBody, cursor: "pointer",
+                            background: (role === "Child") === m.isKid ? D.textDark : D.bgInput,
+                            color: (role === "Child") === m.isKid ? D.bgCream : D.textMuted,
+                            border: `1px solid ${(role === "Child") === m.isKid ? D.textDark : D.border}`,
+                          }}>{role}</div>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-            <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 20, padding: 16, marginBottom: 12 }}>
-              <input style={{ ...darkInput, marginBottom: 10 }} placeholder="Name" value={memberName} onChange={e => setMemberName(e.target.value)} autoComplete="off" />
-              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                {MEMBER_COLORS.map((col, i) => (
-                  <div key={i} onClick={() => setMemberColorIdx(i)} style={{ flex: 1, height: 28, borderRadius: 8, background: col, cursor: "pointer", border: memberColorIdx === i ? `2.5px solid ${C.white}` : "2.5px solid transparent" }} />
+                  {isExpanded && (
+                    <div style={{ borderTop: `1px solid ${D.bgCream}`, padding: "10px 10px 12px" }}>
+                      <div style={{ fontSize: 9, fontFamily: D.fontBody, color: D.textFaint, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Choose a colour</div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {SETUP_MEMBER_COLORS.map((col, ci) => (
+                          <div key={ci} onClick={() => updateMember(m.id, { color: col })}
+                            style={{ width: 18, height: 18, borderRadius: "50%", background: col, cursor: "pointer",
+                              outline: m.color === col ? `2.5px solid ${D.terracotta}` : "none",
+                              outlineOffset: 2,
+                            }} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add new member form */}
+          {addingNew ? (
+            <div style={{ border: `1.5px solid ${D.border}`, borderRadius: 11, padding: "12px 12px 14px", marginBottom: 12 }}>
+              <input style={{ ...lightInput, marginBottom: 10 }} placeholder="Name" value={memberName} onChange={e => setMemberName(e.target.value)} autoComplete="off" autoFocus />
+              <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
+                {SETUP_MEMBER_COLORS.map((col, i) => (
+                  <div key={i} onClick={() => setMemberColorIdx(i)} style={{ width: 20, height: 20, borderRadius: "50%", background: col, cursor: "pointer",
+                    outline: memberColorIdx === i ? `2.5px solid ${D.terracotta}` : "none", outlineOffset: 2 }} />
                 ))}
               </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                {[{ label: "Adult", val: false }, { label: "Kid ⭐", val: true }].map(opt => (
-                  <div key={String(opt.val)} onClick={() => setMemberIsKid(opt.val)} style={{ flex: 1, padding: "8px", borderRadius: 12, textAlign: "center", cursor: "pointer", fontSize: 13, fontWeight: 600, background: memberIsKid === opt.val ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)", border: memberIsKid === opt.val ? "1.5px solid rgba(255,255,255,0.4)" : "1.5px solid transparent", color: C.white }}>{opt.label}</div>
+                {[{ label: "Adult", val: false }, { label: "Child", val: true }].map(opt => (
+                  <div key={String(opt.val)} onClick={() => setMemberIsKid(opt.val)}
+                    style={{ flex: 1, padding: "7px", borderRadius: 50, textAlign: "center", cursor: "pointer",
+                      fontSize: 12, fontFamily: D.fontBody,
+                      background: memberIsKid === opt.val ? D.textDark : D.bgInput,
+                      color: memberIsKid === opt.val ? D.bgCream : D.textMuted,
+                      border: `1px solid ${memberIsKid === opt.val ? D.textDark : D.border}`,
+                    }}>{opt.label}</div>
                 ))}
               </div>
-              <button onClick={addMember} style={{ ...btnPrimary, padding: "11px", background: "rgba(255,255,255,0.15)", boxShadow: "none", fontSize: 14, border: "1px solid rgba(255,255,255,0.2)" }}>+ Add member</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={addMember} disabled={!memberName.trim()} style={{ ...btnSetup, opacity: memberName.trim() ? 1 : 0.5, fontSize: 13, padding: "10px 16px", flex: 2 }}>
+                  <span>Add</span><span>+</span>
+                </button>
+                <button onClick={() => { setAddingNew(false); setMemberName(""); setMemberIsKid(false); }} style={{ ...btnGhost, border: `1px solid ${D.border}`, borderRadius: 50, padding: "10px 14px", flex: 1, color: D.textMuted }}>Cancel</button>
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", textAlign: "center", marginBottom: 12, lineHeight: 1.5, fontFamily: "'DM Sans', sans-serif" }}>In a rush? Just add yourself — you can bring the rest of the family in later.</div>
-            {error && <div style={{ fontSize: 12, color: "#FF8A80", textAlign: "center", marginBottom: 8 }}>{error}</div>}
-            {members.length > 0 && (
-              <button onClick={finishSetup} disabled={loading} style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}>{loading ? "Setting up…" : "Start Ritual →"}</button>
-            )}
+          ) : (
+            <button onClick={() => { setAddingNew(true); setMemberName(""); setMemberIsKid(false); setExpandedMemberId(null); }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "12px", borderRadius: 10, border: `1.5px dashed ${D.borderDashed}`, background: "none", cursor: "pointer", fontSize: 13, fontFamily: D.fontBody, color: D.terracotta, marginBottom: 16 }}>
+              + Add another member
+            </button>
+          )}
+
+          {error && <div style={{ fontSize: 12, color: C.error, textAlign: "center", marginBottom: 8 }}>{error}</div>}
+          {members.length > 0 && !addingNew && (
+            <button onClick={finishSetup} disabled={loading} style={{ ...btnSetup, opacity: loading ? 0.7 : 1 }}>
+              <span>{loading ? "Setting up…" : "Continue"}</span><span>→</span>
+            </button>
+          )}
+        </div>
+      </>)}
+
+      {/* ── Screen 4: Join family ──────────────────────────────── */}
+      {view === "join" && (<>
+        <div style={topSection}>
+          <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: D.textMuted, fontSize: 13, fontFamily: D.fontBody, padding: 0, marginBottom: 16, display: "block" }}>← Back</button>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Join your family.</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid }}>Enter the details your admin shared.</div>
+        </div>
+        <div style={bottomCard}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Family name</label>
+              <input style={lightInput} placeholder="e.g. Jones" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
+            </div>
+            <div>
+              <label style={labelStyle}>PIN</label>
+              <PinInput value={pin} onChange={setPin} />
+            </div>
+            {error && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{error}</div>}
+            <button onClick={handleJoin} disabled={loading} style={{ ...btnSetup, opacity: loading ? 0.7 : 1 }}>
+              <span>{loading ? "Joining…" : "Join family"}</span><span>→</span>
+            </button>
+            <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={btnGhost}>Back</button>
           </div>
-        )}
-      </div>
+        </div>
+      </>)}
+
+      {/* ── Solo setup ────────────────────────────────────────── */}
+      {view === "createSolo" && (<>
+        <div style={topSection}>
+          <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: D.textMuted, fontSize: 13, fontFamily: D.fontBody, padding: 0, marginBottom: 16, display: "block" }}>← Back</button>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Just you.</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid, lineHeight: 1.6 }}>Your space. Your pace.<br />Choose a name and a PIN to get back in.</div>
+        </div>
+        <div style={bottomCard}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Your name</label>
+              <input style={lightInput} placeholder="e.g. Alex" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
+            </div>
+            <div>
+              <label style={labelStyle}>4-digit PIN</label>
+              <PinInput value={pin} onChange={setPin} />
+            </div>
+            {error && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{error}</div>}
+            <button onClick={handleCreateSolo} disabled={loading} style={{ ...btnSetup, opacity: loading ? 0.7 : 1 }}>
+              <span>{loading ? "Setting up…" : "Start my Rituals"}</span><span>→</span>
+            </button>
+          </div>
+        </div>
+      </>)}
+
     </div>
   );
 }
@@ -2663,7 +2831,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
     <div key="a0" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
       <div key={`a0i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Welcome to Ritual</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>Welcome to Ritual</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode ? "Your habits. Your pace. Your ritual." : "Habit tracking for the whole family"}</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
@@ -2675,7 +2843,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
     <div key="a1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
       <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>{soloMode ? "Build habits that stick" : "Build habits as a family"}</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>{soloMode ? "Build habits that stick" : "Build habits as a family"}</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode
           ? "Ritual uses physical tiles placed around your home. Tap your phone to a tile and it logs instantly — no friction, no forgetting."
           : "Ritual uses physical tiles placed around your home. Tap your phone to a tile and the habit logs instantly — no app hunting, no friction."}</div>
@@ -2689,7 +2857,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
     <div key="a2" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
       <div key={`a2i-${navCount}`} style={{ animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}><TileIcon size="64px" /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Tap a tile, done.</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>Tap a tile, done.</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every habit has a tile you place where it happens — by the bed, at the front door, in the kitchen. Tap your phone to it and the habit logs instantly.</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
@@ -2710,7 +2878,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
     <div key="a3" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
       <div key={`a3i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🛏️</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Let's build your first habit</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>Let's build your first habit</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Pick something small — something you already do — and make it official. Here's an easy one to start with:</div>
       </div>
       <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: 20, padding: "14px 18px", width: "100%", display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
@@ -2727,9 +2895,21 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
     </div>,
     // Slide 4 — NEW: Connect a tile
     <div key="a4" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
-      <div key={`a4i-${navCount}`} style={{ animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}><TileIcon size="64px" /></div>
+      <div key={`a4i-${navCount}`} style={{ animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>
+        <svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="marble" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style={{ stopColor: "#F2EDE8", stopOpacity: 1 }} />
+              <stop offset="40%" style={{ stopColor: "#EDE8E1", stopOpacity: 1 }} />
+              <stop offset="100%" style={{ stopColor: "#E0D9D0", stopOpacity: 1 }} />
+            </linearGradient>
+          </defs>
+          <polygon points="32,4 56,18 56,46 32,60 8,46 8,18" fill="url(#marble)" stroke="#C4B8A8" strokeWidth="2" />
+          <polygon points="32,10 51,21 51,43 32,54 13,43 13,21" fill="none" stroke="#D8D0C4" strokeWidth="0.75" opacity="0.6" />
+        </svg>
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>Now connect a tile</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>Now connect a tile</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Place a tile where the habit happens — bedroom door, bathroom mirror, kitchen bench. Tap your phone to it once to link it.</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
@@ -2744,12 +2924,15 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
           </div>
         ))}
       </div>
+      <div style={{ width: "100%" }}>
+        <button onClick={(e) => { e.stopPropagation(); goNext(); }} style={{ ...btnPrimary, pointerEvents: "auto", width: "100%" }}>Next →</button>
+      </div>
     </div>,
     // Slide 5 — NEW: You're ready (final slide with CTA)
     <div key="a5" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
       <div key={`a5i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1.2 }}>You're all set</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>You're all set</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode
           ? "Tap a tile and the habit logs instantly. Your streak grows. Your rituals become automatic."
           : "When someone taps a tile, you'll see who did it, their streak, and their points. The whole family in one place."}</div>
@@ -2826,6 +3009,7 @@ export default function RitualApp() {
   const [mounted, setMounted] = useState(false);
   const tileHandled = useRef(null);
   const [unassignedTileUID, setUnassignedTileUID] = useState(null);
+  const [deepLinkTileUID, setDeepLinkTileUID] = useState(null);
   const currentMemberRef = useRef(currentMember);
   useEffect(() => { currentMemberRef.current = currentMember; }, [currentMember]);
   const [addInitialView, setAddInitialView] = useState("menu");
@@ -2861,6 +3045,49 @@ export default function RitualApp() {
           .catch(err => console.warn('SW registration failed:', err));
       });
     }
+  }, []);
+
+  // ─── Capacitor native integrations ────────────────────────────
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    // Capgo: signal successful app launch (prevents auto-rollback)
+    CapacitorUpdater.notifyAppReady();
+
+    // Deep links: handle tile URLs opened via Universal Links
+    CapApp.addListener('appUrlOpen', (event) => {
+      try {
+        const url = new URL(event.url);
+        const pathMatch = url.pathname.match(/^\/t\/(.+)$/);
+        let raw = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
+        if (!raw) raw = url.searchParams.get('tile');
+        if (raw) {
+          setDeepLinkTileUID(raw.replace(/:/g, '').toUpperCase());
+        }
+      } catch (e) {
+        // Silently ignore malformed URLs
+      }
+    });
+
+    // Push Notifications: request permission and register
+    PushNotifications.requestPermissions().then(result => {
+      if (result.receive === 'granted') {
+        PushNotifications.register();
+      }
+    });
+
+    PushNotifications.addListener('registration', token => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Push registration success, token:', token.value);
+      }
+      // TODO: Save this token to Supabase for this user/family
+    });
+
+    PushNotifications.addListener('pushNotificationReceived', notification => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Push notification received:', notification);
+      }
+    });
   }, []);
 
   const todayIndex = getTodayIndex();
@@ -3415,18 +3642,20 @@ export default function RitualApp() {
   // ─── Tile URL trigger ────────────────────────────────────────────
   useEffect(() => {
     if (!family || !mounted) return;
-    // Support both URL formats:
-    //   Path-based (production): /t/04:96:9E:5A:C2:2A:81  → ritual.app/t/{TAG-ID}
-    //   Query param (legacy):    ?tile=04:96:9E:5A:C2:2A:81
+    // Support URL formats, deep links (Capacitor), and query params:
     let raw = null;
-    const pathMatch = window.location.pathname.match(/^\/t\/(.+)$/);
-    if (pathMatch) {
-      raw = decodeURIComponent(pathMatch[1]);
+    if (deepLinkTileUID) {
+      raw = deepLinkTileUID;
+      setDeepLinkTileUID(null);
     } else {
-      raw = new URLSearchParams(window.location.search).get("tile");
+      const pathMatch = window.location.pathname.match(/^\/t\/(.+)$/);
+      if (pathMatch) {
+        raw = decodeURIComponent(pathMatch[1]);
+      } else {
+        raw = new URLSearchParams(window.location.search).get("tile");
+      }
     }
     if (!raw) return;
-    // Normalize UID: strip colons, uppercase — handles both "04:96:9E:5A" and "04969E5A" formats
     const tileUID = raw.replace(/:/g, "").toUpperCase();
     // Prevent handling the same tile URL twice within this page load
     if (tileHandled.current === tileUID) return;
@@ -3461,7 +3690,7 @@ export default function RitualApp() {
     } else {
       setUnassignedTileUID(tileUID);
     }
-  }, [family, mounted, habitsWithTaps]);
+  }, [family, mounted, habitsWithTaps, deepLinkTileUID]);
 
   if (!mounted) return (
     <div style={{ minHeight: "100vh", background: C.sandLight, display: "flex", alignItems: "center", justifyContent: "center" }}>
