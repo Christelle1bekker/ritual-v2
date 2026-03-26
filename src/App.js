@@ -92,9 +92,13 @@ function isoAddDays(dateStr, days) {
 
 // ─── SUPABASE NORMALISERS ─────────────────────────────────────────
 function normalizeMember(m) {
+  const name = m.name || '';
   return {
     id: m.id, familyId: m.family_id,
-    name: m.name, avatar: m.avatar, color: m.color,
+    name,
+    // If avatar was never saved to DB (legacy rows), derive it from the first letter of the name
+    avatar: m.avatar || name[0]?.toUpperCase() || '?',
+    color: m.color,
     isKid: m.is_kid || false, points: m.points || 0, streak: m.streak || 0,
     onboardingComplete: m.onboarding_complete || false,
     createdAt: m.created_at || null,
@@ -1046,19 +1050,41 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
 }
 
 // ─── KIDS JAR VIEW ────────────────────────────────────────────────
-function KidsJarView({ habits, currentMember, allMembers, onComplete, onUndo, onClaimReward, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled }) {
-  // Fix #5: only count habits assigned to this kid (or unassigned = everyone)
+function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onComplete, onUndo, onClaimReward, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled }) {
+  // Only count habits assigned to this kid (or unassigned = everyone)
   const myHabits = habits.filter(h =>
     !h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember?.id)
   );
+  const myHabitIds = new Set(myHabits.map(h => h.id));
   const done = myHabits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
   const total = myHabits.length;
-  const pct = total > 0 ? done / total : 0;
   const allDone = total > 0 && done === total;
   const pts = currentMember?.points || 0;
   const streak = currentMember?.streak || 0;
+
+  // ── Cumulative 7-day jar fill ──────────────────────────────────
+  // Each penny completion adds to the jar across the whole week.
+  // Full jar = all habits done every day for 7 days.
+  // Past days use weekCompletions; today uses live habit taps.
+  const weekDates = getWeekDates();
+  const todayIdx = getTodayIndex();
+  let weekCount = done; // today's completions (live)
+  if (weekCompletions && currentMember && total > 0) {
+    for (let i = 0; i < todayIdx; i++) {
+      const dateStr = weekDates[i];
+      const dayDone = weekCompletions.filter(c =>
+        c.date === dateStr &&
+        c.memberId === currentMember.id &&
+        c.taps > 0 &&
+        myHabitIds.has(c.habitId)
+      ).length;
+      weekCount += Math.min(dayDone, total); // cap at total habits per day
+    }
+  }
+  const maxCount = total * 7; // perfect week
+  const fillPct = maxCount > 0 ? Math.min(weekCount / maxCount, 1) : 0;
   // jar fill: 0px = empty, 108px = full (jar inner height)
-  const fillH = Math.round(pct * 108);
+  const fillH = Math.round(fillPct * 108);
   const jarY = 168 - fillH; // top of fill rect (jar bottom inner is ~168)
 
   return (
@@ -1067,16 +1093,24 @@ function KidsJarView({ habits, currentMember, allMembers, onComplete, onUndo, on
       {flashData && <CompletionFlash habit={flashData.habit} member={flashData.member} onDone={onFlashDone} onUndo={onFlashUndo} soundEnabled={soundEnabled} />}
       <div style={{ padding: "0 20px 110px" }}>
 
-        {/* All-done celebration banner */}
-        {allDone && (
+        {/* Celebration banners */}
+        {fillPct >= 1 && (
           <div style={{ background: "linear-gradient(135deg, #C47B4A, #D4956A)", borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(196,123,74,0.3)" }}>
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: "'DM Serif Display', serif" }}>Jar full! 🎉</div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>All habits done — claim your reward!</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>Amazing week — claim your reward!</div>
             </div>
             <button onClick={onClaimReward} style={{ background: "#fff", border: "none", borderRadius: 50, padding: "9px 16px", fontSize: 13, fontWeight: 700, color: "#C47B4A", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
               Claim →
             </button>
+          </div>
+        )}
+        {allDone && fillPct < 1 && (
+          <div style={{ background: "linear-gradient(135deg, #5C7A5E, #7A9E7C)", borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(92,122,94,0.3)" }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: "'DM Serif Display', serif" }}>All done today! ⭐</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>Keep it up — the jar keeps filling all week!</div>
+            </div>
           </div>
         )}
 
@@ -1121,7 +1155,8 @@ function KidsJarView({ habits, currentMember, allMembers, onComplete, onUndo, on
             <div style={{ fontSize: 36, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>
               {done}<span style={{ fontSize: 18, color: "#B0A498", fontWeight: 400 }}>/{total}</span>
             </div>
-            <div style={{ fontSize: 12, color: "#9A8E80", marginBottom: 12 }}>habits done</div>
+            <div style={{ fontSize: 12, color: "#9A8E80", marginBottom: 4 }}>habits done</div>
+            <div style={{ fontSize: 11, color: "#C47B4A", marginBottom: 8 }}>{weekCount} penny{weekCount !== 1 ? 's' : ''} in the jar this week</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {streak > 0 && (
                 <div style={{ padding: "4px 10px", borderRadius: 20, background: "#FFF3EB", border: "1px solid #F5D9C4", fontSize: 12, fontWeight: 600, color: "#C47B4A" }}>
@@ -1164,9 +1199,9 @@ function KidsJarView({ habits, currentMember, allMembers, onComplete, onUndo, on
 }
 
 // ─── TODAY SCREEN ─────────────────────────────────────────────────
-function TodayScreen({ habits, weekData, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward }) {
+function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward }) {
   if (currentMember?.isKid) {
-    return <KidsJarView habits={habits} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} />;
+    return <KidsJarView habits={habits} weekCompletions={weekCompletions} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} />;
   }
 
   const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
@@ -1381,9 +1416,11 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
         </div>
       ))}
 
-      <div onClick={() => { setEditing(null); setForm({ name: "", isKid: false, colorIdx: family.members.length % MEMBER_COLORS.length }); setView("add"); }} style={{ padding: 16, borderRadius: 20, border: `1.5px dashed ${C.sandDark}`, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", color: C.slateLight, fontSize: 14, marginBottom: 16 }}>
-        <span style={{ fontSize: 20 }}>+</span> Add family member
-      </div>
+      {!currentMember?.isKid && (
+        <div onClick={() => { setEditing(null); setForm({ name: "", isKid: false, colorIdx: family.members.length % MEMBER_COLORS.length }); setView("add"); }} style={{ padding: 16, borderRadius: 20, border: `1.5px dashed ${C.sandDark}`, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", color: C.slateLight, fontSize: 14, marginBottom: 16 }}>
+          <span style={{ fontSize: 20 }}>+</span> Add family member
+        </div>
+      )}
 
       {/* Pending redemptions (adults see all; kids see their own) */}
       {pendingRedemptions.length > 0 && (
@@ -2819,7 +2856,8 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
   const [editIsKid, setEditIsKid] = useState(false);
   const [editColor, setEditColor] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const isAdmin = family.members[0]?.id === currentMember?.id;
+  // All adults (non-kids) can manage members — not just the family creator
+  const isAdmin = !currentMember?.isKid;
 
   const startEdit = (m) => {
     setEditingId(m.id);
@@ -2961,7 +2999,8 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
         ✏️ Manage Habits
       </button>
 
-      {/* Admin: Reset all points */}
+      {/* Admin: Reset all points — hidden from kids */}
+      {!currentMember?.isKid && (
       <div style={{ marginBottom: 12, padding: "20px", background: `${C.error}08`, borderRadius: 16, border: `1px solid ${C.error}30` }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 6 }}>⚠️ Admin Actions</div>
         <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 12 }}>These actions affect all family members and cannot be undone.</div>
@@ -3005,6 +3044,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
           </button>
         )}
       </div>
+      )}
 
       {/* Help section */}
       <div style={{ marginTop: 24 }}>
@@ -4143,6 +4183,7 @@ export default function RitualApp() {
           {tab === "today" && (
             <TodayScreen
               habits={myHabitsWithTaps} weekData={weekData}
+              weekCompletions={weekCompletions}
               currentMember={currentMember} allMembers={family.members || []}
               onComplete={handleComplete} onUndo={handleUndo}
               flashData={flashData} onFlashDone={() => setFlashData(null)}
