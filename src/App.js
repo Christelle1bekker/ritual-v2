@@ -3706,7 +3706,9 @@ export default function RitualApp() {
     const completedById = habit.completedById;
     const memberToDeduct = completedById ? family?.members?.find(m => m.id === completedById) : currentMember;
     const newTaps = Math.max((habit.taps || 0) - 1, 0);
+    const isSharedHabit = habit.completionType === 'shared' && habit.assignedMemberIds && habit.assignedMemberIds.length > 0;
 
+    // Optimistic local update: decrement trigger member
     setTodayCompletions(prev => prev.map(c =>
       c.habitId === habitId && c.memberId === completedById ? { ...c, taps: Math.max(c.taps - 1, 0) } : c
     ));
@@ -3714,13 +3716,36 @@ export default function RitualApp() {
       setFamily(f => ({ ...f, members: f.members.map(m => m.id === memberToDeduct.id ? { ...m, points: Math.max((m.points || 0) - habitPointValue, 0) } : m) }));
     }
 
+    // Optimistic local update: decrement other assigned members for shared habits
+    if (isSharedHabit) {
+      const otherMembers = habit.assignedMemberIds.filter(id => id !== (completedById || memberToDeduct?.id));
+      if (otherMembers.length > 0) {
+        setTodayCompletions(prev => prev.map(c =>
+          c.habitId === habitId && otherMembers.includes(c.memberId) ? { ...c, taps: Math.max(c.taps - 1, 0) } : c
+        ));
+      }
+    }
+
     const undoMemberId = completedById || memberToDeduct?.id;
     if (supabase && undoMemberId) {
+      const today = todayKey();
       const { error } = await supabase.from("completions").upsert(
-        { habit_id: habitId, member_id: undoMemberId, family_id: family.id, date: todayKey(), taps: newTaps },
+        { habit_id: habitId, member_id: undoMemberId, family_id: family.id, date: today, taps: newTaps },
         { onConflict: "habit_id,member_id,date" }
       );
       if (error) console.error("❌ Undo sync failed:", error);
+
+      // Shared/household habit: sync decremented taps to all other assigned members
+      if (isSharedHabit) {
+        const otherMembers = habit.assignedMemberIds.filter(id => id !== undoMemberId);
+        if (otherMembers.length > 0) {
+          const sharedUndos = otherMembers.map(memberId => ({
+            habit_id: habitId, member_id: memberId, family_id: family.id, date: today, taps: newTaps,
+          }));
+          await supabase.from("completions").upsert(sharedUndos, { onConflict: 'habit_id,member_id,date' });
+        }
+      }
+
       if (memberToDeduct) {
         // Read fresh points to avoid stale-overwrite race condition
         const { data: freshMember } = await supabase.from("members").select("points").eq("id", memberToDeduct.id).single();
