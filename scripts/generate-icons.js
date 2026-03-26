@@ -47,13 +47,24 @@ function makeSVG(size) {
 
 const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
 
+// iOS-specific icon sizes for Xcode asset catalog
+const iosSizes = [20, 29, 40, 58, 60, 76, 80, 87, 120, 152, 167, 180, 1024];
+
 async function generate() {
-  // Standard icon sizes
+  // Standard PWA icon sizes
   for (const size of sizes) {
     const svg = Buffer.from(makeSVG(size));
     const outPath = path.join(iconsDir, `icon-${size}x${size}.png`);
     await sharp(svg).png().toFile(outPath);
     console.log(`  ✓ icon-${size}x${size}.png`);
+  }
+
+  // iOS-specific icon sizes
+  for (const size of iosSizes) {
+    const svg = Buffer.from(makeSVG(size));
+    const outPath = path.join(iconsDir, `icon-${size}x${size}.png`);
+    await sharp(svg).png().toFile(outPath);
+    console.log(`  ✓ icon-${size}x${size}.png (iOS)`);
   }
 
   // apple-touch-icon (180x180) goes in public/
@@ -63,7 +74,6 @@ async function generate() {
   console.log('  ✓ apple-touch-icon.png (180x180)');
 
   // favicon.ico — use a 32x32 PNG named favicon.png (browsers accept PNG favicons)
-  // We also write a 32x32 PNG as favicon.png for the <link> tag fallback
   const svg32 = Buffer.from(makeSVG(32));
   const faviconPath = path.join(__dirname, '../public/favicon.png');
   await sharp(svg32).png().toFile(faviconPath);
