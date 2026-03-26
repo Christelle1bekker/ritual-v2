@@ -433,6 +433,7 @@ function PinInput({ value, onChange }) {
 function LoginScreen({ onLogin }) {
   const [view, setView] = useState("welcome");
   const [useMode, setUseMode] = useState("solo"); // "solo" | "family"
+  const [joinContext, setJoinContext] = useState("family"); // "solo" | "family" — adjusts join screen copy
   const [familyName, setFamilyName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
@@ -500,14 +501,24 @@ function LoginScreen({ onLogin }) {
   // ── Handlers ───────────────────────────────────────────────────
   const handleJoin = async () => {
     setError("");
-    if (!familyName.trim() || pin.length < 4) { setError("Enter your family name and a 4-digit PIN"); return; }
+    if (!familyName.trim() || pin.length < 4) { setError(joinContext === "solo" ? "Enter your name and 4-digit PIN" : "Enter your family name and a 4-digit PIN"); return; }
     if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
     setLoading(true);
     try {
-      const familyData = await fetchFamilyData(pin, familyName.trim());
-      if (!familyData) { setError("No family found with that name and PIN combination."); return; }
+      // Solo accounts are stored as "${name}'s Rituals" — try that variant first
+      let familyData = null;
+      if (joinContext === "solo") {
+        const soloName = `${familyName.trim()}'s Rituals`;
+        familyData = await fetchFamilyData(pin, soloName);
+      }
+      // Fall back to exact name match (works for both family joins and solo users who type the full name)
+      if (!familyData) {
+        familyData = await fetchFamilyData(pin, familyName.trim());
+      }
+      if (!familyData) { setError(joinContext === "solo" ? "No account found with that name and PIN." : "No family found with that name and PIN combination."); return; }
       localStorage.setItem("ritual_savedPin", pin);
       localStorage.setItem("ritual_savedFamilyName", familyData.name);
+      if (joinContext === "solo") localStorage.setItem("ritual_soloMode", "true");
       onLogin(familyData);
     } catch { setError("Something went wrong. Please try again."); }
     finally { setLoading(false); }
@@ -648,8 +659,13 @@ function LoginScreen({ onLogin }) {
             <span>Get started</span><span>→</span>
           </button>
           {useMode === "family" && (
-            <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setView("join"); }} style={btnGhost}>
+            <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setJoinContext("family"); setView("join"); }} style={btnGhost}>
               I already have a family code
+            </button>
+          )}
+          {useMode === "solo" && (
+            <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setJoinContext("solo"); setView("join"); }} style={btnGhost}>
+              I already have a PIN
             </button>
           )}
         </div>
@@ -774,18 +790,18 @@ function LoginScreen({ onLogin }) {
         </div>
       </>)}
 
-      {/* ── Screen 4: Join family ──────────────────────────────── */}
+      {/* ── Screen 4: Join / Sign back in ────────────────────── */}
       {view === "join" && (<>
         <div style={topSection}>
           <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: D.textMuted, fontSize: 13, fontFamily: D.fontBody, padding: 0, marginBottom: 16, display: "block" }}>← Back</button>
-          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Join your family.</div>
-          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid }}>Enter the details your admin shared.</div>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>{joinContext === "solo" ? "Welcome back." : "Join your family."}</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid }}>{joinContext === "solo" ? "Enter the name and PIN you chose during setup." : "Enter the details your admin shared."}</div>
         </div>
         <div style={bottomCard}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
-              <label style={labelStyle}>Family name</label>
-              <input style={lightInput} placeholder="e.g. Jones" value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
+              <label style={labelStyle}>{joinContext === "solo" ? "Your name" : "Family name"}</label>
+              <input style={lightInput} placeholder={joinContext === "solo" ? "e.g. Alex" : "e.g. Jones"} value={familyName} onChange={e => setFamilyName(e.target.value)} autoComplete="off" />
             </div>
             <div>
               <label style={labelStyle}>PIN</label>
@@ -793,7 +809,7 @@ function LoginScreen({ onLogin }) {
             </div>
             {error && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{error}</div>}
             <button onClick={handleJoin} disabled={loading} style={{ ...btnSetup, opacity: loading ? 0.7 : 1 }}>
-              <span>{loading ? "Joining…" : "Join family"}</span><span>→</span>
+              <span>{loading ? "Signing in…" : joinContext === "solo" ? "Sign in" : "Join family"}</span><span>→</span>
             </button>
             <button onClick={() => { setView("welcome"); setError(""); setFamilyName(""); setPin(""); }} style={btnGhost}>Back</button>
           </div>
@@ -855,7 +871,7 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
     <div style={{ position: "fixed", inset: 0, zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
       <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div style={{ fontSize: 44, marginBottom: 12 }}>{habit.icon}</div>
-        <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", marginBottom: 8 }}>Who completed this?</div>
+        <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Who completed this?</div>
         <div style={{ fontSize: 14, color: "rgba(255,255,255,0.5)" }}>{habit.name}</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 340 }}>
@@ -912,7 +928,7 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
           <span style={{ fontSize: 14, color: C.white, fontWeight: 600 }}>{member.name}</span>
         </div>
       )}
-      <div style={{ fontSize: isKid ? 30 : 26, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", textAlign: "center", padding: "0 40px", lineHeight: 1.2 }}>
+      <div style={{ fontSize: isKid ? 30 : 26, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", textAlign: "center", padding: "0 40px", lineHeight: 1.2 }}>
         {isKid ? "Amazing work!" : justCompleted ? "Ritual complete" : "Tap logged"}
       </div>
       <div style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", textAlign: "center" }}>{habit?.name}</div>
@@ -1224,7 +1240,7 @@ function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMemb
               <div>
                 <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", letterSpacing: 2.5, textTransform: "uppercase", marginBottom: 4 }}>Today's Progress</div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                  <span style={{ fontSize: 52, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1 }}>{done}</span>
+                  <span style={{ fontSize: 52, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>{done}</span>
                   <span style={{ fontSize: 20, color: "rgba(255,255,255,0.4)" }}>/ {total}</span>
                 </div>
               </div>
@@ -1239,7 +1255,7 @@ function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMemb
             <div style={{ height: 5, background: "rgba(255,255,255,0.1)", borderRadius: 3, marginBottom: 10 }}>
               <div style={{ height: "100%", borderRadius: 3, background: `linear-gradient(90deg, ${C.accent}, ${C.accentLight})`, width: `${(done / Math.max(total, 1)) * 100}%`, transition: "width 0.8s cubic-bezier(0.34,1.56,0.64,1)" }} />
             </div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontFamily: "'Cormorant Garamond', serif", fontStyle: "italic" }}>{getMotivation(done, total)}</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontFamily: "'DM Serif Display', serif", fontStyle: "italic" }}>{getMotivation(done, total)}</div>
           </div>
         </div>
 
@@ -1275,7 +1291,7 @@ function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMemb
         {total === 0 ? (
           <div style={{ background: C.white, borderRadius: 24, padding: 36, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>◈</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 8 }}>Your rituals live here</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Your rituals live here</div>
             <div style={{ fontSize: 13, color: C.slateLight, lineHeight: 1.6 }}>Every great habit starts with one decision.<br />Choose your first ritual below.</div>
           </div>
         ) : (
@@ -1335,7 +1351,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
   if (view === "add") return (
     <div style={{ padding: "0 20px 110px" }}>
       <button onClick={() => setView("list")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
-      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 24 }}>{editing ? "Edit Member" : "Add Member"}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 24 }}>{editing ? "Edit Member" : "Add Member"}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <input style={inputStyle} placeholder="Name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
         <div>
@@ -1381,7 +1397,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
     <div style={{ padding: "0 20px 110px" }}>
       <div style={{ background: `linear-gradient(135deg, ${C.warm}, ${C.accent})`, borderRadius: 24, padding: 24, marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", letterSpacing: 2.5, textTransform: "uppercase", marginBottom: 6 }}>The {family.name} Family</div>
-        <div style={{ fontSize: 44, fontWeight: 700, color: C.white, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1 }}>{totalPoints.toLocaleString()}</div>
+        <div style={{ fontSize: 44, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>{totalPoints.toLocaleString()}</div>
         <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginTop: 4 }}>combined points</div>
       </div>
 
@@ -1489,7 +1505,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
       {redeemTarget && currentMember && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => setRedeemTarget(null)}>
           <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Redeem Reward?</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Redeem Reward?</div>
             <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20 }}>This will use {redeemTarget.points} points from {currentMember.name}'s balance</div>
             <div style={{ display: "flex", alignItems: "center", gap: 14, background: C.offwhite, borderRadius: 16, padding: 16, marginBottom: 6 }}>
               <div style={{ fontSize: 36 }}>{redeemTarget.icon}</div>
@@ -1531,7 +1547,7 @@ function AssignTileModal({ tileUID, habits, onAssign, onClose, onCreateHabit }) 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={onClose}>
       <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>New Tile Detected</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>New Tile Detected</div>
         <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 6 }}>Tile ID: <span style={{ fontFamily: "monospace", color: C.slate }}>{tileLabel(tileUID)}</span></div>
         <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Which habit should this tile trigger?</div>
         {habits.length === 0 ? (
@@ -1587,7 +1603,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
   return (
     <div style={{ padding: "0 20px 110px" }}>
       <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
-      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Manage Tiles</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Manage Tiles</div>
       <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 12, lineHeight: 1.6 }}>
         Tap a tile to assign it. Tiles come pre-programmed — just tap one near your phone.
       </div>
@@ -1646,7 +1662,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
       {showHabitPicker && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowHabitPicker(null)}>
           <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Reassign Tile</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Reassign Tile</div>
             <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Which habit should this tile trigger?</div>
             {Object.entries(habits.reduce((acc, h) => {
               const cat = h.category || "Other";
@@ -1693,7 +1709,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
       <button onClick={() => setEditing(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <div style={{ width: 44, height: 44, borderRadius: 13, background: `${editing.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{editing.icon}</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif" }}>Edit Habit</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif" }}>Edit Habit</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div>
@@ -1708,7 +1724,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 12 }}>Times per day</div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24 }}>
             <button onClick={() => setForm(f => ({ ...f, target: Math.max(1, f.target - 1) }))} style={{ width: 40, height: 40, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 20, cursor: "pointer", color: C.slate }}>−</button>
-            <div style={{ fontSize: 36, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", minWidth: 40, textAlign: "center" }}>{form.target}</div>
+            <div style={{ fontSize: 36, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", minWidth: 40, textAlign: "center" }}>{form.target}</div>
             <button onClick={() => setForm(f => ({ ...f, target: Math.min(20, f.target + 1) }))} style={{ width: 40, height: 40, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 20, cursor: "pointer", color: C.slate }}>+</button>
           </div>
         </div>
@@ -1800,7 +1816,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
   return (
     <div style={{ padding: "0 20px 110px" }}>
       <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
-      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Manage Habits</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Manage Habits</div>
       <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Tap a habit to edit or delete it</div>
       {habits.length === 0 ? (
         <div style={{ background: C.white, borderRadius: 20, padding: 28, textAlign: "center" }}>
@@ -1872,7 +1888,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
     return (
       <div style={{ padding: "0 20px 110px" }}>
         <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
-        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Create Custom Ritual</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Create Custom Ritual</div>
         <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Design your own habit</div>
 
         {/* Emoji picker */}
@@ -1909,7 +1925,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24, marginTop: 12 }}>
             <button onClick={() => setCustomTarget(t => Math.max(1, t - 1))} style={{ width: 44, height: 44, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 22, cursor: "pointer", color: C.slate }}>−</button>
             <div style={{ textAlign: "center", minWidth: 60 }}>
-              <div style={{ fontSize: 48, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1 }}>{customTarget}</div>
+              <div style={{ fontSize: 48, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>{customTarget}</div>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>{customTarget === 1 ? "time per day" : "times per day"}</div>
             </div>
             <button onClick={() => setCustomTarget(t => Math.min(20, t + 1))} style={{ width: 44, height: 44, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 22, cursor: "pointer", color: C.slate }}>+</button>
@@ -2037,7 +2053,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   if (view === "addRitual") return (
     <div style={{ padding: "0 20px 110px" }}>
       <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
-      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Add a Ritual</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Add a Ritual</div>
       <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 12 }}>How do you want to add it?</div>
       <div style={{ background: `${C.slateLight}0D`, borderRadius: 14, padding: "11px 14px", marginBottom: 20, border: `1px solid ${C.sandLight}` }}>
         <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.6 }}>💡 Add a habit here first, then link it to a tile from Manage Tiles. Start with something small you already do every day.</div>
@@ -2101,7 +2117,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
         <div style={{ fontSize: 28 }}>{selectedCat.icon}</div>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif" }}>{selectedCat.name}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif" }}>{selectedCat.name}</div>
           <div style={{ fontSize: 12, color: C.slateLight }}>{selectedCat.description}</div>
         </div>
       </div>
@@ -2126,7 +2142,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <div style={{ width: 48, height: 48, borderRadius: 14, background: `${selectedHabit.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{selectedHabit.icon}</div>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif" }}>{selectedHabit.name}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif" }}>{selectedHabit.name}</div>
           <div style={{ fontSize: 12, color: C.slateLight }}>Tile at: {selectedHabit.location}</div>
         </div>
       </div>
@@ -2135,7 +2151,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24, marginTop: 12 }}>
           <button onClick={() => setTargetCount(t => Math.max(1, t - 1))} style={{ width: 44, height: 44, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 22, cursor: "pointer", color: C.slate }}>−</button>
           <div style={{ textAlign: "center", minWidth: 60 }}>
-            <div style={{ fontSize: 48, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1 }}>{targetCount}</div>
+            <div style={{ fontSize: 48, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>{targetCount}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>{targetCount === 1 ? "time per day" : "times per day"}</div>
           </div>
           <button onClick={() => setTargetCount(t => Math.min(20, t + 1))} style={{ width: 44, height: 44, borderRadius: "50%", border: "none", background: C.offwhite, fontSize: 22, cursor: "pointer", color: C.slate }}>+</button>
@@ -2247,7 +2263,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
     return (
       <div style={{ padding: "0 20px 110px" }}>
         <button onClick={() => { setView("menu"); setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
-        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'Cormorant Garamond', serif", marginBottom: 4 }}>Manage Rewards</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Manage Rewards</div>
         <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Create and edit rewards for your family</div>
 
         {/* Templates grid — only when adding */}
@@ -3048,19 +3064,19 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
 
       {/* Help section */}
       <div style={{ marginTop: 24 }}>
-        <div style={{ fontSize: "1.3rem", fontWeight: 700, color: C.slate, marginBottom: 12 }}>How it works</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: C.slate, marginBottom: 12 }}>How it works</div>
         {HELP_TOPICS.map(topic => (
           <div key={topic.id} style={{ marginBottom: 8, borderRadius: 14, border: `1.5px solid ${C.sandLight}`, overflow: "hidden", background: C.white }}>
             <button
               onClick={() => toggleHelp(topic.id)}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", textAlign: "left" }}
             >
-              <span style={{ fontSize: 16, flexShrink: 0, color: "#555", display: "flex", alignItems: "center", lineHeight: 1 }}>{topic.icon}</span>
+              <span style={{ fontSize: 16, flexShrink: 0, color: C.slate, display: "flex", alignItems: "center", lineHeight: 1 }}>{topic.icon}</span>
               <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: C.slate }}>{topic.title}</span>
               <span style={{ fontSize: 16, color: C.slateLight, transform: openHelp === topic.id ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>⌄</span>
             </button>
             {openHelp === topic.id && (
-              <div style={{ padding: "0 16px 14px 16px", fontSize: "0.875rem", color: "#666", lineHeight: 1.6 }}>
+              <div style={{ padding: "0 16px 14px 16px", fontSize: 14, color: C.slateLight, lineHeight: 1.6 }}>
                 {topic.content}
               </div>
             )}
