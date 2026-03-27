@@ -3302,7 +3302,6 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
 
 // ─── ROOT ─────────────────────────────────────────────────────────
 export default function RitualApp() {
-  React.useEffect(() => { alert('Debug: supabase=' + (typeof supabase) + ', val=' + (supabase ? 'EXISTS' : 'NULL') + ', url=' + (process.env.REACT_APP_SUPABASE_URL ? 'SET' : 'UNSET')); }, []);
   const [family, setFamily] = useState(null);
   const [habits, setHabits] = useState([]);
   const [todayCompletions, setTodayCompletions] = useState([]);

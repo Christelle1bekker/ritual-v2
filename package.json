@@ -1,6 +1,6 @@
 {
   "name": "ritual-v2",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "dependencies": {
     "@capacitor/app": "^8.1.0",
