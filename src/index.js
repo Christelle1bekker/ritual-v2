@@ -1,19 +1,30 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import RitualApp from './App';
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
+
+// ─── CAPGO: Signal app is alive as early as possible ────────────
+// Must be called before React renders so Capgo doesn't roll back
+// if the app crashes to the error boundary.
+try {
+  CapacitorUpdater.notifyAppReady();
+  console.log('[Capgo] notifyAppReady() called at index.js startup');
+} catch (e) {
+  console.warn('[Capgo] notifyAppReady() failed at startup:', e);
+}
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, errorMessage: '' };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return { hasError: true, errorMessage: error?.message || String(error) };
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('React Error Boundary caught:', error, errorInfo);
+    console.error('[ErrorBoundary] Caught error:', error, errorInfo);
   }
 
   render() {
@@ -34,9 +45,14 @@ class ErrorBoundary extends React.Component {
           <h1 style={{ color: '#3D4A4F', marginBottom: 16, fontSize: 24, fontWeight: 700 }}>
             Something went wrong
           </h1>
-          <p style={{ color: '#5A6B72', marginBottom: 32, maxWidth: 360, lineHeight: 1.6 }}>
+          <p style={{ color: '#5A6B72', marginBottom: 16, maxWidth: 360, lineHeight: 1.6 }}>
             The app encountered an unexpected error. Your data is safe — try refreshing to continue.
           </p>
+          {this.state.errorMessage ? (
+            <p style={{ color: '#C0504D', fontSize: 12, fontFamily: 'monospace', marginBottom: 24, maxWidth: 360, wordBreak: 'break-word', background: '#FFF0EE', padding: '8px 12px', borderRadius: 8 }}>
+              {this.state.errorMessage}
+            </p>
+          ) : null}
           <button
             onClick={() => window.location.reload()}
             style={{

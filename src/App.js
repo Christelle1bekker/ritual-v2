@@ -3356,8 +3356,35 @@ export default function RitualApp() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
-    // Capgo: signal successful app launch (prevents auto-rollback)
-    CapacitorUpdater.notifyAppReady();
+    // Capgo: signal app is alive (belt-and-suspenders — primary call is in index.js)
+    try {
+      CapacitorUpdater.notifyAppReady();
+      console.log('[Capgo] notifyAppReady() confirmed from App.js useEffect');
+    } catch (e) {
+      console.warn('[Capgo] notifyAppReady() failed in useEffect:', e);
+    }
+
+    // Capgo: lifecycle event listeners for diagnostics
+    try {
+      CapacitorUpdater.addListener('updateAvailable', (info) => {
+        console.log('[Capgo] Update available:', info);
+      });
+      CapacitorUpdater.addListener('downloadComplete', (info) => {
+        console.log('[Capgo] Download complete:', info);
+      });
+      CapacitorUpdater.addListener('downloadFailed', (info) => {
+        console.error('[Capgo] Download failed:', info);
+      });
+      CapacitorUpdater.addListener('updateFailed', (info) => {
+        console.error('[Capgo] Update failed:', info);
+      });
+      CapacitorUpdater.addListener('appReloaded', () => {
+        console.log('[Capgo] App reloaded with new bundle');
+      });
+      console.log('[Capgo] Event listeners registered');
+    } catch (e) {
+      console.warn('[Capgo] Could not register event listeners:', e);
+    }
 
     // Deep links: handle tile URLs opened via Universal Links
     CapApp.addListener('appUrlOpen', (event) => {
@@ -3378,25 +3405,29 @@ export default function RitualApp() {
       }
     });
 
-    // Push Notifications: request permission and register
-    PushNotifications.requestPermissions().then(result => {
-      if (result.receive === 'granted') {
-        PushNotifications.register();
-      }
-    });
+    // Push Notifications: request permission and register (wrapped in try/catch — must not crash app)
+    try {
+      PushNotifications.requestPermissions().then(result => {
+        if (result.receive === 'granted') {
+          PushNotifications.register();
+        }
+      }).catch(e => console.warn('[PushNotifications] requestPermissions failed:', e));
 
-    PushNotifications.addListener('registration', token => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Push registration success, token:', token.value);
-      }
-      // TODO: Save this token to Supabase for this user/family
-    });
+      PushNotifications.addListener('registration', token => {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Push registration success, token:', token.value);
+        }
+        // TODO: Save this token to Supabase for this user/family
+      });
 
-    PushNotifications.addListener('pushNotificationReceived', notification => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Push notification received:', notification);
-      }
-    });
+      PushNotifications.addListener('pushNotificationReceived', notification => {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Push notification received:', notification);
+        }
+      });
+    } catch (e) {
+      console.warn('[PushNotifications] Init failed — continuing without push:', e);
+    }
   }, []);
 
   const todayIndex = getTodayIndex();
