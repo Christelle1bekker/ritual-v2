@@ -11,7 +11,13 @@ const config: CapacitorConfig = {
     backgroundColor: '#F2EDE7',
     scheme: 'Ritual'
   },
+  server: {
+    iosScheme: 'capacitor',
+  },
   plugins: {
+    CapacitorUpdater: {
+      autoUpdate: true
+    },
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert']
     },
