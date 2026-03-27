@@ -3302,6 +3302,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
 
 // ─── ROOT ─────────────────────────────────────────────────────────
 export default function RitualApp() {
+  React.useEffect(() => { alert('Debug: supabase=' + (typeof supabase) + ', val=' + (supabase ? 'EXISTS' : 'NULL') + ', url=' + (process.env.REACT_APP_SUPABASE_URL ? 'SET' : 'UNSET')); }, []);
   const [family, setFamily] = useState(null);
   const [habits, setHabits] = useState([]);
   const [todayCompletions, setTodayCompletions] = useState([]);
@@ -3361,12 +3362,16 @@ export default function RitualApp() {
     // Deep links: handle tile URLs opened via Universal Links
     CapApp.addListener('appUrlOpen', (event) => {
       try {
-        const url = new URL(event.url);
+        let urlStr = event.url || '';
+        // Ensure the URL has a protocol — NFC tags sometimes omit https://
+        if (urlStr && !urlStr.includes('://')) urlStr = 'https://' + urlStr;
+        const url = new URL(urlStr);
         const pathMatch = url.pathname.match(/^\/t\/(.+)$/);
         let raw = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
         if (!raw) raw = url.searchParams.get('tile');
         if (raw) {
-          setDeepLinkTileUID(raw.replace(/:/g, '').toUpperCase());
+          // Normalise: strip colons and dots (tile UIDs may arrive as 04:A3:2B or 04.A3.2B)
+          setDeepLinkTileUID(raw.replace(/[:.]/g, '').toUpperCase());
         }
       } catch (e) {
         // Silently ignore malformed URLs
@@ -4038,53 +4043,60 @@ export default function RitualApp() {
   // ─── Tile URL trigger ────────────────────────────────────────────
   useEffect(() => {
     if (!family || !mounted) return;
-    // Support URL formats, deep links (Capacitor), and query params:
-    let raw = null;
-    if (deepLinkTileUID) {
-      raw = deepLinkTileUID;
+    try {
+      // Support URL formats, deep links (Capacitor), and query params:
+      let raw = null;
+      if (deepLinkTileUID) {
+        raw = deepLinkTileUID;
+        setDeepLinkTileUID(null);
+      } else {
+        const pathMatch = window.location.pathname.match(/^\/t\/(.+)$/);
+        if (pathMatch) {
+          raw = decodeURIComponent(pathMatch[1]);
+        } else {
+          raw = new URLSearchParams(window.location.search).get("tile");
+        }
+      }
+      if (!raw) return;
+      // Normalise: strip colons and dots (tile UIDs may arrive as 04:A3:2B or 04.A3.2B)
+      const tileUID = raw.replace(/[:.]/g, "").toUpperCase();
+      // Prevent handling the same tile URL twice within this page load
+      if (tileHandled.current === tileUID) return;
+      tileHandled.current = tileUID;
+      window.history.replaceState({}, "", "/");
+      const assignedHabit = habitsWithTaps.find(h => h.tileUid === tileUID);
+      if (assignedHabit) {
+        const ids = assignedHabit.assignedMemberIds;
+        // Multi-person habits ALWAYS ask "Who did this?"
+        const shouldAskWho =
+          assignedHabit.isKid ||    // Kids habits always ask
+          !ids ||                    // Everyone habits ask
+          ids.length === 0 ||        // Everyone habits ask
+          ids.length > 1;            // Multi-person habits ALWAYS ask
+        if (shouldAskWho) {
+          setWhoDidThis(assignedHabit);
+        } else {
+          // Single-person habit — check if the right person is tapping
+          const assignedMember = family?.members?.find(m => m.id === ids[0]);
+          if (!assignedMember) {
+            console.error("Assigned member not found");
+            return;
+          }
+          // Always complete for the assigned member regardless of who is currently
+          // active in the app — the tile is the identity signal, not the UI state.
+          // Auto-switch the active member to them so the UI reflects the right person.
+          if (currentMemberRef.current?.id !== assignedMember.id) {
+            setCurrentMember(assignedMember);
+          }
+          handleComplete(assignedHabit.id, assignedMember, false);
+        }
+      } else {
+        setUnassignedTileUID(tileUID);
+      }
+    } catch (e) {
+      console.warn('[Ritual] Tile URL handling failed:', e);
+      // Graceful fallback — clear pending tile state, stay on home screen
       setDeepLinkTileUID(null);
-    } else {
-      const pathMatch = window.location.pathname.match(/^\/t\/(.+)$/);
-      if (pathMatch) {
-        raw = decodeURIComponent(pathMatch[1]);
-      } else {
-        raw = new URLSearchParams(window.location.search).get("tile");
-      }
-    }
-    if (!raw) return;
-    const tileUID = raw.replace(/:/g, "").toUpperCase();
-    // Prevent handling the same tile URL twice within this page load
-    if (tileHandled.current === tileUID) return;
-    tileHandled.current = tileUID;
-    window.history.replaceState({}, "", "/");
-    const assignedHabit = habitsWithTaps.find(h => h.tileUid === tileUID);
-    if (assignedHabit) {
-      const ids = assignedHabit.assignedMemberIds;
-      // Multi-person habits ALWAYS ask "Who did this?"
-      const shouldAskWho =
-        assignedHabit.isKid ||    // Kids habits always ask
-        !ids ||                    // Everyone habits ask
-        ids.length === 0 ||        // Everyone habits ask
-        ids.length > 1;            // Multi-person habits ALWAYS ask
-      if (shouldAskWho) {
-        setWhoDidThis(assignedHabit);
-      } else {
-        // Single-person habit — check if the right person is tapping
-        const assignedMember = family?.members?.find(m => m.id === ids[0]);
-        if (!assignedMember) {
-          console.error("Assigned member not found");
-          return;
-        }
-        // Always complete for the assigned member regardless of who is currently
-        // active in the app — the tile is the identity signal, not the UI state.
-        // Auto-switch the active member to them so the UI reflects the right person.
-        if (currentMemberRef.current?.id !== assignedMember.id) {
-          setCurrentMember(assignedMember);
-        }
-        handleComplete(assignedHabit.id, assignedMember, false);
-      }
-    } else {
-      setUnassignedTileUID(tileUID);
     }
   }, [family, mounted, habitsWithTaps, deepLinkTileUID]);
 
@@ -4248,7 +4260,7 @@ export default function RitualApp() {
 
         {/* Branding footer */}
         <div style={{ position: "fixed", bottom: 8, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, textAlign: "center", fontSize: 10, color: `${C.slateLight}55`, letterSpacing: 0.5, zIndex: 49, pointerEvents: "none", fontFamily: "'DM Sans', sans-serif" }}>
-          Ritual · Build better habits
+          Ritual ✨ · Build better habits
         </div>
 
         {/* Tab bar */}
