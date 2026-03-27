@@ -1,0 +1,39 @@
+{
+	"appId": "com.ritualhabits.app",
+	"appName": "Ritual",
+	"webDir": "build",
+	"ios": {
+		"contentInset": "automatic",
+		"backgroundColor": "#F2EDE7",
+		"scheme": "Ritual"
+	},
+	"server": {
+		"iosScheme": "capacitor"
+	},
+	"plugins": {
+		"CapacitorUpdater": {
+			"autoUpdate": true
+		},
+		"PushNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		},
+		"SplashScreen": {
+			"launchAutoHide": true,
+			"backgroundColor": "#F2EDE7",
+			"showSpinner": false
+		}
+	},
+	"packageClassList": [
+		"AppPlugin",
+		"CAPBrowserPlugin",
+		"HapticsPlugin",
+		"PushNotificationsPlugin",
+		"SplashScreenPlugin",
+		"StatusBarPlugin",
+		"CapacitorUpdaterPlugin"
+	]
+}

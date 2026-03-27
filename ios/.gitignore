@@ -9,5 +9,6 @@ xcuserdata
 capacitor-cordova-ios-plugins
 
 # Generated Config files
-App/App/capacitor.config.json
+# Note: capacitor.config.json is tracked intentionally — it controls
+# native plugin settings (e.g. Capgo autoUpdate) that must be versioned.
 App/App/config.xml
