@@ -935,22 +935,26 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
   const target = habit?.target || 1;
   const justCompleted = taps >= target;
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 999, background: isKid ? `linear-gradient(135deg, ${C.kids}, ${C.kidsLight})` : `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, animation: "flashIn 0.3s ease" }}>
-      <div style={{ fontSize: 72, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>{isKid ? "🌟" : justCompleted ? "✦" : "◈"}</div>
+    <div style={{ position: "fixed", inset: 0, zIndex: 999, background: isKid ? 'linear-gradient(165deg, #E6DFD4 0%, #EDE8DF 40%, #F5F2EB 100%)' : `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, animation: "flashIn 0.3s ease" }}>
+      {isKid && <>
+        <div style={{ position: "absolute", top: -30, right: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(183,175,160,0.15)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: 90, left: -25, width: 110, height: 110, borderRadius: "50%", background: "rgba(166,191,159,0.12)", pointerEvents: "none" }} />
+      </>}
+      <div style={{ fontSize: 72, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>{isKid ? "✦" : justCompleted ? "✦" : "◈"}</div>
       {member && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 30, background: "rgba(255,255,255,0.15)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.15)" }}>
           <div style={{ width: 28, height: 28, borderRadius: "50%", background: member.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white }}>{member.avatar}</div>
           <span style={{ fontSize: 14, color: C.white, fontWeight: 600 }}>{member.name}</span>
         </div>
       )}
-      <div style={{ fontSize: isKid ? 30 : 26, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", textAlign: "center", padding: "0 40px", lineHeight: 1.2 }}>
-        {isKid ? "Amazing work!" : justCompleted ? "Ritual complete" : "Tap logged"}
+      <div style={{ fontSize: isKid ? 24 : 26, fontWeight: 700, color: isKid ? "#4A3F35" : C.white, fontFamily: "'DM Serif Display', serif", textAlign: "center", padding: "0 40px", lineHeight: 1.2 }}>
+        {isKid ? "Beautiful work!" : justCompleted ? "Ritual complete" : "Tap logged"}
       </div>
-      <div style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", textAlign: "center" }}>{habit?.name}</div>
-      {habit?.target > 1 && <div style={{ padding: "8px 20px", borderRadius: 20, background: "rgba(255,255,255,0.15)", fontSize: 14, color: C.white, fontWeight: 600 }}>{taps} / {target} today</div>}
-      {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: "rgba(255,255,255,0.15)", fontSize: 13, color: C.white, fontWeight: 600 }}>🔥 {(habit?.streak || 0) + 1} day streak</div>}
-      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>+{habit?.points || 10} points</div>
-      <button onClick={() => { if (soundEnabled) { playCompletionSound("undo"); triggerHaptic("undo"); } onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ fontSize: 14, color: isKid ? "#7A7060" : "rgba(255,255,255,0.7)", textAlign: "center" }}>{habit?.name}</div>
+      {habit?.target > 1 && <div style={{ padding: "8px 20px", borderRadius: 20, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 14, color: isKid ? "#5A6B55" : C.white, fontWeight: 600 }}>{taps} / {target} today</div>}
+      {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 13, color: isKid ? "#7A9066" : C.white, fontWeight: 600 }}>{isKid ? "🌿" : "🔥"} {(habit?.streak || 0) + 1} day streak</div>}
+      <div style={{ fontSize: 12, color: isKid ? "#A09480" : "rgba(255,255,255,0.4)" }}>+{habit?.points || 10} points</div>
+      <button onClick={() => { if (soundEnabled) { playCompletionSound("undo"); triggerHaptic("undo"); } onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: isKid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)", border: isKid ? "1px solid rgba(183,175,160,0.3)" : "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: isKid ? "#8A7E70" : "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
         <span>↩</span> Undo tap · {countdown}s
       </button>
     </div>
