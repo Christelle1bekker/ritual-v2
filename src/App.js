@@ -4,6 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
 const C = {
@@ -119,6 +120,7 @@ function normalizeHabit(h) {
     daysActive: h.days_active || null,
     completionType: h.completion_type || 'individual',
     points: h.points || 10,
+    reminderTime: h.reminder_time || null,
   };
 }
 
@@ -250,6 +252,19 @@ function playCompletionSound(type = "regular") {
 }
 
 function triggerHaptic(type = "regular") {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      if (type === "milestone" || type === "kids") {
+        Haptics.notification({ type: NotificationType.Success });
+      } else if (type === "undo") {
+        Haptics.impact({ style: ImpactStyle.Light });
+      } else {
+        Haptics.impact({ style: ImpactStyle.Medium });
+      }
+    } catch (_) {}
+    return;
+  }
+  // Web fallback
   if (!navigator.vibrate) return;
   if (type === "kids") navigator.vibrate([50, 100, 50]);
   else if (type === "milestone") navigator.vibrate([30, 50, 50, 50, 80]);
@@ -943,13 +958,21 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
 }
 
 // ─── HABIT CARD ───────────────────────────────────────────────────
-function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
+const SWIPE_THRESHOLD = 60;
+const ACTION_WIDTH = 140;
+
+function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdit, onDelete }) {
   const [expanded, setExpanded] = useState(false);
   const [showDigital, setShowDigital] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
   const [longPressProgress, setLongPressProgress] = useState(0);
+  const [swipeX, setSwipeX] = useState(0);
+  const [swiping, setSwiping] = useState(false);
   const holdInterval = useRef(null);
   const longInterval = useRef(null);
+  const swipeStartX = useRef(0);
+  const swipeStartY = useRef(0);
+  const swipeLocked = useRef(false);
 
   const taps = habit.taps || 0;
   const target = habit.target || 1;
@@ -965,6 +988,36 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
     document.addEventListener("keydown", handle);
     return () => document.removeEventListener("keydown", handle);
   }, [expanded]);
+
+  useEffect(() => {
+    if (swipeX === 0) return;
+    const close = () => setSwipeX(0);
+    document.addEventListener("touchstart", close, { passive: true });
+    return () => document.removeEventListener("touchstart", close);
+  }, [swipeX]);
+
+  const handleSwipeStart = (e) => {
+    swipeStartX.current = e.touches[0].clientX;
+    swipeStartY.current = e.touches[0].clientY;
+    swipeLocked.current = false;
+    setSwiping(true);
+  };
+  const handleSwipeMove = (e) => {
+    const dx = e.touches[0].clientX - swipeStartX.current;
+    const dy = e.touches[0].clientY - swipeStartY.current;
+    if (!swipeLocked.current && Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+    if (!swipeLocked.current) {
+      if (Math.abs(dy) > Math.abs(dx)) { setSwiping(false); return; }
+      swipeLocked.current = true;
+    }
+    e.preventDefault();
+    const newX = Math.min(0, Math.max(-ACTION_WIDTH, dx));
+    setSwipeX(newX);
+  };
+  const handleSwipeEnd = () => {
+    setSwiping(false);
+    setSwipeX(prev => prev < -SWIPE_THRESHOLD ? -ACTION_WIDTH : 0);
+  };
 
   const handleHoldStart = () => {
     holdInterval.current = setInterval(() => {
@@ -996,23 +1049,40 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
   const endLongPress = () => { clearInterval(longInterval.current); setLongPressProgress(0); };
 
   if (completed && !isMulti) return (
-    <div onMouseDown={startLongPress} onMouseUp={endLongPress} onTouchStart={startLongPress} onTouchEnd={endLongPress}
-      style={{ background: C.white, borderRadius: 20, padding: 18, boxShadow: `0 4px 20px ${habit.color}18`, border: `1px solid ${habit.color}30`, position: "relative", overflow: "hidden", cursor: "pointer", userSelect: "none" }}>
-      {longPressProgress > 0 && <div style={{ position: "absolute", inset: 0, background: `${habit.color}12`, width: `${longPressProgress}%`, zIndex: 0 }} />}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 1 }}>
-        <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg, ${habit.color}, ${habit.color}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: C.white, boxShadow: `0 4px 10px ${habit.color}35` }}>✓</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
-          <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>Done · 🔥 {(habit.streak || 0) + 1} day streak · +{habit.points || 10} pts{habit.completedBy ? ` · ${habit.completedBy}` : ""}</div>
+    <div style={{ position: "relative", borderRadius: 20, overflow: "hidden" }}>
+      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: ACTION_WIDTH, display: "flex" }}>
+        <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onEdit?.(); }} style={{ flex: 1, background: C.warm, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Edit</button>
+        <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onDelete?.(); }} style={{ flex: 1, background: C.error, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Delete</button>
+      </div>
+      <div
+        onTouchStart={(e) => { handleSwipeStart(e); if (swipeX === 0) startLongPress(); }}
+        onTouchEnd={(e) => { handleSwipeEnd(); if (swipeX === 0) endLongPress(); }}
+        onTouchMove={handleSwipeMove}
+        onMouseDown={startLongPress} onMouseUp={endLongPress}
+        style={{ background: C.white, borderRadius: 20, padding: 18, boxShadow: `0 4px 20px ${habit.color}18`, border: `1px solid ${habit.color}30`, position: "relative", overflow: "hidden", cursor: "pointer", userSelect: "none", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
+        {longPressProgress > 0 && <div style={{ position: "absolute", inset: 0, background: `${habit.color}12`, width: `${longPressProgress}%`, zIndex: 0 }} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 1 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg, ${habit.color}, ${habit.color}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: C.white, boxShadow: `0 4px 10px ${habit.color}35` }}>✓</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>Done · 🔥 {(habit.streak || 0) + 1} day streak · +{habit.points || 10} pts{habit.completedBy ? ` · ${habit.completedBy}` : ""}</div>
+          </div>
+          <div style={{ fontSize: 9, color: `${C.slateLight}60`, textAlign: "right", lineHeight: 1.4 }}>{longPressProgress > 0 ? "Undoing…" : "Hold to\nundo"}</div>
         </div>
-        <div style={{ fontSize: 9, color: `${C.slateLight}60`, textAlign: "right", lineHeight: 1.4 }}>{longPressProgress > 0 ? "Undoing…" : "Hold to\nundo"}</div>
       </div>
     </div>
   );
 
   return (
-    <div style={{ background: isKidsHabit ? `linear-gradient(135deg, ${habit.color}10, ${C.white})` : C.white, borderRadius: 20, border: isKidsHabit ? `1.5px solid ${habit.color}30` : "1px solid rgba(0,0,0,0.05)", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", overflow: "hidden" }}>
-      <div style={{ padding: 18 }} onClick={() => !expanded && setExpanded(true)}>
+    <div style={{ position: "relative", borderRadius: 20, overflow: "hidden" }}>
+      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: ACTION_WIDTH, display: "flex" }}>
+        <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onEdit?.(); }} style={{ flex: 1, background: C.warm, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Edit</button>
+        <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onDelete?.(); }} style={{ flex: 1, background: C.error, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Delete</button>
+      </div>
+      <div
+        onTouchStart={handleSwipeStart} onTouchMove={handleSwipeMove} onTouchEnd={handleSwipeEnd}
+        style={{ background: isKidsHabit ? `linear-gradient(135deg, ${habit.color}10, ${C.white})` : C.white, borderRadius: 20, border: isKidsHabit ? `1.5px solid ${habit.color}30` : "1px solid rgba(0,0,0,0.05)", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", overflow: "hidden", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
+      <div style={{ padding: 18 }} onClick={() => swipeX === 0 && !expanded && setExpanded(true)}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
           <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{habit.icon}</div>
           <div style={{ flex: 1 }}>
@@ -1061,12 +1131,13 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo }) {
           <button onClick={() => { setExpanded(false); setShowDigital(false); setHoldProgress(0); }} style={{ marginTop: 10, background: "none", border: "none", fontSize: 12, color: C.slateLight, cursor: "pointer", display: "block", width: "100%", textAlign: "center" }}>Cancel</button>
         </div>
       )}
+      </div>
     </div>
   );
 }
 
 // ─── KIDS JAR VIEW ────────────────────────────────────────────────
-function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onComplete, onUndo, onClaimReward, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled }) {
+function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onComplete, onUndo, onClaimReward, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, onEditHabit, onDeleteHabit }) {
   // Only count habits assigned to this kid (or unassigned = everyone)
   const myHabits = habits.filter(h =>
     !h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember?.id)
@@ -1198,7 +1269,7 @@ function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onCom
             <div style={{ fontSize: 12, fontWeight: 600, color: "#7A7060", marginBottom: 10, letterSpacing: 0.5 }}>Today's Habits</div>
             <div className="habit-grid">
               {myHabits.map(h => (
-                <HabitCard key={h.id} habit={h} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} />
+                <HabitCard key={h.id} habit={h} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onEdit={() => onEditHabit?.(h.id)} onDelete={() => onDeleteHabit?.(h.id)} />
               ))}
             </div>
           </>
@@ -1215,9 +1286,9 @@ function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onCom
 }
 
 // ─── TODAY SCREEN ─────────────────────────────────────────────────
-function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward }) {
+function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward, onEditHabit, onDeleteHabit }) {
   if (currentMember?.isKid) {
-    return <KidsJarView habits={habits} weekCompletions={weekCompletions} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} />;
+    return <KidsJarView habits={habits} weekCompletions={weekCompletions} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} />;
   }
 
   const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
@@ -1299,7 +1370,7 @@ function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMemb
             <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 10, letterSpacing: 0.5 }}>Today's Rituals</div>
             <div className="habit-grid">
               {habits.map(h => (
-                <HabitCard key={h.id} habit={h} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} />
+                <HabitCard key={h.id} habit={h} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onEdit={() => onEditHabit?.(h.id)} onDelete={() => onDeleteHabit?.(h.id)} />
               ))}
             </div>
           </>
@@ -1331,8 +1402,24 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
   const [nudged, setNudged] = useState({});
   const [redeemTarget, setRedeemTarget] = useState(null);
 
-  const handleNudge = (id) => {
+  const handleNudge = async (id) => {
     setNudged(n => ({ ...n, [id]: true }));
+    triggerHaptic("regular");
+    try {
+      const senderName = currentMember?.name || "Someone";
+      await fetch('/api/nudge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          memberId: id,
+          familyId: family.id,
+          title: "👋 Nudge!",
+          body: `${senderName} nudged you — time to check your rituals!`,
+        }),
+      });
+    } catch (e) {
+      console.warn('[Nudge] Failed to send:', e);
+    }
     setTimeout(() => setNudged(n => ({ ...n, [id]: false })), 3000);
   };
 
@@ -1695,7 +1782,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 // ─── MANAGE HABITS SCREEN ─────────────────────────────────────────
 function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBack }) {
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null, completionType: 'individual', points: 10 });
+  const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null, completionType: 'individual', points: 10, reminderTime: null });
 
   useEffect(() => {
     if (!editing) return;
@@ -1807,6 +1894,21 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
             <div style={{ fontSize: 11, color: C.warm, marginLeft: 26, marginTop: 2 }}>Example: "Feed the pet" — anyone can do it, counts for all</div>
           </div>
         </div>
+        <div style={{ background: C.white, borderRadius: 20, padding: 16, marginTop: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: form.reminderTime ? 12 : 0 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>Daily Reminder</div>
+              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>Send a push notification at this time</div>
+            </div>
+            <div onClick={() => setForm(f => ({ ...f, reminderTime: f.reminderTime ? null : "09:00" }))} style={{ width: 44, height: 26, borderRadius: 13, background: form.reminderTime ? C.accent : C.sandDark, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+              <div style={{ position: "absolute", top: 3, left: form.reminderTime ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }} />
+            </div>
+          </div>
+          {form.reminderTime && (
+            <input type="time" value={form.reminderTime} onChange={e => setForm(f => ({ ...f, reminderTime: e.target.value }))}
+              style={{ ...inputStyle, marginTop: 0 }} />
+          )}
+        </div>
         <button onClick={() => { onEditHabit(editing.id, { ...form, assignedMemberIds: form.assignedMemberIds || null }); setEditing(null); }} style={{ ...btnPrimary, marginTop: 12 }}>Save Changes</button>
         <button onClick={() => { if (window.confirm(`Delete "${editing.name}"? This removes all completion history.`)) { onDeleteHabit(editing.id); setEditing(null); } }} style={{ ...btnPrimary, background: `${C.error}18`, color: C.error, boxShadow: "none" }}>Delete Habit</button>
       </div>
@@ -1824,7 +1926,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           <div style={{ fontSize: 14, color: C.slateLight }}>No habits yet</div>
         </div>
       ) : Array.from(new Map(habits.map(h => [h.id, h])).values()).map(h => (
-        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null, completionType: h.completionType || 'individual', points: h.points || 10 }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+        <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null, completionType: h.completionType || 'individual', points: h.points || 10, reminderTime: h.reminderTime || null }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: `${h.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{h.icon}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
@@ -3416,7 +3518,13 @@ export default function RitualApp() {
         if (process.env.NODE_ENV === 'development') {
           console.log('Push registration success, token:', token.value);
         }
-        // TODO: Save this token to Supabase for this user/family
+        const memberId = currentMemberRef.current?.id;
+        if (memberId && supabase && token.value) {
+          supabase.from('members').update({ push_token: token.value }).eq('id', memberId)
+            .then(({ error }) => {
+              if (error) console.error('❌ Failed to save push token:', error);
+            });
+        }
       });
 
       PushNotifications.addListener('pushNotificationReceived', notification => {
@@ -3819,6 +3927,7 @@ export default function RitualApp() {
       daysActive: h.daysActive || null,
       completionType: h.completionType || 'individual',
       points: h.points || 10,
+      reminderTime: h.reminderTime || null,
     };
     setHabits(prev => [...prev, tempHabit]);
     if (supabase && family) {
@@ -3831,6 +3940,7 @@ export default function RitualApp() {
         days_active: h.daysActive || null,
         completion_type: h.completionType || 'individual',
         points: h.points || 10,
+        reminder_time: h.reminderTime || null,
       }).select().single();
       if (data) {
         setHabits(prev => prev.map(x => x.id === tempId ? normalizeHabit(data) : x));
@@ -3871,6 +3981,7 @@ export default function RitualApp() {
       if ('daysActive' in updates) dbUpdates.days_active = updates.daysActive || null;
       if ('completionType' in updates) dbUpdates.completion_type = updates.completionType || 'individual';
       if ('points' in updates) dbUpdates.points = updates.points || 10;
+      if ('reminderTime' in updates) dbUpdates.reminder_time = updates.reminderTime || null;
       await supabase.from("habits").update(dbUpdates).eq("id", habitId);
 
       // Shared completion backfill: if switching to 'shared', sync today's max taps to all assigned members
@@ -3968,8 +4079,10 @@ export default function RitualApp() {
       if (error) { console.error('❌ Redemption failed:', error); addToast('Failed to create redemption request', 'error'); return; }
       if (row) setRedemptions(prev => [row, ...prev]);
       redemptionsLastFetched.current = Date.now();
+      triggerHaptic("milestone");
       addToast(`✓ ${reward.name} requested — a parent will fulfil it`);
     } else {
+      triggerHaptic("milestone");
       addToast(`✓ ${reward.name} redeemed — enjoy!`);
     }
   };
@@ -4275,6 +4388,8 @@ export default function RitualApp() {
               soundEnabled={soundEnabled}
               soloMode={soloMode}
               onClaimReward={() => setTab("family")}
+              onEditHabit={() => { setAddInitialView("habitsManage"); setTab("add"); }}
+              onDeleteHabit={(habitId) => { if (window.confirm("Delete this habit? This removes all completion history.")) handleDeleteHabit(habitId); }}
             />
           )}
           {tab === "family" && !soloMode && (
