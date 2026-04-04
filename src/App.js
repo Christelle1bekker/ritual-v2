@@ -3715,7 +3715,7 @@ function ManageScreen({
           {" "}and{" "}
           <span onClick={async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } }} style={{ color: C.accent, cursor: "pointer", textDecoration: "underline" }}>Terms of Use</span>.
         </p>
-        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.33</p>
+        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.34</p>
       </div>
     </div>
   );
