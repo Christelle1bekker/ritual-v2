@@ -5,6 +5,7 @@ import { App as CapApp } from '@capacitor/app';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
+import { Browser } from '@capacitor/browser';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
 const C = {
@@ -91,6 +92,29 @@ function isoAddDays(dateStr, days) {
   return [dt.getFullYear(), String(dt.getMonth() + 1).padStart(2, '0'), String(dt.getDate()).padStart(2, '0')].join('-');
 }
 
+// Compute current consecutive-day streak from an array of completion date strings.
+// Today is treated as "in progress" — not completing today does NOT break the streak.
+// Streak breaks only if yesterday AND today are both absent.
+function calcStreakFromDates(dates) {
+  const today = todayKey();
+  const yesterday = isoAddDays(today, -1);
+  const unique = [...new Set(dates)].sort().reverse(); // newest first
+  if (unique.length === 0) return 0;
+  const most = unique[0];
+  // Most recent completion is 2+ days ago — streak is definitively broken
+  if (most < yesterday) return 0;
+  // Count consecutive days backward from the most recent completion date
+  let streak = 1;
+  for (let i = 1; i < unique.length; i++) {
+    if (unique[i] === isoAddDays(unique[i - 1], -1)) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 // ─── SUPABASE NORMALISERS ─────────────────────────────────────────
 function normalizeMember(m) {
   const name = m.name || '';
@@ -164,21 +188,31 @@ async function fetchFamilyData(pin, familyName) {
 
 async function fetchTodayCompletions(familyId) {
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("completions").select("*")
-    .eq("family_id", familyId).eq("date", todayKey());
-  if (error) console.error("❌ fetchTodayCompletions error:", error);
-  return (data || []).map(normalizeCompletion);
+  try {
+    const { data, error } = await supabase
+      .from("completions").select("*")
+      .eq("family_id", familyId).eq("date", todayKey());
+    if (error) console.error("❌ fetchTodayCompletions error:", error);
+    return (data || []).map(normalizeCompletion);
+  } catch (e) {
+    console.error("❌ fetchTodayCompletions exception:", e);
+    return [];
+  }
 }
 
 async function fetchWeekCompletions(familyId) {
   if (!supabase) return [];
-  const dates = getWeekDates();
-  const { data } = await supabase
-    .from("completions").select("*")
-    .eq("family_id", familyId)
-    .gte("date", dates[0]).lte("date", dates[6]);
-  return (data || []).map(normalizeCompletion);
+  try {
+    const dates = getWeekDates();
+    const { data } = await supabase
+      .from("completions").select("*")
+      .eq("family_id", familyId)
+      .gte("date", dates[0]).lte("date", dates[6]);
+    return (data || []).map(normalizeCompletion);
+  } catch (e) {
+    console.error("❌ fetchWeekCompletions exception:", e);
+    return [];
+  }
 }
 
 async function fetchAnalyticsData(familyId) {
@@ -275,7 +309,7 @@ function triggerHaptic(type = "regular") {
 // ─── GEAR ICON ────────────────────────────────────────────────────
 function GearIcon({ color, size = 20 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
       <circle cx="12" cy="12" r="3"/>
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
     </svg>
@@ -917,12 +951,10 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
   useEffect(() => {
-    if (soundEnabled) {
-      const newStreak = (habit?.streak || 0) + 1;
-      const type = isKid ? "kids" : newStreak >= 5 ? "milestone" : "regular";
-      playCompletionSound(type);
-      triggerHaptic(type);
-    }
+    const newStreak = (habit?.streak || 0) + 1;
+    const type = isKid ? "kids" : newStreak >= 5 ? "milestone" : "regular";
+    if (soundEnabled) playCompletionSound(type);
+    triggerHaptic(type);
   }, []); // eslint-disable-line
 
   useEffect(() => {
@@ -944,7 +976,7 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
       {member && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.15)" }}>
           <div style={{ width: 28, height: 28, borderRadius: "50%", background: member.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white }}>{member.avatar}</div>
-          <span style={{ fontSize: 14, color: C.white, fontWeight: 600 }}>{member.name}</span>
+          <span style={{ fontSize: 14, color: isKid ? "#4A3F35" : C.white, fontWeight: 600 }}>{member.name}</span>
         </div>
       )}
       <div style={{ fontSize: isKid ? 24 : 26, fontWeight: 700, color: isKid ? "#4A3F35" : C.white, fontFamily: "'DM Serif Display', serif", textAlign: "center", padding: "0 40px", lineHeight: 1.2 }}>
@@ -954,7 +986,7 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
       {habit?.target > 1 && <div style={{ padding: "8px 20px", borderRadius: 20, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 14, color: isKid ? "#5A6B55" : C.white, fontWeight: 600 }}>{taps} / {target} today</div>}
       {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 13, color: isKid ? "#7A9066" : C.white, fontWeight: 600 }}>{isKid ? "🌿" : "🔥"} {(habit?.streak || 0) + 1} day streak</div>}
       <div style={{ fontSize: 12, color: isKid ? "#A09480" : "rgba(255,255,255,0.4)" }}>+{habit?.points || 10} points</div>
-      <button onClick={() => { if (soundEnabled) { playCompletionSound("undo"); triggerHaptic("undo"); } onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: isKid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)", border: isKid ? "1px solid rgba(183,175,160,0.3)" : "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: isKid ? "#8A7E70" : "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
+      <button onClick={() => { if (soundEnabled) playCompletionSound("undo"); triggerHaptic("undo"); onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: isKid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)", border: isKid ? "1px solid rgba(183,175,160,0.3)" : "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: isKid ? "#8A7E70" : "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
         <span>↩</span> Undo tap · {countdown}s
       </button>
     </div>
@@ -977,6 +1009,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
   const swipeStartX = useRef(0);
   const swipeStartY = useRef(0);
   const swipeLocked = useRef(false);
+  const swipeTimeout = useRef(null);
 
   const taps = habit.taps || 0;
   const target = habit.target || 1;
@@ -984,7 +1017,9 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
   const isMulti = target > 1;
   const isKidsHabit = habit.isKid || habit.categoryId === "kids";
 
-  useEffect(() => () => { clearInterval(holdInterval.current); clearInterval(longInterval.current); }, []);
+  useEffect(() => { setSwipeX(0); setSwiping(false); }, [habit.id, completed]);
+
+  useEffect(() => () => { clearInterval(holdInterval.current); clearInterval(longInterval.current); clearTimeout(swipeTimeout.current); }, []);
 
   useEffect(() => {
     if (!expanded) return;
@@ -997,7 +1032,13 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
     if (swipeX === 0) return;
     const close = () => setSwipeX(0);
     document.addEventListener("touchstart", close, { passive: true });
-    return () => document.removeEventListener("touchstart", close);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("pointerdown", close);
+    return () => {
+      document.removeEventListener("touchstart", close);
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("pointerdown", close);
+    };
   }, [swipeX]);
 
   const handleSwipeStart = (e) => {
@@ -1005,8 +1046,12 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
     swipeStartY.current = e.touches[0].clientY;
     swipeLocked.current = false;
     setSwiping(true);
+    clearTimeout(swipeTimeout.current);
+    swipeTimeout.current = setTimeout(() => { setSwiping(false); setSwipeX(0); }, 500);
   };
   const handleSwipeMove = (e) => {
+    clearTimeout(swipeTimeout.current);
+    swipeTimeout.current = setTimeout(() => { setSwiping(false); setSwipeX(0); }, 500);
     const dx = e.touches[0].clientX - swipeStartX.current;
     const dy = e.touches[0].clientY - swipeStartY.current;
     if (!swipeLocked.current && Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
@@ -1019,6 +1064,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
     setSwipeX(newX);
   };
   const handleSwipeEnd = () => {
+    clearTimeout(swipeTimeout.current);
     setSwiping(false);
     setSwipeX(prev => prev < -SWIPE_THRESHOLD ? -ACTION_WIDTH : 0);
   };
@@ -1053,17 +1099,24 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
   const endLongPress = () => { clearInterval(longInterval.current); setLongPressProgress(0); };
 
   if (completed && !isMulti) return (
-    <div style={{ position: "relative", borderRadius: 20, overflow: "hidden" }}>
-      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: ACTION_WIDTH, display: "flex" }}>
-        <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onEdit?.(); }} style={{ flex: 1, background: C.warm, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Edit</button>
-        <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onDelete?.(); }} style={{ flex: 1, background: C.error, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Delete</button>
-      </div>
+    <div style={{ position: "relative", borderRadius: 20 }}>
+      {swipeX < 0 && (
+        <div
+          style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: ACTION_WIDTH, display: "flex" }}
+          onTouchStart={(e) => e.nativeEvent.stopImmediatePropagation()}
+          onPointerDown={(e) => e.nativeEvent.stopImmediatePropagation()}
+        >
+          <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onEdit?.(); }} style={{ flex: 1, background: C.warm, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Edit</button>
+          <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onDelete?.(); }} style={{ flex: 1, background: C.error, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Delete</button>
+        </div>
+      )}
       <div
         onTouchStart={(e) => { handleSwipeStart(e); if (swipeX === 0) startLongPress(); }}
         onTouchEnd={(e) => { handleSwipeEnd(); if (swipeX === 0) endLongPress(); }}
+        onTouchCancel={handleSwipeEnd}
         onTouchMove={handleSwipeMove}
         onMouseDown={startLongPress} onMouseUp={endLongPress}
-        style={{ background: C.white, borderRadius: 20, padding: 18, boxShadow: `0 4px 20px ${habit.color}18`, border: `1px solid ${habit.color}30`, position: "relative", overflow: "hidden", cursor: "pointer", userSelect: "none", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
+        style={{ width: "100%", background: C.white, borderRadius: 20, padding: 18, boxShadow: `0 4px 20px ${habit.color}18`, border: `1px solid ${habit.color}30`, position: "relative", overflow: "hidden", cursor: "pointer", userSelect: "none", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
         {longPressProgress > 0 && <div style={{ position: "absolute", inset: 0, background: `${habit.color}12`, width: `${longPressProgress}%`, zIndex: 0 }} />}
         <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 1 }}>
           <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg, ${habit.color}, ${habit.color}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: C.white, boxShadow: `0 4px 10px ${habit.color}35` }}>✓</div>
@@ -1078,14 +1131,20 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
   );
 
   return (
-    <div style={{ position: "relative", borderRadius: 20, overflow: "hidden" }}>
-      <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: ACTION_WIDTH, display: "flex" }}>
-        <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onEdit?.(); }} style={{ flex: 1, background: C.warm, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Edit</button>
-        <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onDelete?.(); }} style={{ flex: 1, background: C.error, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Delete</button>
-      </div>
+    <div style={{ position: "relative", borderRadius: 20 }}>
+      {swipeX < 0 && (
+        <div
+          style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: ACTION_WIDTH, display: "flex" }}
+          onTouchStart={(e) => e.nativeEvent.stopImmediatePropagation()}
+          onPointerDown={(e) => e.nativeEvent.stopImmediatePropagation()}
+        >
+          <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onEdit?.(); }} style={{ flex: 1, background: C.warm, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Edit</button>
+          <button onTouchEnd={(e) => { e.stopPropagation(); setSwipeX(0); onDelete?.(); }} style={{ flex: 1, background: C.error, border: "none", cursor: "pointer", color: C.white, fontSize: 11, fontWeight: 600 }}>Delete</button>
+        </div>
+      )}
       <div
-        onTouchStart={handleSwipeStart} onTouchMove={handleSwipeMove} onTouchEnd={handleSwipeEnd}
-        style={{ background: isKidsHabit ? `linear-gradient(135deg, ${habit.color}10, ${C.white})` : C.white, borderRadius: 20, border: isKidsHabit ? `1.5px solid ${habit.color}30` : "1px solid rgba(0,0,0,0.05)", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", overflow: "hidden", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
+        onTouchStart={handleSwipeStart} onTouchMove={handleSwipeMove} onTouchEnd={handleSwipeEnd} onTouchCancel={handleSwipeEnd}
+        style={{ width: "100%", background: isKidsHabit ? `linear-gradient(135deg, ${habit.color}10, ${C.white})` : C.white, borderRadius: 20, border: isKidsHabit ? `1.5px solid ${habit.color}30` : "1px solid rgba(0,0,0,0.05)", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", overflow: "hidden", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
       <div style={{ padding: 18 }} onClick={() => swipeX === 0 && !expanded && setExpanded(true)}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
           <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{habit.icon}</div>
@@ -1093,7 +1152,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>
               {habit.location ? `${habit.tileUid ? "Tile at" : "At"}: ${habit.location}` : habit.category}{habit.streak > 0 ? ` · 🔥 ${habit.streak}` : ""}
-              {habit.tileUid && <span style={{ color: C.accent, marginLeft: 6 }}>· <TileIcon size="11px" style={{ marginRight: 2 }} /> {tileLabel(habit.tileUid)}</span>}
+              {habit.tileUid && <span style={{ color: C.accent, marginLeft: 6 }}>· <TileIcon size="11px" /></span>}
             </div>
             {isMulti && taps > 0 && (
               <div style={{ marginTop: 6 }}>
@@ -1140,8 +1199,40 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
   );
 }
 
-// ─── KIDS JAR VIEW ────────────────────────────────────────────────
-function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onComplete, onUndo, onClaimReward, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, onEditHabit, onDeleteHabit }) {
+// ─── CELEBRATION OVERLAY ─────────────────────────────────────────
+function CelebrationOverlay({ onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3000);
+    return () => clearTimeout(t);
+  }, []); // eslint-disable-line
+  const COLORS = ["#C4956A", "#7BA05B", "#F4B8A8", "#E8A090", "#9BC07A", "#C47B4A"];
+  const particles = Array.from({ length: 20 }, (_, i) => ({
+    id: i,
+    left: `${5 + (i * 4.75) % 90}%`,
+    color: COLORS[i % COLORS.length],
+    size: 6 + (i % 4) * 3,
+    delay: `${((i * 0.13) % 1.4).toFixed(2)}s`,
+    duration: `${(2.2 + (i % 5) * 0.3).toFixed(1)}s`,
+    radius: i % 3 === 0 ? "50%" : i % 3 === 1 ? "3px" : "2px",
+  }));
+  return (
+    <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, pointerEvents: "none", overflow: "hidden" }}>
+      {particles.map(p => (
+        <div key={p.id} style={{ position: "absolute", top: "-20px", left: p.left, width: p.size, height: p.size, borderRadius: p.radius, background: p.color, animation: `confettiFall ${p.duration} ${p.delay} ease-in forwards` }} />
+      ))}
+      <div style={{ textAlign: "center", animation: "celebFadeIn 0.5s ease forwards", width: "78%", position: "relative", zIndex: 1 }}>
+        <div style={{ fontSize: 52, marginBottom: 12, lineHeight: 1 }}>🌸</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", lineHeight: 1.3, background: "rgba(255,255,255,0.93)", borderRadius: 20, padding: "18px 24px", boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }}>
+          All done!<br />
+          <span style={{ fontSize: 15, fontWeight: 500, color: "#7A7060" }}>Your tree is in full bloom!</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── KIDS TREE VIEW ──────────────────────────────────────────────
+function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onComplete, onUndo, onClaimReward, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, onEditHabit, onDeleteHabit }) {
   // Only count habits assigned to this kid (or unassigned = everyone)
   const myHabits = habits.filter(h =>
     !h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember?.id)
@@ -1153,9 +1244,9 @@ function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onCom
   const pts = currentMember?.points || 0;
   const streak = currentMember?.streak || 0;
 
-  // ── Cumulative 7-day jar fill ──────────────────────────────────
-  // Each penny completion adds to the jar across the whole week.
-  // Full jar = all habits done every day for 7 days.
+  // ── Cumulative 7-day tree fill ─────────────────────────────────
+  // Weekly completion count drives the tree stage across the whole week.
+  // Full week = all habits done every day for 7 days.
   // Past days use weekCompletions; today uses live habit taps.
   const weekDates = getWeekDates();
   const todayIdx = getTodayIndex();
@@ -1174,21 +1265,21 @@ function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onCom
   }
   const maxCount = total * 7; // perfect week
   const fillPct = maxCount > 0 ? Math.min(weekCount / maxCount, 1) : 0;
-  // jar fill: 0px = empty, 108px = full (jar inner height)
-  const fillH = Math.round(fillPct * 108);
-  const jarY = 168 - fillH; // top of fill rect (jar bottom inner is ~168)
+  const pct = total > 0 ? (done / total) * 100 : 0;
+  const stage = pct === 0 ? 1 : pct <= 25 ? 2 : pct <= 50 ? 3 : pct <= 75 ? 4 : 5;
+  const stageLabels = ["", "Plant your first habit today", "Growing — keep going!", "Halfway there!", "Almost in full bloom!", "In full bloom! 🌸"];
 
   return (
     <>
       {whoDidThis && <WhoDidThis habit={whoDidThis} members={allMembers} onSelect={(m) => onComplete(whoDidThis.id, m, false)} onCancel={onWhoCancel} />}
       {flashData && <CompletionFlash habit={flashData.habit} member={flashData.member} onDone={onFlashDone} onUndo={onFlashUndo} soundEnabled={soundEnabled} />}
-      <div style={{ padding: "0 20px 110px" }}>
+      <div style={{ padding: "0 20px 140px" }}>
 
         {/* Celebration banners */}
         {fillPct >= 1 && (
           <div style={{ background: "linear-gradient(135deg, #C47B4A, #D4956A)", borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(196,123,74,0.3)" }}>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: "'DM Serif Display', serif" }}>Jar full! 🎉</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: "'DM Serif Display', serif" }}>In full bloom! 🌸</div>
               <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>Amazing week — claim your reward!</div>
             </div>
             <button onClick={onClaimReward} style={{ background: "#fff", border: "none", borderRadius: 50, padding: "9px 16px", fontSize: 13, fontWeight: 700, color: "#C47B4A", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
@@ -1200,43 +1291,73 @@ function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onCom
           <div style={{ background: "linear-gradient(135deg, #5C7A5E, #7A9E7C)", borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(92,122,94,0.3)" }}>
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: "'DM Serif Display', serif" }}>All done today! ⭐</div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>Keep it up — the jar keeps filling all week!</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>Keep it up — your tree keeps growing all week!</div>
             </div>
           </div>
         )}
 
-        {/* Jar + stats */}
+        {/* Tree + stats */}
         <div style={{ background: "#fff", borderRadius: 24, padding: 24, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 24 }}>
-          {/* SVG Jar */}
+          {/* SVG Tree — 5 stages */}
           <div style={{ flexShrink: 0 }}>
             <svg width="90" height="120" viewBox="0 0 90 120" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <clipPath id="jarBodyClip">
-                  <path d="M14,38 L14,102 Q14,116 45,116 Q76,116 76,102 L76,38 Z" />
-                </clipPath>
-                <linearGradient id="jarFill" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#C47B4A" stopOpacity="0.7" />
-                  <stop offset="100%" stopColor="#D4956A" stopOpacity="0.85" />
-                </linearGradient>
-              </defs>
-              {/* Jar body */}
-              <path d="M14,38 L14,102 Q14,116 45,116 Q76,116 76,102 L76,38 Z"
-                fill="#F7F4EF" stroke="#D5CECC" strokeWidth="2" />
-              {/* Fill level */}
-              <rect x="14" y={jarY} width="62" height={fillH}
-                fill="url(#jarFill)" clipPath="url(#jarBodyClip)"
-                style={{ transition: "y 0.8s cubic-bezier(0.34,1.56,0.64,1), height 0.8s cubic-bezier(0.34,1.56,0.64,1)" }} />
-              {/* Jar neck */}
-              <rect x="26" y="20" width="38" height="20" rx="4"
-                fill="#F7F4EF" stroke="#D5CECC" strokeWidth="2" />
-              {/* Lid */}
-              <rect x="20" y="10" width="50" height="13" rx="5"
-                fill="#C47B4A" />
-              {/* Coin slot */}
-              <rect x="38" y="7" width="14" height="5" rx="2.5"
-                fill="#A85E35" />
-              {/* Jar highlight */}
-              <path d="M22,50 Q22,108 30,112" stroke="rgba(255,255,255,0.5)" strokeWidth="3" fill="none" strokeLinecap="round" />
+              {/* Ground */}
+              <ellipse cx="45" cy="112" rx="34" ry="7" fill="#D4C9A8" />
+              <ellipse cx="45" cy="112" rx="26" ry="5" fill="#C4B896" />
+              {stage === 1 && <>
+                {/* Seed */}
+                <ellipse cx="45" cy="104" rx="7" ry="5" fill="#8B7355" />
+                <ellipse cx="45" cy="103" rx="5" ry="3" fill="#6B5740" />
+              </>}
+              {stage === 2 && <>
+                {/* Stem */}
+                <rect x="43" y="84" width="4" height="22" rx="2" fill="#8B7355" />
+                {/* Two small leaves */}
+                <ellipse cx="36" cy="88" rx="9" ry="5" fill="#9BC07A" transform="rotate(-35 36 88)" />
+                <ellipse cx="54" cy="88" rx="9" ry="5" fill="#9BC07A" transform="rotate(35 54 88)" />
+              </>}
+              {stage === 3 && <>
+                {/* Trunk */}
+                <rect x="41" y="78" width="8" height="28" rx="3" fill="#8B7355" />
+                <rect x="42" y="80" width="3" height="24" rx="1.5" fill="#A0896B" opacity="0.5" />
+                {/* Canopy */}
+                <circle cx="45" cy="62" r="20" fill="#9BC07A" />
+                <circle cx="30" cy="70" r="13" fill="#8BB06A" />
+                <circle cx="60" cy="70" r="13" fill="#8BB06A" />
+                <circle cx="45" cy="50" r="13" fill="#7BA05B" />
+              </>}
+              {stage === 4 && <>
+                {/* Trunk */}
+                <rect x="40" y="70" width="10" height="36" rx="4" fill="#8B7355" />
+                <rect x="41" y="72" width="4" height="30" rx="2" fill="#A0896B" opacity="0.5" />
+                {/* Canopy */}
+                <circle cx="45" cy="52" r="24" fill="#9BC07A" />
+                <circle cx="27" cy="62" r="17" fill="#8BB06A" />
+                <circle cx="63" cy="62" r="17" fill="#8BB06A" />
+                <circle cx="45" cy="36" r="17" fill="#7BA05B" />
+                {/* A few blossom hints */}
+                <circle cx="38" cy="46" r="4" fill="#F4B8A8" opacity="0.7" />
+                <circle cx="54" cy="42" r="4" fill="#F4B8A8" opacity="0.7" />
+              </>}
+              {stage === 5 && <>
+                {/* Trunk */}
+                <rect x="40" y="66" width="10" height="40" rx="4" fill="#8B7355" />
+                <rect x="41" y="68" width="4" height="34" rx="2" fill="#A0896B" opacity="0.5" />
+                {/* Canopy */}
+                <circle cx="45" cy="46" r="28" fill="#9BC07A" />
+                <circle cx="24" cy="58" r="20" fill="#8BB06A" />
+                <circle cx="66" cy="58" r="20" fill="#8BB06A" />
+                <circle cx="45" cy="28" r="20" fill="#7BA05B" />
+                {/* Blossoms */}
+                <circle cx="35" cy="40" r="5" fill="#F4B8A8" opacity="0.9" />
+                <circle cx="56" cy="36" r="5" fill="#F4B8A8" opacity="0.9" />
+                <circle cx="45" cy="53" r="4" fill="#E8A090" opacity="0.9" />
+                <circle cx="26" cy="54" r="4" fill="#F4B8A8" opacity="0.85" />
+                <circle cx="64" cy="50" r="4" fill="#E8A090" opacity="0.85" />
+                <circle cx="39" cy="25" r="4" fill="#F4B8A8" opacity="0.9" />
+                <circle cx="53" cy="22" r="3" fill="#C4956A" opacity="0.85" />
+                <circle cx="45" cy="18" r="3" fill="#F4B8A8" opacity="0.8" />
+              </>}
             </svg>
           </div>
 
@@ -1247,7 +1368,7 @@ function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onCom
               {done}<span style={{ fontSize: 18, color: "#B0A498", fontWeight: 400 }}>/{total}</span>
             </div>
             <div style={{ fontSize: 12, color: "#9A8E80", marginBottom: 4 }}>habits done</div>
-            <div style={{ fontSize: 11, color: "#C47B4A", marginBottom: 8 }}>{weekCount} penny{weekCount !== 1 ? 's' : ''} in the jar this week</div>
+            <div style={{ fontSize: 11, color: "#7BA05B", marginBottom: 8 }}>{stageLabels[stage]}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {streak > 0 && (
                 <div style={{ padding: "4px 10px", borderRadius: 20, background: "#FFF3EB", border: "1px solid #F5D9C4", fontSize: 12, fontWeight: 600, color: "#C47B4A" }}>
@@ -1264,13 +1385,13 @@ function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onCom
         {/* Habits */}
         {total === 0 ? (
           <div style={{ background: "#fff", borderRadius: 24, padding: 36, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🫙</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Your jar is empty</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🌱</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Ready to grow</div>
             <div style={{ fontSize: 13, color: "#9A8E80", lineHeight: 1.6 }}>No habits yet — ask a parent to add some!</div>
           </div>
         ) : (
           <>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#7A7060", marginBottom: 10, letterSpacing: 0.5 }}>Today's Habits</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 10, letterSpacing: 0.5 }}>Today's Rituals</div>
             <div className="habit-grid">
               {myHabits.map(h => (
                 <HabitCard key={h.id} habit={h} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onEdit={() => onEditHabit?.(h.id)} onDelete={() => onDeleteHabit?.(h.id)} />
@@ -1292,7 +1413,7 @@ function KidsJarView({ habits, weekCompletions, currentMember, allMembers, onCom
 // ─── TODAY SCREEN ─────────────────────────────────────────────────
 function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward, onEditHabit, onDeleteHabit }) {
   if (currentMember?.isKid) {
-    return <KidsJarView habits={habits} weekCompletions={weekCompletions} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} />;
+    return <KidsTreeView habits={habits} weekCompletions={weekCompletions} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} />;
   }
 
   const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
@@ -1306,7 +1427,7 @@ function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMemb
     <>
       {whoDidThis && <WhoDidThis habit={whoDidThis} members={allMembers} onSelect={(m) => onComplete(whoDidThis.id, m, false)} onCancel={onWhoCancel} />}
       {flashData && <CompletionFlash habit={flashData.habit} member={flashData.member} onDone={onFlashDone} onUndo={onFlashUndo} soundEnabled={soundEnabled} />}
-      <div style={{ padding: "0 20px 110px" }}>
+      <div style={{ padding: "0 20px 140px" }}>
         {/* Hero */}
         <div style={{ background: `linear-gradient(135deg, ${C.slateDark} 0%, ${C.slate} 100%)`, borderRadius: 24, padding: 24, marginBottom: 16, position: "relative", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: -30, right: -30, width: 150, height: 150, borderRadius: "50%", background: "rgba(255,255,255,0.06)", zIndex: 0 }} />
@@ -1331,34 +1452,6 @@ function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMemb
               <div style={{ height: "100%", borderRadius: 3, background: `linear-gradient(90deg, ${C.accent}, ${C.accentLight})`, width: `${(done / Math.max(total, 1)) * 100}%`, transition: "width 0.8s cubic-bezier(0.34,1.56,0.64,1)" }} />
             </div>
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontFamily: "'DM Serif Display', serif", fontStyle: "italic" }}>{getMotivation(done, total)}</div>
-          </div>
-        </div>
-
-        {/* Week chart */}
-        <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, letterSpacing: 0.5 }}>{soloMode ? "Your Progress This Week" : "Family Progress This Week"}</div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 10, color: C.slateLight, marginTop: 2 }}>{soloMode ? "Your completion rate" : "Household completion rate"}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
-                {weekData[todayIndex] !== null ? `${weekData[todayIndex]}%` : "—"}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 70, paddingTop: 22 }}>
-            {weekData.map((v, i) => {
-              const isToday = i === todayIndex;
-              const isFuture = v === null;
-              const pct = v ?? 0;
-              return (
-                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-                  <div style={{ width: "100%", position: "relative", height: 50, display: "flex", alignItems: "flex-end" }}>
-                    <div style={{ width: "100%", borderRadius: 4, minHeight: 4, height: `${Math.max(pct * 0.5, 4)}px`, background: isFuture ? C.sandLight : isToday ? `linear-gradient(180deg, ${C.accent}, ${C.accentLight})` : `${C.slate}55`, boxShadow: isToday ? `0 4px 12px ${C.accent}40` : "none", transition: "height 0.6s cubic-bezier(0.34,1.56,0.64,1)" }} />
-                  </div>
-                  <div style={{ fontSize: 9, fontWeight: isToday ? 700 : 400, color: isToday ? C.accent : isFuture ? C.sandDark : C.slateLight }}>{dayLabels[i]}</div>
-                </div>
-              );
-            })}
           </div>
         </div>
 
@@ -1440,7 +1533,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
   };
 
   if (view === "add") return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <button onClick={() => setView("list")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
       <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 24 }}>{editing ? "Edit Member" : "Add Member"}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1485,7 +1578,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
   );
 
   return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <div style={{ background: `linear-gradient(135deg, ${C.warm}, ${C.accent})`, borderRadius: 24, padding: 24, marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", letterSpacing: 2.5, textTransform: "uppercase", marginBottom: 6 }}>The {family.name} Family</div>
         <div style={{ fontSize: 44, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>{totalPoints.toLocaleString()}</div>
@@ -1522,12 +1615,6 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
           </div>
         </div>
       ))}
-
-      {!currentMember?.isKid && (
-        <div onClick={() => { setEditing(null); setForm({ name: "", isKid: false, colorIdx: family.members.length % MEMBER_COLORS.length }); setView("add"); }} style={{ padding: 16, borderRadius: 20, border: `1.5px dashed ${C.sandDark}`, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", color: C.slateLight, fontSize: 14, marginBottom: 16 }}>
-          <span style={{ fontSize: 20 }}>+</span> Add family member
-        </div>
-      )}
 
       {/* Pending redemptions (adults see all; kids see their own) */}
       {pendingRedemptions.length > 0 && (
@@ -1569,7 +1656,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
           <div style={{ textAlign: "center", padding: "20px 0" }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🎁</div>
             <div style={{ fontSize: 13, color: C.slate, fontWeight: 600, marginBottom: 4 }}>No rewards yet</div>
-            <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 16 }}>Add rewards in the Add tab → Manage Rewards</div>
+            <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 16 }}>Add rewards in the Manage tab → Manage Rewards</div>
           </div>
         ) : visibleRewards.map((r, i) => {
           const canAfford = currentMember && (currentMember.points || 0) >= r.points;
@@ -1692,7 +1779,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
   };
 
   return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Manage Tiles</div>
       <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 12, lineHeight: 1.6 }}>
@@ -1784,9 +1871,17 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 }
 
 // ─── MANAGE HABITS SCREEN ─────────────────────────────────────────
-function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBack }) {
+function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBack, initialEditHabitId }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null, completionType: 'individual', points: 10, reminderTime: null });
+
+  useEffect(() => {
+    if (!initialEditHabitId || !habits?.length) return;
+    const h = habits.find(x => x.id === initialEditHabitId);
+    if (!h) return;
+    setEditing(h);
+    setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null, completionType: h.completionType || 'individual', points: h.points || 10, reminderTime: h.reminderTime || null });
+  }, [initialEditHabitId, habits]);
 
   useEffect(() => {
     if (!editing) return;
@@ -1796,7 +1891,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
   }, [editing]);
 
   if (editing) return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <button onClick={() => setEditing(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <div style={{ width: 44, height: 44, borderRadius: 13, background: `${editing.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{editing.icon}</div>
@@ -1908,10 +2003,34 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
               <div style={{ position: "absolute", top: 3, left: form.reminderTime ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }} />
             </div>
           </div>
-          {form.reminderTime && (
-            <input type="time" value={form.reminderTime} onChange={e => setForm(f => ({ ...f, reminderTime: e.target.value }))}
-              style={{ ...inputStyle, marginTop: 0 }} />
-          )}
+          {form.reminderTime && (() => {
+            const [hStr, mStr] = form.reminderTime.split(':');
+            const h24 = parseInt(hStr, 10);
+            const tHour = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+            const tMin = mStr || '00';
+            const tAmpm = h24 < 12 ? 'AM' : 'PM';
+            const saveTime = (hour, min, ap) => {
+              let h = parseInt(hour, 10);
+              if (ap === 'AM') h = h === 12 ? 0 : h;
+              else h = h === 12 ? 12 : h + 12;
+              setForm(f => ({ ...f, reminderTime: `${String(h).padStart(2, '0')}:${min}` }));
+            };
+            const sel = { flex: 1, padding: "10px 6px", borderRadius: 12, border: `1.5px solid ${C.sandDark}`, background: C.offwhite, fontSize: 14, color: C.slate, outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", cursor: "pointer", textAlign: "center", WebkitAppearance: "none", appearance: "none" };
+            return (
+              <div style={{ display: "flex", gap: 8 }}>
+                <select style={sel} value={tHour} onChange={e => saveTime(e.target.value, tMin, tAmpm)}>
+                  {[12,1,2,3,4,5,6,7,8,9,10,11].map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <select style={sel} value={tMin} onChange={e => saveTime(tHour, e.target.value, tAmpm)}>
+                  {['00','05','10','15','20','25','30','35','40','45','50','55'].map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <select style={sel} value={tAmpm} onChange={e => saveTime(tHour, tMin, e.target.value)}>
+                  <option value="AM">AM</option>
+                  <option value="PM">PM</option>
+                </select>
+              </div>
+            );
+          })()}
         </div>
         <button onClick={() => { onEditHabit(editing.id, { ...form, assignedMemberIds: form.assignedMemberIds || null }); setEditing(null); }} style={{ ...btnPrimary, marginTop: 12 }}>Save Changes</button>
         <button onClick={() => { if (window.confirm(`Delete "${editing.name}"? This removes all completion history.`)) { onDeleteHabit(editing.id); setEditing(null); } }} style={{ ...btnPrimary, background: `${C.error}18`, color: C.error, boxShadow: "none" }}>Delete Habit</button>
@@ -1920,7 +2039,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
   );
 
   return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Manage Habits</div>
       <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Tap a habit to edit or delete it</div>
@@ -1952,7 +2071,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
 }
 
 // ─── ADD SCREEN ───────────────────────────────────────────────────
-function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, onAddReward, onEditReward, onDeleteReward, initialView = "menu", onMounted, soloMode }) {
+function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, onAddReward, onEditReward, onDeleteReward, initialView = "menu", onMounted, onBack, soloMode, initialEditHabitId }) {
   const [view, setView] = useState(initialView);
   useEffect(() => { onMounted?.(); }, []);
   const [selectedCat, setSelectedCat] = useState(null);
@@ -1981,19 +2100,19 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (view === "tile") {
-    return <ManageTilesScreen habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={() => setView("menu")} />;
+    return <ManageTilesScreen habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={() => onBack ? onBack() : setView("menu")} />;
   }
 
   if (view === "habitsManage") {
-    return <ManageHabitsScreen habits={habits} family={family} currentMember={currentMember} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBack={() => setView("menu")} />;
+    return <ManageHabitsScreen habits={habits} family={family} currentMember={currentMember} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBack={() => onBack ? onBack() : setView("menu")} initialEditHabitId={initialEditHabitId} />;
   }
 
   // FIX 8: Custom ritual creation view
   if (view === "custom") {
     const cat = CATEGORIES.find(c => c.id === customCatId) || CATEGORIES[0];
     return (
-      <div style={{ padding: "0 20px 110px" }}>
-        <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
+      <div style={{ padding: "0 20px 140px" }}>
+        <button onClick={() => onBack ? onBack() : setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Create Custom Ritual</div>
         <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Design your own habit</div>
 
@@ -2132,21 +2251,26 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           onClick={async () => {
             if (!customName.trim() || isSubmitting) return;
             setIsSubmitting(true);
-            const selectedCategory = CATEGORIES.find(c => c.id === customCatId) || CATEGORIES[0];
-            const assignedMemberIds = customSelectedMembers.length === 0 ? null : customSelectedMembers;
-            await onAddHabit({
-              name: customName.trim(), icon: customEmoji,
-              category: selectedCategory.name, categoryId: customCatId,
-              color: selectedCategory.color, location: customLocation.trim() || null,
-              target: customTarget, isKid: selectedCategory.isKids || false, isCustom: true,
-              isShared: customSelectedMembers.length === 0,
-              assignedMemberIds,
-              daysActive: customDays,
-              completionType: customCompletionType,
-              points: customPoints,
-            });
-            setIsSubmitting(false);
-            setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomSelectedMembers([]); setCustomDays(null); setCustomCompletionType('individual'); setCustomPoints(10);
+            try {
+              const selectedCategory = CATEGORIES.find(c => c.id === customCatId) || CATEGORIES[0];
+              const assignedMemberIds = customSelectedMembers.length === 0 ? null : customSelectedMembers;
+              await onAddHabit({
+                name: customName.trim(), icon: customEmoji,
+                category: selectedCategory.name, categoryId: customCatId,
+                color: selectedCategory.color, location: customLocation.trim() || null,
+                target: customTarget, isKid: selectedCategory.isKids || false, isCustom: true,
+                isShared: customSelectedMembers.length === 0,
+                assignedMemberIds,
+                daysActive: customDays,
+                completionType: customCompletionType,
+                points: customPoints,
+              });
+              setCustomName(""); setCustomLocation(""); setCustomEmoji("🎯"); setCustomTarget(1); setCustomCatId("family"); setCustomIsShared(true); setCustomSelectedMembers([]); setCustomDays(null); setCustomCompletionType('individual'); setCustomPoints(10);
+            } catch (e) {
+              console.error('Failed to add habit:', e);
+            } finally {
+              setIsSubmitting(false);
+            }
           }}
           style={{ ...btnPrimary, opacity: customName.trim() && !isSubmitting ? 1 : 0.5 }}
         >
@@ -2157,8 +2281,8 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   }
 
   if (view === "addRitual") return (
-    <div style={{ padding: "0 20px 110px" }}>
-      <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
+    <div style={{ padding: "0 20px 140px" }}>
+      <button onClick={() => onBack ? onBack() : setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
       <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Add a Ritual</div>
       <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 12 }}>How do you want to add it?</div>
       <div style={{ background: `${C.slateLight}0D`, borderRadius: 14, padding: "11px 14px", marginBottom: 20, border: `1px solid ${C.sandLight}` }}>
@@ -2180,7 +2304,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   );
 
   if (view === "menu") return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 24 }}>What would you like to set up?</div>
       {[
         { id: "addRitual", icon: "◈", label: "Add a Ritual", desc: "Browse templates or create your own", color: C.slate },
@@ -2201,8 +2325,8 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   );
 
   if (view === "habits") return (
-    <div style={{ padding: "0 20px 110px" }}>
-      <button onClick={() => setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
+    <div style={{ padding: "0 20px 140px" }}>
+      <button onClick={() => onBack ? onBack() : setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20, lineHeight: 1.6 }}>Every habit is pre-loaded and ready to link to your tile.</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         {CATEGORIES.map(cat => (
@@ -2218,7 +2342,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   );
 
   if (view === "category" && selectedCat) return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <button onClick={() => setView("habits")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
         <div style={{ fontSize: 28 }}>{selectedCat.icon}</div>
@@ -2243,7 +2367,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   );
 
   if (view === "setTarget" && selectedHabit) return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <button onClick={() => setView("category")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <div style={{ width: 48, height: 48, borderRadius: 14, background: `${selectedHabit.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{selectedHabit.icon}</div>
@@ -2339,10 +2463,15 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         onClick={async () => {
           if (isSubmitting) return;
           setIsSubmitting(true);
-          const assignedMemberIds = habitSelectedMembers.length === 0 ? null : habitSelectedMembers;
-          await onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays, completionType: habitCompletionType, points: habitPoints });
-          setIsSubmitting(false);
-          setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setHabitCompletionType('individual'); setHabitPoints(10); setView("menu");
+          try {
+            const assignedMemberIds = habitSelectedMembers.length === 0 ? null : habitSelectedMembers;
+            await onAddHabit({ ...selectedHabit, target: targetCount, isShared: habitSelectedMembers.length === 0, assignedMemberIds, daysActive: habitDays, completionType: habitCompletionType, points: habitPoints });
+            setTargetCount(1); setHabitIsShared(true); setHabitSelectedMembers([]); setHabitDays(null); setHabitCompletionType('individual'); setHabitPoints(10); setView("menu");
+          } catch (e) {
+            console.error('Failed to add habit:', e);
+          } finally {
+            setIsSubmitting(false);
+          }
         }}
         style={{ ...btnPrimary, opacity: isSubmitting ? 0.7 : 1 }}
       >
@@ -2357,18 +2486,23 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
     const saveReward = async () => {
       if (!rewardForm.name.trim() || rewardForm.points < 1 || isSubmitting) return;
       setIsSubmitting(true);
-      if (editingReward) {
-        await onEditReward(editingReward.id, { ...rewardForm });
-        setEditingReward(null);
-      } else {
-        await onAddReward({ ...rewardForm });
+      try {
+        if (editingReward) {
+          await onEditReward(editingReward.id, { ...rewardForm });
+          setEditingReward(null);
+        } else {
+          await onAddReward({ ...rewardForm });
+        }
+        setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" });
+      } catch (e) {
+        console.error('Failed to save reward:', e);
+      } finally {
+        setIsSubmitting(false);
       }
-      setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" });
-      setIsSubmitting(false);
     };
     return (
-      <div style={{ padding: "0 20px 110px" }}>
-        <button onClick={() => { setView("menu"); setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
+      <div style={{ padding: "0 20px 140px" }}>
+        <button onClick={() => { onBack ? onBack() : setView("menu"); setEditingReward(null); setRewardForm({ name: "", icon: "🎁", points: 10, who: "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Manage Rewards</div>
         <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Create and edit rewards for your family</div>
 
@@ -2556,33 +2690,71 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     const milestones = [3, 7, 10, 14, 21, 30, 50, 100];
     return members
       .map(m => {
-        const s = m.streak || 0;
+        // Compute live streak from analytics history; fall back to DB value if data not yet loaded
+        let s;
+        if (analyticsData) {
+          const dates = analyticsData.filter(c => c.memberId === m.id && c.taps > 0).map(c => c.date);
+          s = calcStreakFromDates(dates);
+        } else {
+          s = m.streak || 0;
+        }
         const next = milestones.find(ms => ms > s);
         return { member: m, streak: s, next, daysAway: next ? next - s : null };
       })
       .filter(x => x.streak > 0)
       .sort((a, b) => (a.daysAway || 999) - (b.daysAway || 999));
-  }, [members]);
+  }, [members, analyticsData]);
 
   // ── Your Weekly Summary (My Stats only) ───────────────────────
   const weeklySummary = useMemo(() => {
     if (!currentMember) return null;
     const myCompletions = weekCompletions.filter(c => c.memberId === currentMember.id && c.taps > 0);
+    const todayIdx = getTodayIndex(); // Mon=0 … Sun=6
+
+    // Include ALL habits available to the member — not just ones already started
     const myHabits = habits.filter(h => {
-      if (!h.assignedMemberIds || h.assignedMemberIds.length === 0) return myCompletions.some(c => c.habitId === h.id);
+      if (!h.assignedMemberIds || h.assignedMemberIds.length === 0) return true;
       return h.assignedMemberIds.includes(currentMember.id);
     });
-    // Fix #8: denominator = days elapsed this week, not a full 7 (avoids deflated % early in week)
-    const daysElapsed = Math.max(getTodayIndex() + 1, 1);
-    const totalPossible = myHabits.length * daysElapsed;
-    const completed = myCompletions.length;
+
+    // Denominator: elapsed possible completions per habit, accounting for daysActive and target
+    let totalPossible = 0;
+    myHabits.forEach(h => {
+      const activeDays = h.daysActive; // Mon=0 array, or null = every day
+      const elapsedActive = (!activeDays || activeDays.length === 0)
+        ? (todayIdx + 1)
+        : activeDays.filter(d => d <= todayIdx).length;
+      totalPossible += Math.max(elapsedActive, 0) * (h.target || 1);
+    });
+
+    // Numerator: actual taps, capped at target per record
+    const completed = myCompletions.reduce((sum, c) => {
+      const habit = habits.find(h => h.id === c.habitId);
+      return sum + Math.min(c.taps, habit?.target || 1);
+    }, 0);
+
     const percentage = totalPossible > 0 ? Math.round((completed / totalPossible) * 100) : 0;
+
+    // Best habit: rate = completions / habit-specific possible days
     const habitStats = myHabits.map(h => {
-      const count = myCompletions.filter(c => c.habitId === h.id).length;
-      return { name: h.name, icon: h.icon, rate: Math.round((count / daysElapsed) * 100) };
+      const activeDays = h.daysActive;
+      const elapsedActive = (!activeDays || activeDays.length === 0)
+        ? (todayIdx + 1)
+        : activeDays.filter(d => d <= todayIdx).length;
+      const possible = Math.max(elapsedActive, 1) * (h.target || 1);
+      const count = myCompletions.filter(c => c.habitId === h.id)
+        .reduce((s, c) => s + Math.min(c.taps, h.target || 1), 0);
+      return { name: h.name, icon: h.icon, rate: Math.round((count / possible) * 100) };
     }).sort((a, b) => b.rate - a.rate);
-    return { completed, totalPossible, percentage, bestHabit: habitStats[0] || null, streak: currentMember.streak || 0 };
-  }, [weekCompletions, habits, currentMember]);
+
+    // Live streak from analytics history (not stale DB value)
+    const memberDates = analyticsData
+      ? analyticsData.filter(c => c.memberId === currentMember.id && c.taps > 0).map(c => c.date)
+      : weekCompletions.filter(c => c.memberId === currentMember.id && c.taps > 0).map(c => c.date);
+    const streak = calcStreakFromDates(memberDates);
+
+    return { completed, totalPossible, percentage, bestHabit: habitStats[0] || null, streak };
+  }, [weekCompletions, habits, currentMember, analyticsData]);
 
   // ── Habit Health (needs analyticsData) ────────────────────────
   const habitHealth = useMemo(() => {
@@ -2592,6 +2764,8 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     // Fix #11: use isoAddDays to avoid UTC-parse timezone drift
     const lwEndStr = isoAddDays(weekDates[0], -1);   // last Sunday
     const lwStartStr = isoAddDays(weekDates[0], -7); // last Monday
+    // Days elapsed so far this week (Mon=1 … Sun=7) — fixes mid-week deflation
+    const daysElapsed = getTodayIndex() + 1;
 
     const visibleHabits = (!showingFamily && currentMember)
       ? habits.filter(h => !h.assignedMemberIds || h.assignedMemberIds.length === 0 || h.assignedMemberIds.includes(currentMember.id))
@@ -2599,11 +2773,13 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     return visibleHabits.map(h => {
       const thisWeek = filteredAnalytics.filter(c => c.habitId === h.id && c.date >= thisWeekStart && c.taps > 0);
       const lastWeek = filteredAnalytics.filter(c => c.habitId === h.id && c.date >= lwStartStr && c.date <= lwEndStr && c.taps > 0);
-      const twRate = thisWeek.length / 7;
+      // twRate uses days elapsed (not 7) so early-week rates are comparable to last week
+      const twRate = thisWeek.length / daysElapsed;
       const lwRate = lastWeek.length / 7;
-      const delta = lwRate > 0 ? Math.round((twRate - lwRate) * 100) : null;
+      // Relative % change: how much better/worse is this week's pace vs last week?
+      const delta = lwRate > 0 ? Math.round(((twRate - lwRate) / lwRate) * 100) : null;
       const twPct = Math.round(twRate * 100);
-      return { habit: h, thisWeekDays: thisWeek.length, lastWeekDays: lastWeek.length, delta, twPct };
+      return { habit: h, thisWeekDays: thisWeek.length, lastWeekDays: lastWeek.length, delta, twPct, daysElapsed };
     }).filter(x => x.thisWeekDays > 0 || x.lastWeekDays > 0).slice(0, 6);
   }, [filteredAnalytics, habits, showingFamily, currentMember]);
 
@@ -2640,8 +2816,14 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     const previousRecord = weekTotals.find((_, i, arr) => i > 0) || 0;
     const isNewRecord = thisWeekCount > 0 && thisWeekCount >= allTimeRecord && Object.keys(byWeek).length > 1;
 
-    // Longest streak per habit
-    const habitStreaks = habits.map(h => ({ habit: h, streak: h.streak || 0 })).filter(x => x.streak >= 3).sort((a, b) => b.streak - a.streak).slice(0, 2);
+    // Live streak per habit from analytics history (not stale DB value)
+    const habitStreaks = habits.map(h => {
+      const dates = filteredAnalytics
+        ? filteredAnalytics.filter(c => c.habitId === h.id && c.taps > 0).map(c => c.date)
+        : [];
+      const streak = dates.length > 0 ? calcStreakFromDates(dates) : (h.streak || 0);
+      return { habit: h, streak };
+    }).filter(x => x.streak >= 3).sort((a, b) => b.streak - a.streak).slice(0, 2);
 
     return { thisWeekCount, allTimeRecord, previousRecord, isNewRecord, habitStreaks };
   }, [filteredAnalytics, currentMember, habits, showingFamily]);
@@ -2679,7 +2861,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
   const hasWeekData = weekCompletions.length > 0;
 
   return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       {/* My Stats / Family toggle */}
       {!soloMode && !forcePersonal && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -2726,31 +2908,29 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
         </div>
       </>)}
 
-      {/* Kids: Weekly Jar Strip */}
+      {/* Kids: Weekly Tree Strip */}
       {!showingFamily && currentMember?.isKid && insightCard(<>
-        {cardHeader("🫙", "This Week's Jars", C.accent)}
+        {cardHeader("🌱", "This Week's Growth", C.accent)}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
           {getWeekDates().map((date, i) => {
             const dayDone = filteredWeek.filter(c => c.date === date && c.taps > 0).length;
             const dayHabits = habits.filter(h => !h.assignedMemberIds || h.assignedMemberIds.length === 0 || h.assignedMemberIds.includes(currentMember.id));
             const possible = dayHabits.length;
-            const fillPct = possible > 0 ? dayDone / possible : 0;
-            const fillH = Math.round(fillPct * 38);
-            const jarY = 58 - fillH;
+            const dayFillPct = possible > 0 ? dayDone / possible : 0;
+            const barH = Math.round(dayFillPct * 28);
             const dayLabel = ["M","T","W","T","F","S","S"][i];
             const isToday = i === getTodayIndex();
+            const leafColor = dayFillPct >= 1 ? "#F4B8A8" : dayFillPct > 0 ? "#9BC07A" : "#E5DED4";
+            const fillColor = isToday ? "#7BA05B" : "#9BC07A";
             return (
               <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                <svg width="28" height="38" viewBox="0 0 28 38" xmlns="http://www.w3.org/2000/svg">
-                  <defs>
-                    <clipPath id={`mc${i}`}>
-                      <path d="M4,12 L4,32 Q4,37 14,37 Q24,37 24,32 L24,12 Z" />
-                    </clipPath>
-                  </defs>
-                  <path d="M4,12 L4,32 Q4,37 14,37 Q24,37 24,32 L24,12 Z" fill="#F7F4EF" stroke="#D5CECC" strokeWidth="1.5" />
-                  <rect x="4" y={jarY} width="20" height={fillH} fill={isToday ? "#C47B4A" : "#D4956A"} opacity="0.75" clipPath={`url(#mc${i})`} />
-                  <rect x="8" y="6" width="12" height="7" rx="1.5" fill="#F7F4EF" stroke="#D5CECC" strokeWidth="1.5" />
-                  <rect x="5" y="3" width="18" height="5" rx="2" fill={isToday ? "#C47B4A" : "#C4AA70"} />
+                <svg width="28" height="42" viewBox="0 0 28 42" xmlns="http://www.w3.org/2000/svg">
+                  {/* Bar background (stem) */}
+                  <rect x="10" y="8" width="8" height="28" rx="4" fill="#F0EDE6" />
+                  {/* Fill from bottom */}
+                  {barH > 0 && <rect x="10" y={8 + (28 - barH)} width="8" height={barH} rx="4" fill={fillColor} />}
+                  {/* Leaf/blossom at top */}
+                  <circle cx="14" cy="5" r="4" fill={leafColor} />
                 </svg>
                 <div style={{ fontSize: 9, fontWeight: isToday ? 700 : 400, color: isToday ? C.accent : C.slateLight }}>{dayLabel}</div>
               </div>
@@ -2836,7 +3016,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             else if (x.delta !== null && x.delta >= 15) { icon = "📈"; label = `+${x.delta}% vs last week`; color = C.green; }
             else if (x.delta !== null && x.delta <= -15) { icon = "📉"; label = `${x.delta}% vs last week`; color = C.error; }
             else if (x.thisWeekDays <= 1 && x.lastWeekDays >= 4) { icon = "⚠️"; label = "Needs attention"; color = C.warm; }
-            else { icon = "✓"; label = `${x.thisWeekDays} of 7 days`; color = C.slateLight; }
+            else { icon = "✓"; label = `${x.thisWeekDays} of ${x.daysElapsed} days`; color = C.slateLight; }
             return (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < habitHealth.length - 1 ? 10 : 0 }}>
                 <div style={{ width: 34, height: 34, borderRadius: 10, background: `${x.habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{x.habit.icon}</div>
@@ -2893,7 +3073,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, color: C.slate }}>This week: <span style={{ fontWeight: 700 }}>{personalBests.thisWeekCount} habits</span></div>
                 {personalBests.allTimeRecord > personalBests.thisWeekCount && (
-                  <div style={{ fontSize: 11, color: C.slateLight }}>All-time best: {personalBests.allTimeRecord} in a week</div>
+                  <div style={{ fontSize: 11, color: C.slateLight }}>Best (last 30 days): {personalBests.allTimeRecord} in a week</div>
                 )}
               </div>
             )}
@@ -2969,6 +3149,18 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
   );
 }
 
+// ─── HELP TOPICS (module-level so ManageScreen can also reference them) ──────
+const HELP_TOPICS = [
+    { id: "add-first", icon: "⊕", title: "Add a habit before anything else", content: `Your tiles don't do anything until you've connected them to a habit. Think of the tile as the button — but first you need to tell Ritual what that button does. Start simple: go to the Manage tab, pick a category, choose one habit, and save it. Then connect a tile. That's it — you're ready to go. Don't overthink your first habit. Pick something you already do most days and make it official.` },
+    { id: "how-to-tap", icon: "◻", title: "How to tap a tile", content: `This trips people up the first time, so here's exactly what to do:\n\n1. Unlock your phone first — it won't work on a locked screen\n2. Hold the back of your phone near the tile — the reader sits near your camera\n3. Hold still for 1–2 seconds — don't wave it, just hold it close\n4. On iPhone: a small banner appears at the top — tap it\n5. On Android: a notification appears — tap it\n\nDoesn't work? Try moving your phone slightly up or down — every phone model is a little different. Make sure you're using the back of the phone, not the front.` },
+    { id: "what-are-tiles", icon: <TileIcon size="16px" color="#555" />, title: "What are Ritual tiles?", content: `Ritual tiles use the same technology as tap-to-pay — the kind you use when you tap your card or phone at a checkout, or hold a key card to a hotel door. It's been around for years and is used billions of times every day around the world.\n\nThe tile itself does absolutely nothing on its own. No signal, no emission, nothing at all. It only activates for the one second your phone is held next to it. No batteries. No charging. Ever.\n\nAnd if you want to move a tile from one habit to another, you can — they're completely reusable.\n\nIs it safe? Completely. The tile is passive — it has no power source and emits nothing. It simply waits. That's actually what makes tiles such a clever and perfect fit for Ritual — safe enough to place anywhere in your home, yet reliable enough to work every single time.\n\nOne practical note: tiles come with adhesive backing and should be secured to a surface — a wall, door frame, or shelf works well. Keep them out of reach of young children who may want to put them in their mouths.\n\nWant to know more? Reach out to us at support@ritualhabits.com.au` },
+    { id: "why-tiles", icon: "◈", title: "Why tiles work better than buttons", content: `Let's be honest — most habit apps don't work. You download them full of good intentions, tap a button for a few days, and then forget they exist.\n\nThe problem isn't you. It's that a button on a screen is easy to ignore. Physical objects are different.\n\nHabit researchers have found that things in specific places are among the most powerful triggers for automatic behaviour. When something exists in your space, your brain starts connecting "I'm here" with "I do this." That's the whole idea behind Ritual's tiles.\n\nPut the tile where the habit happens — by the bathroom sink, on the fridge, at the front door. Tap it every day and within a few weeks, the location itself becomes the reminder.\n\nResearch shows that people who linked habits to physical cues in their environment had 58% higher success rates than those who relied on app reminders alone. Your phone notification is easy to swipe away. A tile on your bathroom mirror is a lot harder to ignore.` },
+    { id: "individual-vs-family", icon: "◉", title: "Individual vs family habits", content: `When you create a habit, you choose how it gets tracked.\n\nIndividual means each person tracks it separately. Good for personal habits where it matters who did it, not just that it got done. Example: Homework. One child finishing their homework doesn't count for another child. They each need their own completion.\n\nFamily/shared means one completion counts for everyone assigned. Good for household tasks where it doesn't matter who does it — just that it happened. Example: Feeding the dog. If one person feeds the dog, that counts for the whole family. You don't need everyone else to feed the dog again just to tick their box.\n\nWhen in doubt: if the habit is personal to one person, use Individual. If it's a household job anyone can do, use Family.` },
+    { id: "kids", icon: "✦", title: "How kids work in Ritual", content: `Kids earn points the same way adults do — complete a habit, earn points. The main difference is with rewards.\n\nWhen a child redeems a reward, it doesn't just happen — it creates a request that a parent needs to fulfil.\n\nExample: Your child earns enough points for "Choose a movie night." They tap redeem on Friday morning. Their points are set aside straight away — they can't spend them on anything else. When Friday night comes, a parent opens the Family tab and marks it as fulfilled. Done.\n\nThis keeps parents in the loop and means kids can't redeem rewards without it actually happening in real life.\n\nOne other thing — when a tile is tapped on a habit that belongs to a child, the app asks "Who did this?" This is because kids often share devices, so Ritual checks rather than assumes.` },
+    { id: "fixing-mistakes", icon: "↩", title: "Fixing mistakes", content: `Tapped by accident? Hold your finger on the completed habit card — a progress bar fills up and it undoes the tap.\n\nMissed a tap and not near your tile? Tap on the habit card to expand it, then look for "Don't have your tile with you?" and hold the button to complete it manually. We make this slightly inconvenient on purpose — the tile tap is the whole point — but life happens.\n\nWrong person got the credit? Undo the completion first (hold the habit card), then complete it again and select the right person.` },
+    { id: "managing-tiles", icon: "↻", title: "Managing your tiles", content: `Each tile can only be connected to one habit at a time — but you can reassign them whenever you want.\n\nTo move a tile to a different habit: go to Manage → Manage Tiles, remove it from the current habit, then assign it to a new one. Takes about 30 seconds.\n\nTiles work permanently — no batteries, no Wi-Fi, no setup beyond the first tap. They're completely reusable, so if a habit changes, the tile changes with it. Look after them and they'll last for years.` },
+];
+
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────
 function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTiles, onManageHabits, soundEnabled, onToggleSound, onReplayOnboarding, onToast, onEditMember, onRemoveMember }) {
   const [openHelp, setOpenHelp] = useState(null);
@@ -3006,25 +3198,14 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
     } catch { onToast("❌ Failed to remove member", "error"); }
   };
 
-  const HELP_TOPICS = [
-    { id: "add-first", icon: "⊕", title: "Add a habit before anything else", content: `Your tiles don't do anything until you've connected them to a habit. Think of the tile as the button — but first you need to tell Ritual what that button does. Start simple: go to the Add tab, pick a category, choose one habit, and save it. Then connect a tile. That's it — you're ready to go. Don't overthink your first habit. Pick something you already do most days and make it official.` },
-    { id: "how-to-tap", icon: "◻", title: "How to tap a tile", content: `This trips people up the first time, so here's exactly what to do:\n\n1. Unlock your phone first — it won't work on a locked screen\n2. Hold the back of your phone near the tile — the reader sits near your camera\n3. Hold still for 1–2 seconds — don't wave it, just hold it close\n4. On iPhone: a small banner appears at the top — tap it\n5. On Android: a notification appears — tap it\n\nDoesn't work? Try moving your phone slightly up or down — every phone model is a little different. Make sure you're using the back of the phone, not the front.` },
-    { id: "what-are-tiles", icon: <TileIcon size="16px" color="#555" />, title: "What are Ritual tiles?", content: `Ritual tiles use the same technology as tap-to-pay — the kind you use when you tap your card or phone at a checkout, or hold a key card to a hotel door. It's been around for years and is used billions of times every day around the world.\n\nThe tile itself does absolutely nothing on its own. No signal, no emission, nothing at all. It only activates for the one second your phone is held next to it. No batteries. No charging. Ever.\n\nAnd if you want to move a tile from one habit to another, you can — they're completely reusable.\n\nIs it safe? Completely. The tile is passive — it has no power source and emits nothing. It simply waits. That's actually what makes tiles such a clever and perfect fit for Ritual — safe enough to place anywhere in your home, yet reliable enough to work every single time.\n\nOne practical note: tiles come with adhesive backing and should be secured to a surface — a wall, door frame, or shelf works well. Keep them out of reach of young children who may want to put them in their mouths.\n\nWant to know more? Reach out to us at support@ritualhabits.com.au` },
-    { id: "why-tiles", icon: "◈", title: "Why tiles work better than buttons", content: `Let's be honest — most habit apps don't work. You download them full of good intentions, tap a button for a few days, and then forget they exist.\n\nThe problem isn't you. It's that a button on a screen is easy to ignore. Physical objects are different.\n\nHabit researchers have found that things in specific places are among the most powerful triggers for automatic behaviour. When something exists in your space, your brain starts connecting "I'm here" with "I do this." That's the whole idea behind Ritual's tiles.\n\nPut the tile where the habit happens — by the bathroom sink, on the fridge, at the front door. Tap it every day and within a few weeks, the location itself becomes the reminder.\n\nResearch shows that people who linked habits to physical cues in their environment had 58% higher success rates than those who relied on app reminders alone. Your phone notification is easy to swipe away. A tile on your bathroom mirror is a lot harder to ignore.` },
-    { id: "individual-vs-family", icon: "◉", title: "Individual vs family habits", content: `When you create a habit, you choose how it gets tracked.\n\nIndividual means each person tracks it separately. Good for personal habits where it matters who did it, not just that it got done. Example: Homework. One child finishing their homework doesn't count for another child. They each need their own completion.\n\nFamily/shared means one completion counts for everyone assigned. Good for household tasks where it doesn't matter who does it — just that it happened. Example: Feeding the dog. If one person feeds the dog, that counts for the whole family. You don't need everyone else to feed the dog again just to tick their box.\n\nWhen in doubt: if the habit is personal to one person, use Individual. If it's a household job anyone can do, use Family.` },
-    { id: "kids", icon: "✦", title: "How kids work in Ritual", content: `Kids earn points the same way adults do — complete a habit, earn points. The main difference is with rewards.\n\nWhen a child redeems a reward, it doesn't just happen — it creates a request that a parent needs to fulfil.\n\nExample: Your child earns enough points for "Choose a movie night." They tap redeem on Friday morning. Their points are set aside straight away — they can't spend them on anything else. When Friday night comes, a parent opens the Family tab and marks it as fulfilled. Done.\n\nThis keeps parents in the loop and means kids can't redeem rewards without it actually happening in real life.\n\nOne other thing — when a tile is tapped on a habit that belongs to a child, the app asks "Who did this?" This is because kids often share devices, so Ritual checks rather than assumes.` },
-    { id: "fixing-mistakes", icon: "↩", title: "Fixing mistakes", content: `Tapped by accident? Hold your finger on the completed habit card — a progress bar fills up and it undoes the tap.\n\nMissed a tap and not near your tile? Tap on the habit card to expand it, then look for "Don't have your tile with you?" and hold the button to complete it manually. We make this slightly inconvenient on purpose — the tile tap is the whole point — but life happens.\n\nWrong person got the credit? Undo the completion first (hold the habit card), then complete it again and select the right person.` },
-    { id: "managing-tiles", icon: "↻", title: "Managing your tiles", content: `Each tile can only be connected to one habit at a time — but you can reassign them whenever you want.\n\nTo move a tile to a different habit: go to Add → Manage Tiles, remove it from the current habit, then assign it to a new one. Takes about 30 seconds.\n\nTiles work permanently — no batteries, no Wi-Fi, no setup beyond the first tap. They're completely reusable, so if a habit changes, the tile changes with it. Look after them and they'll last for years.` },
-  ];
-
   return (
-    <div style={{ padding: "0 20px 110px" }}>
+    <div style={{ padding: "0 20px 140px" }}>
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Family</div>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ width: 44, height: 44, borderRadius: "50%", background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: C.white }}>{family.name[0].toUpperCase()}</div>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: C.slate }}>{family.name}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.slate }}>{family.name.charAt(0).toUpperCase() + family.name.slice(1)}</div>
             <div style={{ fontSize: 12, color: C.slateLight }}>PIN: {family.pin}</div>
           </div>
         </div>
@@ -3113,7 +3294,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
         <button onClick={onManageTiles} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.accent}30`, background: `${C.accent}10`, color: C.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
           <TileIcon size="16px" style={{ marginRight: 4 }} /> Manage Tiles
         </button>
-        <button onClick={async () => { await onRefresh(); }} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.green}30`, background: `${C.green}10`, color: C.green, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+        <button onClick={async () => { try { await onRefresh(); } catch (e) { console.warn('Refresh failed:', e); } }} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.green}30`, background: `${C.green}10`, color: C.green, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
           🔄 Refresh Data
         </button>
       </div>
@@ -3198,6 +3379,344 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
           </button>
         </div>
       )}
+
+    </div>
+  );
+}
+
+// ─── MANAGE SCREEN ────────────────────────────────────────────────
+function ManageScreen({
+  family, currentMember, soloMode,
+  habits,
+  onAddHabit, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit,
+  onAddReward, onEditReward, onDeleteReward,
+  onLogout, onRefresh, soundEnabled, onToggleSound, onReplayOnboarding,
+  onToast, onEditMember, onRemoveMember, onAddMember,
+  initialSubView = "main",
+  onMounted,
+  initialEditHabitId,
+}) {
+  const [activeSubView, setActiveSubView] = useState(initialSubView);
+  const [editingMemberId, setEditingMemberId] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editIsKid, setEditIsKid] = useState(false);
+  const [editColor, setEditColor] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [openHelp, setOpenHelp] = useState(null);
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newMemberIsKid, setNewMemberIsKid] = useState(true);
+  const [newMemberColor, setNewMemberColor] = useState(SETUP_MEMBER_COLORS[0]);
+  const isAdmin = true; // Parents navigate kid profiles too — all manage functions accessible
+
+  useEffect(() => { onMounted?.(); }, []);
+
+  useEffect(() => {
+    document.querySelector('.ritual-root')?.scrollTo(0, 0);
+  }, [activeSubView]);
+
+  const goBack = () => setActiveSubView("main");
+
+  const startMemberEdit = (m) => {
+    setEditingMemberId(m.id);
+    setEditName(m.name);
+    setEditIsKid(!!m.isKid);
+    setEditColor(m.color || SETUP_MEMBER_COLORS[0]);
+    setConfirmDeleteId(null);
+    setActiveSubView("editMember");
+  };
+
+  const saveMemberEdit = async () => {
+    if (!editName.trim()) return;
+    try {
+      await onEditMember(editingMemberId, { name: editName.trim(), isKid: editIsKid, color: editColor, avatar: editName.trim()[0].toUpperCase() });
+      setActiveSubView("main");
+      onToast("Member updated");
+    } catch { onToast("❌ Failed to update member", "error"); }
+  };
+
+  const doDeleteMember = async (id) => {
+    try {
+      await onRemoveMember(id);
+      setConfirmDeleteId(null);
+      setActiveSubView("main");
+      onToast("Member removed");
+    } catch { onToast("❌ Failed to remove member", "error"); }
+  };
+
+  // ─── Sub-views ────────────────────────────────────────────────
+  if (activeSubView === "manageTiles") {
+    return <ManageTilesScreen habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={goBack} />;
+  }
+  if (activeSubView === "habitsManage") {
+    return <ManageHabitsScreen habits={habits} family={family} currentMember={currentMember} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBack={goBack} initialEditHabitId={initialEditHabitId} />;
+  }
+  if (activeSubView === "addRitual" || activeSubView === "custom" || activeSubView === "manageRewards") {
+    const initView = activeSubView === "manageRewards" ? "rewards" : activeSubView;
+    return <AddScreen family={family} currentMember={currentMember} onAddHabit={onAddHabit} habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onAddReward={onAddReward} onEditReward={onEditReward} onDeleteReward={onDeleteReward} initialView={initView} onBack={goBack} soloMode={soloMode} />;
+  }
+  if (activeSubView === "howItWorks") {
+    return (
+      <div style={{ padding: "0 20px 140px" }}>
+        <div onClick={goBack} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginBottom: 20 }}>
+          <span style={{ fontSize: 20, color: C.slateLight, lineHeight: 1 }}>‹</span>
+          <span style={{ fontSize: 13, color: C.slateLight }}>Back</span>
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 16 }}>How it works</div>
+        {HELP_TOPICS.map(topic => (
+          <div key={topic.id} style={{ marginBottom: 8, borderRadius: 14, border: `1.5px solid ${C.sandLight}`, overflow: "hidden", background: C.white }}>
+            <button onClick={() => setOpenHelp(prev => prev === topic.id ? null : topic.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", textAlign: "left" }}>
+              <span style={{ fontSize: 16, flexShrink: 0, color: C.slate, display: "flex", alignItems: "center", lineHeight: 1 }}>{topic.icon}</span>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: C.slate }}>{topic.title}</span>
+              <span style={{ fontSize: 16, color: C.slateLight, transform: openHelp === topic.id ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>⌄</span>
+            </button>
+            {openHelp === topic.id && (
+              <div style={{ padding: "0 16px 14px 44px", fontSize: 14, color: C.slateLight, lineHeight: 1.6, whiteSpace: "pre-line" }}>
+                {topic.content}
+              </div>
+            )}
+          </div>
+        ))}
+        {!currentMember?.isKid && (
+          <div style={{ textAlign: "center", marginTop: 16, paddingBottom: 4 }}>
+            <button onClick={onReplayOnboarding} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.slateLight, opacity: 0.35, fontFamily: "'DM Sans', sans-serif", padding: "10px 16px", minHeight: 44 }}>
+              Replay onboarding
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (activeSubView === "editMember") {
+    const m = family.members.find(x => x.id === editingMemberId);
+    if (!m) { goBack(); return null; }
+    const memberIdx = family.members.findIndex(x => x.id === m.id);
+    return (
+      <div style={{ padding: "0 20px 140px" }}>
+        <div onClick={goBack} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginBottom: 20 }}>
+          <span style={{ fontSize: 20, color: C.slateLight, lineHeight: 1 }}>‹</span>
+          <span style={{ fontSize: 13, color: C.slateLight }}>Back</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
+          <div style={{ width: 44, height: 44, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif" }}>Edit Member</div>
+            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · 🔥 {m.streak || 0}</div>
+          </div>
+        </div>
+        {confirmDeleteId === m.id && (
+          <div style={{ background: `${C.error}10`, border: `1px solid ${C.error}30`, borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: C.slate, marginBottom: 8 }}>Remove <strong>{m.name}</strong>? This cannot be undone.</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => doDeleteMember(m.id)} style={{ flex: 1, padding: "8px", borderRadius: 8, background: C.error, border: "none", color: C.white, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Remove</button>
+              <button onClick={() => setConfirmDeleteId(null)} style={{ flex: 1, padding: "8px", borderRadius: 8, background: C.sandLight, border: "none", color: C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Name" style={{ ...inputStyle }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.white, borderRadius: 14, padding: "14px 16px", border: `1.5px solid ${C.sandDark}` }}>
+            <span style={{ fontSize: 14, color: C.slate }}>Child account</span>
+            <div onClick={() => setEditIsKid(v => !v)} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: editIsKid ? C.accent : C.sandDark, position: "relative", transition: "background 0.2s" }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", background: C.white, position: "absolute", top: 2, left: editIsKid ? 20 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: C.white, borderRadius: 14, padding: "14px 16px", border: `1.5px solid ${C.sandDark}` }}>
+            {SETUP_MEMBER_COLORS.map(col => (
+              <div key={col} onClick={() => setEditColor(col)} style={{ width: 32, height: 32, borderRadius: "50%", background: col, cursor: "pointer", border: editColor === col ? "2.5px solid #1E1C18" : "2.5px solid transparent", boxSizing: "border-box" }} />
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={saveMemberEdit} style={{ flex: 2, padding: "13px", borderRadius: 14, background: C.accent, border: "none", color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Save Changes</button>
+            <button onClick={goBack} style={{ flex: 1, padding: "13px", borderRadius: 14, background: C.sandLight, border: "none", color: C.slate, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+          </div>
+          {isAdmin && memberIdx > 0 && (
+            <button onClick={() => setConfirmDeleteId(m.id)} style={{ width: "100%", padding: "12px", borderRadius: 14, background: `${C.error}10`, border: `1px solid ${C.error}30`, color: C.error, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+              Remove {m.name} from family
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (activeSubView === "addMember") {
+    const saveNewMember = async () => {
+      if (!newMemberName.trim()) return;
+      try {
+        await onAddMember({ name: newMemberName.trim(), isKid: newMemberIsKid, color: newMemberColor, avatar: newMemberName.trim()[0].toUpperCase() });
+        setNewMemberName("");
+        setNewMemberIsKid(true);
+        setNewMemberColor(SETUP_MEMBER_COLORS[0]);
+        setActiveSubView("main");
+        onToast("Member added");
+      } catch { onToast("❌ Failed to add member", "error"); }
+    };
+    return (
+      <div style={{ padding: "0 20px 140px" }}>
+        <div onClick={goBack} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginBottom: 20 }}>
+          <span style={{ fontSize: 20, color: C.slateLight, lineHeight: 1 }}>‹</span>
+          <span style={{ fontSize: 13, color: C.slateLight }}>Back</span>
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 24 }}>Add Family Member</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <input value={newMemberName} onChange={e => setNewMemberName(e.target.value)} placeholder="Name" style={{ ...inputStyle }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.white, borderRadius: 14, padding: "14px 16px", border: `1.5px solid ${C.sandDark}` }}>
+            <span style={{ fontSize: 14, color: C.slate }}>Child account</span>
+            <div onClick={() => setNewMemberIsKid(v => !v)} style={{ width: 40, height: 22, borderRadius: 11, cursor: "pointer", background: newMemberIsKid ? C.accent : C.sandDark, position: "relative", transition: "background 0.2s" }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", background: C.white, position: "absolute", top: 2, left: newMemberIsKid ? 20 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: C.white, borderRadius: 14, padding: "14px 16px", border: `1.5px solid ${C.sandDark}` }}>
+            {SETUP_MEMBER_COLORS.map(col => (
+              <div key={col} onClick={() => setNewMemberColor(col)} style={{ width: 32, height: 32, borderRadius: "50%", background: col, cursor: "pointer", border: newMemberColor === col ? "2.5px solid #1E1C18" : "2.5px solid transparent", boxSizing: "border-box" }} />
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={saveNewMember} style={{ flex: 2, padding: "13px", borderRadius: 14, background: C.accent, border: "none", color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Add Member</button>
+            <button onClick={goBack} style={{ flex: 1, padding: "13px", borderRadius: 14, background: C.sandLight, border: "none", color: C.slate, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Main view helpers ─────────────────────────────────────────
+  const sectionLabel = (text) => (
+    <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 1.2, textTransform: "uppercase", marginTop: 24, marginBottom: 8 }}>{text}</div>
+  );
+  const settingsRow = (icon, iconBg, label, desc, onClick, opts = {}) => (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 0", cursor: onClick ? "pointer" : "default", borderBottom: opts.last ? "none" : `1px solid ${C.sandLight}` }}>
+      <div style={{ width: 32, height: 32, borderRadius: 9, background: iconBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{icon}</div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: opts.danger ? C.error : C.slate }}>{label}</div>
+        {desc && <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{desc}</div>}
+      </div>
+      {!opts.noChevron && <span style={{ color: C.sandDark, fontSize: 20, fontWeight: 300, lineHeight: 1 }}>›</span>}
+    </div>
+  );
+  const card = (children) => (
+    <div style={{ background: C.white, borderRadius: 20, padding: "0 16px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.05)" }}>
+      {children}
+    </div>
+  );
+
+  // ─── Main view ────────────────────────────────────────────────
+  return (
+    <div style={{ padding: "0 20px 140px" }}>
+
+      {/* RITUALS */}
+      {sectionLabel("RITUALS")}
+      {card(<>
+        {settingsRow("◈", `${C.slate}20`, "Add a ritual", "Browse templates or create your own", () => setActiveSubView("addRitual"))}
+        {settingsRow("✏️", `${C.slateLight}20`, "Manage habits", "Edit names, locations, targets or delete", () => setActiveSubView("habitsManage"), { last: true })}
+      </>)}
+
+      {/* TILES */}
+      {sectionLabel("TILES")}
+      {card(<>
+        {settingsRow(<TileIcon size="15px" />, `${C.kidsBlue}20`, "Manage tiles", "Assign tiles to habits, detect new tiles", () => setActiveSubView("manageTiles"), { last: true })}
+      </>)}
+
+      {/* REWARDS — hidden in solo mode */}
+      {!soloMode && <>
+        {sectionLabel("REWARDS")}
+        {card(<>
+          {settingsRow("🎁", `${C.accent}20`, "Manage rewards", "Set up points rewards for your family", () => setActiveSubView("manageRewards"), { last: true })}
+        </>)}
+      </>}
+
+      {/* FAMILY */}
+      {sectionLabel("FAMILY")}
+      {card(<>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 0", borderBottom: `1px solid ${C.sandLight}` }}>
+          <div style={{ width: 32, height: 32, borderRadius: "50%", background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white, flexShrink: 0 }}>{family.name[0].toUpperCase()}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{family.name.charAt(0).toUpperCase() + family.name.slice(1)}</div>
+            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 1 }}>PIN: {family.pin}</div>
+          </div>
+        </div>
+        {family.members.map((m, idx) => (
+          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: `1px solid ${C.sandLight}` }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>{m.name}{idx === 0 ? " 👑" : ""}</div>
+              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · 🔥 {m.streak || 0}</div>
+            </div>
+            {isAdmin && (
+              <div onClick={() => startMemberEdit(m)} style={{ fontSize: 13, color: C.accent, fontWeight: 600, cursor: "pointer", padding: "4px 4px 4px 8px" }}>Edit</div>
+            )}
+          </div>
+        ))}
+        {isAdmin && settingsRow("+", `${C.accent}20`, "Add family member", "Add a new kid or adult", () => setActiveSubView("addMember"), { last: true })}
+      </>)}
+
+      {/* PREFERENCES */}
+      {sectionLabel("PREFERENCES")}
+      {card(<>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 0" }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: `${C.green}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🔊</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Sound effects</div>
+            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>Play sounds on habit completion</div>
+          </div>
+          <div onClick={onToggleSound} style={{ width: 46, height: 26, borderRadius: 13, cursor: "pointer", background: soundEnabled ? C.green : C.sandDark, position: "relative", transition: "background 0.2s ease", flexShrink: 0 }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", background: C.white, position: "absolute", top: 2, left: soundEnabled ? 22 : 2, transition: "left 0.2s ease", boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }} />
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 0", borderTop: `1px solid ${C.sandLight}` }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: C.sandLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🔔</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Push notifications</div>
+            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>Reminders and alerts</div>
+          </div>
+          <div style={{ fontSize: 11, color: C.accent, fontWeight: 600, padding: "3px 10px", borderRadius: 12, background: `${C.accent}12`, flexShrink: 0 }}>Coming soon</div>
+        </div>
+      </>)}
+
+      {/* ACCOUNT */}
+      {sectionLabel("ACCOUNT")}
+      {card(<>
+        {settingsRow("↺", `${C.green}20`, "Refresh data", "Sync latest data from server", async () => { try { await onRefresh(); } catch (e) {} })}
+        {settingsRow("→", `${C.error}15`, "Sign out", null, () => { if (window.confirm("Sign out? You'll need your PIN to log back in.")) onLogout(); }, { danger: true })}
+        {settingsRow("⚠", `${C.error}15`, "Reset all points & streaks", "Cannot be undone — affects all members", async () => {
+          if (!window.confirm("Reset all points and streaks to zero?\n\nThis will:\n- Set everyone's points to 0\n- Set all streaks to 0\n- Cannot be undone\n\nAre you sure?")) return;
+          try {
+            await supabase.from("members").update({ points: 0, streak: 0 }).eq('family_id', family.id);
+            await supabase.from("habits").update({ streak: 0 }).eq('family_id', family.id);
+            await onRefresh();
+            onToast("✅ Points and streaks reset to zero");
+          } catch (err) { onToast("❌ Reset failed", "error"); }
+        }, { last: !window.location.hostname.includes('localhost') && !window.location.search.includes('debug=true'), danger: true })}
+        {(window.location.hostname === 'localhost' || window.location.search.includes('debug=true')) && settingsRow("🧹", `${C.error}15`, "Clear all data & sign out", null, () => {
+          localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_savedFamilyName");
+          localStorage.removeItem("ritual_currentMemberId"); localStorage.removeItem("ritual_soloMode");
+          localStorage.removeItem("ritual_soundEnabled"); window.location.reload();
+        }, { last: true, danger: true, noChevron: true })}
+      </>)}
+
+      {/* HELP */}
+      {sectionLabel("HELP")}
+      {card(<>
+        {settingsRow("◉", `${C.warm}20`, "How it works", "Guides and FAQs", () => setActiveSubView("howItWorks"), { last: !isAdmin })}
+        {isAdmin && settingsRow("▷", `${C.slateLight}20`, "Replay onboarding", "Walk through the intro again", onReplayOnboarding, { last: true })}
+      </>)}
+
+      {/* ABOUT */}
+      {sectionLabel("ABOUT")}
+      {card(<>
+        {settingsRow("🔒", `${C.slateLight}20`, "Privacy Policy", null, async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/privacy" }); } catch { window.open("https://ritualhabits.com.au/privacy", "_blank"); } })}
+        {settingsRow("📄", `${C.slateLight}20`, "Terms of Use", null, async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } })}
+        {settingsRow("✉️", `${C.accent}20`, "Contact Us", "hello@ritualhabits.com.au", () => { window.location.href = "mailto:hello@ritualhabits.com.au"; }, { last: true })}
+      </>)}
+      <div style={{ textAlign: "center", marginTop: 24, padding: "0 16px" }}>
+        <p style={{ fontSize: 11, color: C.slateLight, lineHeight: 1.5, margin: 0 }}>
+          By using Ritual, you agree to our{" "}
+          <span onClick={async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/privacy" }); } catch { window.open("https://ritualhabits.com.au/privacy", "_blank"); } }} style={{ color: C.accent, cursor: "pointer", textDecoration: "underline" }}>Privacy Policy</span>
+          {" "}and{" "}
+          <span onClick={async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } }} style={{ color: C.accent, cursor: "pointer", textDecoration: "underline" }}>Terms of Use</span>.
+        </p>
+        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.33</p>
+      </div>
     </div>
   );
 }
@@ -3416,13 +3935,17 @@ export default function RitualApp() {
   const [tab, setTab] = useState("today");
   const [flashData, setFlashData] = useState(null);
   const [whoDidThis, setWhoDidThis] = useState(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [celebratedDate, setCelebratedDate] = useState(null);
   const [mounted, setMounted] = useState(false);
   const tileHandled = useRef(null);
   const [unassignedTileUID, setUnassignedTileUID] = useState(null);
   const [deepLinkTileUID, setDeepLinkTileUID] = useState(null);
   const currentMemberRef = useRef(currentMember);
   useEffect(() => { currentMemberRef.current = currentMember; }, [currentMember]);
-  const [addInitialView, setAddInitialView] = useState("menu");
+  const [manageInitialView, setManageInitialView] = useState("main");
+  const [manageResetKey, setManageResetKey] = useState(0);
+  const [editHabitId, setEditHabitId] = useState(null);
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("ritual_soundEnabled") !== "false");
   const [lastFetchDate, setLastFetchDate] = useState(() => todayKey());
   const [analyticsData, setAnalyticsData] = useState(null);
@@ -3435,6 +3958,7 @@ export default function RitualApp() {
     const next = !soloMode;
     setSoloMode(next);
     localStorage.setItem("ritual_soloMode", String(next));
+    if (next && tab === "family") setTab("today");
   };
 
   // ─── Toast notification system ──────────────────────────────────
@@ -3492,7 +4016,7 @@ export default function RitualApp() {
     }
 
     // Deep links: handle tile URLs opened via Universal Links
-    CapApp.addListener('appUrlOpen', (event) => {
+    try { CapApp.addListener('appUrlOpen', (event) => {
       try {
         let urlStr = event.url || '';
         // Ensure the URL has a protocol — NFC tags sometimes omit https://
@@ -3508,7 +4032,7 @@ export default function RitualApp() {
       } catch (e) {
         // Silently ignore malformed URLs
       }
-    });
+    }); } catch (e) { console.warn('[Capgo] appUrlOpen listener failed:', e); }
 
     // Push Notifications: request permission and register (wrapped in try/catch — must not crash app)
     try {
@@ -3527,13 +4051,21 @@ export default function RitualApp() {
           supabase.from('members').update({ push_token: token.value }).eq('id', memberId)
             .then(({ error }) => {
               if (error) console.error('❌ Failed to save push token:', error);
-            });
+            }).catch(() => {});
         }
       });
 
       PushNotifications.addListener('pushNotificationReceived', notification => {
         if (process.env.NODE_ENV === 'development') {
           console.log('Push notification received:', notification);
+        }
+      });
+
+      PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+        try {
+          console.log('Push notification action performed:', notification);
+        } catch (e) {
+          console.error('pushNotificationActionPerformed error:', e);
         }
       });
     } catch (e) {
@@ -3565,6 +4097,8 @@ export default function RitualApp() {
       .filter(h => {
         if (soloMode && h.isKid) return false;
         if (soloMode && h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
+        // Kids always see only their assigned habits, regardless of soloMode
+        if (currentMember.isKid && h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
         if (h.daysActive && h.daysActive.length > 0 && !h.daysActive.includes(todayIndex)) return false;
         return true;
       })
@@ -3630,7 +4164,7 @@ export default function RitualApp() {
         ]).then(([td, wd]) => {
           setTodayCompletions(td);
           setWeekCompletions(wd);
-        });
+        }).catch(() => {});
       }
     }
   }, [lastFetchDate, family]);
@@ -3649,7 +4183,7 @@ export default function RitualApp() {
     fetchAnalyticsData(family.id).then(data => {
       setAnalyticsData(data);
       analyticsLastFetched.current = Date.now();
-    });
+    }).catch(() => {});
   }, [tab, family]); // intentionally excludes analyticsData/analyticsLastFetched (refs/stable)
 
   // ─── Redemptions lazy-load (family tab) ─────────────────────────
@@ -3665,7 +4199,7 @@ export default function RitualApp() {
       .then(({ data }) => {
         setRedemptions(data || []);
         redemptionsLastFetched.current = Date.now();
-      });
+      }).catch(() => {});
   }, [tab, family]);
 
   // ─── Load family data after login ───────────────────────────────
@@ -3676,26 +4210,39 @@ export default function RitualApp() {
     const savedMember = familyData.members?.find(m => m.id === savedMemberId);
     const activeMember = savedMember || familyData.members?.[0] || null;
     setCurrentMember(activeMember);
-    // Supabase is the source of truth for onboarding status
     if (activeMember && !activeMember.onboardingComplete) {
-      // Migration path: members created before this column existed should be treated as onboarded
       const isReturning = activeMember.createdAt &&
         (Date.now() - new Date(activeMember.createdAt).getTime()) > 24 * 60 * 60 * 1000;
       const activeMemberIsAdmin = familyData.members?.[0]?.id === activeMember.id;
       if (isReturning || (activeMember.isKid && !activeMemberIsAdmin)) {
-        // Silently backfill: kids skip onboarding unless they're the account admin (#12)
-        supabase?.from("members").update({ onboarding_complete: true }).eq("id", activeMember.id);
+        supabase?.from("members").update({ onboarding_complete: true }).eq("id", activeMember.id).then(null, () => {});
       } else {
         setShowOnboarding(true);
       }
     }
     if (supabase) {
-      const [todayData, weekData] = await Promise.all([
-        fetchTodayCompletions(familyData.id),
-        fetchWeekCompletions(familyData.id),
-      ]);
-      setTodayCompletions(todayData);
-      setWeekCompletions(weekData);
+      try {
+        const [todayData, weekData] = await Promise.all([
+          fetchTodayCompletions(familyData.id),
+          fetchWeekCompletions(familyData.id),
+        ]);
+        setTodayCompletions(todayData);
+        setWeekCompletions(weekData);
+      } catch (e) {
+        console.error("❌ Completions fetch failed, retrying:", e);
+        setTimeout(async () => {
+          try {
+            const [todayData, weekData] = await Promise.all([
+              fetchTodayCompletions(familyData.id),
+              fetchWeekCompletions(familyData.id),
+            ]);
+            setTodayCompletions(todayData);
+            setWeekCompletions(weekData);
+          } catch (e2) {
+            console.error("❌ Completions retry also failed:", e2);
+          }
+        }, 2000);
+      }
     }
   };
 
@@ -3731,19 +4278,23 @@ export default function RitualApp() {
 
   // ─── Handlers ───────────────────────────────────────────────────
   const handleLogin = async (familyData) => {
-    await loadDataForFamily(familyData);
-    setSoloMode(localStorage.getItem("ritual_soloMode") === "true");
+    try {
+      await loadDataForFamily(familyData);
+      setSoloMode(localStorage.getItem("ritual_soloMode") === "true");
+    } catch (e) {
+      console.error('❌ handleLogin error:', e);
+    }
   };
 
   const completeOnboarding = () => {
     const isFirstTime = !currentMember?.onboardingComplete;
     if (currentMember?.id && supabase) {
-      supabase.from("members").update({ onboarding_complete: true }).eq("id", currentMember.id);
+      supabase.from("members").update({ onboarding_complete: true }).eq("id", currentMember.id).then(null, () => {});
       setCurrentMember(m => ({ ...m, onboardingComplete: true }));
       setFamily(f => ({ ...f, members: f.members.map(m => m.id === currentMember.id ? { ...m, onboardingComplete: true } : m) }));
     }
     setShowOnboarding(false);
-    if (!currentMember?.isKid && isFirstTime) setTab("add");
+    if (!currentMember?.isKid && isFirstTime) setTab("manage");
   };
 
   const handleLogout = () => {
@@ -3796,13 +4347,26 @@ export default function RitualApp() {
     const habitPointValue = habit.points || 10;
     if (resolvedMember) {
       setFamily(f => ({ ...f, members: f.members.map(m => m.id === resolvedMember.id ? { ...m, points: (m.points || 0) + habitPointValue } : m) }));
-      // Fix #2: keep currentMember in sync so KidsJarView points badge updates live
+      // Fix #2: keep currentMember in sync so KidsTreeView points badge updates live
       if (currentMember?.id === resolvedMember.id) {
         setCurrentMember(m => ({ ...m, points: (m.points || 0) + habitPointValue }));
       }
     }
     setWhoDidThis(null);
     setFlashData({ habit: { ...habit, taps: displayTaps }, member: resolvedMember });
+
+    // All-done celebration: check if this completion finishes every habit for the current member today
+    if (myHabitsWithTaps.length > 0 && celebratedDate !== today) {
+      const newTaps = (habit.taps || 0) + 1;
+      if (newTaps >= (habit.target || 1)) {
+        const othersDone = myHabitsWithTaps.filter(h => h.id !== habitId).every(h => (h.taps || 0) >= (h.target || 1));
+        if (othersDone) {
+          setCelebratedDate(today);
+          triggerHaptic("milestone");
+          setTimeout(() => setShowCelebration(true), 2700);
+        }
+      }
+    }
 
     // Await Supabase sync (ensures multi-device consistency)
     if (supabase && resolvedMember) {
@@ -3853,7 +4417,7 @@ export default function RitualApp() {
           const newMemberStreak = mYest ? (resolvedMember.streak || 0) + 1 : 1;
           await supabase.from("members").update({ streak: newMemberStreak }).eq("id", resolvedMember.id);
           setFamily(f => ({ ...f, members: f.members.map(m => m.id === resolvedMember.id ? { ...m, streak: newMemberStreak } : m) }));
-          // Fix #2: sync currentMember streak so KidsJarView badge updates live
+          // Fix #2: sync currentMember streak so KidsTreeView badge updates live
           if (currentMember?.id === resolvedMember.id) {
             setCurrentMember(m => ({ ...m, streak: newMemberStreak }));
           }
@@ -4133,17 +4697,24 @@ export default function RitualApp() {
 
   const handleRefreshData = async () => {
     if (!supabase || !family) return;
-    const [freshFamily, todayData, weekData] = await Promise.all([
-      fetchFamilyData(family.pin, family.name),
-      fetchTodayCompletions(family.id),
-      fetchWeekCompletions(family.id),
-    ]);
-    if (freshFamily) {
-      setHabits(freshFamily.habits || []);
-      setFamily(prev => ({ ...prev, members: freshFamily.members, rewards: freshFamily.rewards }));
+    try {
+      const [freshFamily, todayData, weekData] = await Promise.all([
+        fetchFamilyData(family.pin, family.name),
+        fetchTodayCompletions(family.id),
+        fetchWeekCompletions(family.id),
+      ]);
+      if (freshFamily) {
+        setHabits(freshFamily.habits || []);
+        setFamily(prev => ({ ...prev, members: freshFamily.members, rewards: freshFamily.rewards }));
+        setCurrentMember(prev => freshFamily.members.find(m => m.id === prev.id) || prev);
+      }
+      setTodayCompletions(todayData);
+      setWeekCompletions(weekData);
+      addToast("✓ Data refreshed");
+    } catch (err) {
+      console.error("❌ Refresh failed:", err);
+      addToast("Failed to refresh — check your connection");
     }
-    setTodayCompletions(todayData);
-    setWeekCompletions(weekData);
   };
 
   const handleAddMember = async (memberData) => {
@@ -4257,18 +4828,16 @@ export default function RitualApp() {
 
   const TABS = [
     { id: "today", icon: "◈", label: "Today" },
-    { id: "family", icon: soloMode ? "◎" : "◉", label: soloMode ? "Progress" : "Family" },
-    { id: "add", icon: "⊕", label: "Add" },
-    { id: "insights", icon: soloMode ? "◉" : "◎", label: "Insights" },
-    { id: "settings", icon: "⚙", label: "Settings" },
+    ...(!soloMode ? [{ id: "family", icon: "◉", label: "Family" }] : []),
+    { id: "insights", icon: "◎", label: "Insights" },
+    { id: "manage", icon: "⚙", label: "Manage" },
   ];
 
   const headings = {
     today: `${getGreeting()}, ${currentMember?.name || family.name}`,
-    family: soloMode ? "Your Progress" : `The ${family.name}${/[sxz]$|[^aeiou]h$/i.test(family.name) ? 'es' : 's'}`,
-    add: "Set Up",
+    family: soloMode ? "Your Progress" : `The ${family.name.charAt(0).toUpperCase() + family.name.slice(1)}${/[sxz]$|[^aeiou]h$/i.test(family.name) ? 'es' : 's'}`,
     insights: "Insights",
-    settings: "Settings",
+    manage: "Manage",
   };
 
   const doneTodayCount = myHabitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
@@ -4277,18 +4846,21 @@ export default function RitualApp() {
     <>
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
-        body{background:${C.sandLight};font-family:'DM Sans',sans-serif;}
+        body{background:${C.sandLight};font-family:'DM Sans',sans-serif;-webkit-overflow-scrolling:touch;}
         @keyframes ripple{0%{transform:scale(0.8);opacity:1;}100%{transform:scale(2.2);opacity:0;}}
         @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.25;}}
         @keyframes flashIn{from{opacity:0;}to{opacity:1;}}
         @keyframes popIn{from{transform:scale(0.5);opacity:0;}to{transform:scale(1);opacity:1;}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
         @keyframes slideUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+        @keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1;}100%{transform:translateY(110vh) rotate(720deg);opacity:0;}}
+        @keyframes celebFadeIn{0%{opacity:0;transform:scale(0.7);}60%{opacity:1;transform:scale(1.05);}100%{opacity:1;transform:scale(1);}}
+        @keyframes celebFadeOut{0%{opacity:1;}100%{opacity:0;}}
         ::-webkit-scrollbar{display:none;}
         input:focus{border-color:${C.accent} !important;outline:none;}
         input::placeholder{color:${C.sandDark};}
         /* FIX 1: Responsive layout */
-        .ritual-root{max-width:390px;margin:0 auto;background:${C.sandLight};position:relative;}
+        .ritual-root{max-width:390px;margin:0 auto;background:${C.sandLight};position:relative;min-height:100vh;overflow-y:auto;-webkit-overflow-scrolling:touch;}
         .habit-grid{display:flex;flex-direction:column;gap:10px;}
         .tab-bar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:390px;background:rgba(250,248,245,0.96);backdrop-filter:blur(24px);border-top:1px solid ${C.sandDark}50;padding:10px 0 26px;display:flex;justify-content:space-around;}
         @media(min-width:768px){
@@ -4330,9 +4902,8 @@ export default function RitualApp() {
               <div style={{ fontSize: 12, color: C.slateLight, marginTop: 3 }}>
                 {tab === "today" && `${new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })} · ${doneTodayCount} of ${myHabitsWithTaps.length} complete`}
                 {tab === "family" && (soloMode ? "personal dashboard" : `${family.members?.length || 0} members`)}
-                {tab === "add" && "Habits, tiles & rewards"}
                 {tab === "insights" && "Your habit data"}
-                {tab === "settings" && (soloMode ? currentMember?.name : family.name)}
+                {tab === "manage" && "Habits, tiles & settings"}
               </div>
             </div>
             {family.members?.length > 1 && (
@@ -4356,7 +4927,7 @@ export default function RitualApp() {
               </div>
             )}
           </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", minHeight: soloMode ? 0 : "auto", marginTop: soloMode ? 0 : 4 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", minHeight: soloMode ? 0 : "auto", marginTop: soloMode ? 0 : 12 }}>
             {!soloMode && family.members?.length > 0 && family.members.map(m => {
               const isActive = currentMember?.id === m.id;
               return (
@@ -4392,7 +4963,7 @@ export default function RitualApp() {
               soundEnabled={soundEnabled}
               soloMode={soloMode}
               onClaimReward={() => setTab("family")}
-              onEditHabit={() => { setAddInitialView("habitsManage"); setTab("add"); }}
+              onEditHabit={(habitId) => { setEditHabitId(habitId || null); setManageInitialView("habitsManage"); setTab("manage"); }}
               onDeleteHabit={(habitId) => { if (window.confirm("Delete this habit? This removes all completion history.")) handleDeleteHabit(habitId); }}
             />
           )}
@@ -4402,9 +4973,8 @@ export default function RitualApp() {
           {tab === "family" && soloMode && (
             <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} forcePersonal={true} />
           )}
-          {tab === "add" && <AddScreen family={family} currentMember={currentMember} onAddHabit={handleAddHabit} habits={habits} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} initialView={addInitialView} onMounted={() => setAddInitialView("menu")} soloMode={soloMode} />}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} />}
-          {tab === "settings" && <SettingsScreen family={family} currentMember={currentMember} onLogout={handleLogout} onRefresh={handleRefreshData} onManageTiles={() => { setAddInitialView("tile"); setTab("add"); }} onManageHabits={() => { setAddInitialView("habitsManage"); setTab("add"); }} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} />}
+          {tab === "manage" && <ManageScreen key={manageResetKey} family={family} currentMember={currentMember} soloMode={soloMode} habits={habits} onAddHabit={handleAddHabit} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} onLogout={handleLogout} onRefresh={handleRefreshData} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} onAddMember={handleAddMember} initialSubView={manageInitialView} onMounted={() => { setManageInitialView("main"); setEditHabitId(null); }} initialEditHabitId={editHabitId} />}
         </div>
 
         {/* Branding footer */}
@@ -4415,9 +4985,17 @@ export default function RitualApp() {
         {/* Tab bar */}
         <div className="tab-bar">
           {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 12px" }}>
-              <div style={{ fontSize: 20, color: tab === t.id ? C.accent : C.sandDark, transition: "all 0.2s ease", transform: tab === t.id ? "scale(1.2)" : "scale(1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {t.id === "settings" ? <GearIcon color={tab === t.id ? C.accent : C.sandDark} size={20} /> : t.icon}
+            <button key={t.id} onClick={() => {
+              if (t.id === "manage" && tab === "manage") {
+                // Re-tap on active Manage tab: reset to main view
+                setManageInitialView("main");
+                setManageResetKey(k => k + 1);
+              } else {
+                setTab(t.id);
+              }
+            }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 12px" }}>
+              <div style={{ fontSize: 20, color: tab === t.id ? C.accent : C.sandDark, transition: "all 0.2s ease", transform: tab === t.id ? "scale(1.2)" : "scale(1)", display: "flex", alignItems: "center", justifyContent: "center", height: 24, width: 24 }}>
+                {t.id === "manage" ? <GearIcon color={tab === t.id ? C.accent : C.sandDark} size={20} /> : t.icon}
               </div>
               <div style={{ fontSize: 9, letterSpacing: 1.2, color: tab === t.id ? C.accent : C.sandDark, fontWeight: tab === t.id ? 700 : 400, textTransform: "uppercase" }}>{t.label}</div>
             </button>
@@ -4429,6 +5007,9 @@ export default function RitualApp() {
       {showOnboarding && family && (
         <OnboardingFlow currentMember={currentMember} family={family} onComplete={completeOnboarding} soloMode={soloMode} />
       )}
+
+      {/* Celebration overlay — shown on 100% daily completion (once per day) */}
+      {showCelebration && <CelebrationOverlay onDone={() => setShowCelebration(false)} />}
 
       {/* Assign Tile Modal — shown whenever an unassigned tile is tapped */}
       {unassignedTileUID && (
@@ -4442,8 +5023,8 @@ export default function RitualApp() {
           onClose={() => setUnassignedTileUID(null)}
           onCreateHabit={() => {
             setUnassignedTileUID(null);
-            setAddInitialView("custom");
-            setTab("add");
+            setManageInitialView("custom");
+            setTab("manage");
           }}
         />
       )}
