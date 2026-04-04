@@ -3715,7 +3715,7 @@ function ManageScreen({
           {" "}and{" "}
           <span onClick={async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } }} style={{ color: C.accent, cursor: "pointer", textDecoration: "underline" }}>Terms of Use</span>.
         </p>
-        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.34</p>
+        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.35</p>
       </div>
     </div>
   );
@@ -4979,7 +4979,7 @@ export default function RitualApp() {
 
         {/* Branding footer */}
         <div style={{ position: "fixed", bottom: 8, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 390, textAlign: "center", fontSize: 10, color: `${C.slateLight}55`, letterSpacing: 0.5, zIndex: 49, pointerEvents: "none", fontFamily: "'DM Sans', sans-serif" }}>
-          Ritual ✨ · Build better habits
+          Ritual · Build better habits
         </div>
 
         {/* Tab bar */}
