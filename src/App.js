@@ -33,7 +33,7 @@ const D = {
 };
 
 // ─── NAMED CONSTANTS ──────────────────────────────────────────────
-const ANALYTICS_WINDOW_DAYS = 30;      // days of history for analytics tab
+const ANALYTICS_WINDOW_DAYS = 120;     // days of history for analytics/streaks
 const FLASH_COUNTDOWN_SECONDS = 5;     // seconds before completion flash auto-dismisses
 const REDEMPTION_CACHE_MS = 60_000;    // 1 min: how long redemptions are cached before re-fetch
 const ANALYTICS_CACHE_MS = 5 * 60_000; // 5 min: how long analytics are cached before re-fetch
@@ -125,9 +125,15 @@ function normalizeMember(m) {
     avatar: m.avatar || name[0]?.toUpperCase() || '?',
     color: m.color,
     isKid: m.is_kid || false, points: m.points || 0, streak: m.streak || 0,
+    progressVisual: m.progress_visual || null,
     onboardingComplete: m.onboarding_complete || false,
     createdAt: m.created_at || null,
   };
+}
+
+function getProgressVisual(member) {
+  if (member?.progressVisual) return member.progressVisual;
+  return member?.isKid ? 'tree' : 'streak';
 }
 
 function normalizeHabit(h) {
@@ -306,6 +312,21 @@ function triggerHaptic(type = "regular") {
   else navigator.vibrate(50);
 }
 
+function triggerCelebrationHaptic(type = "kids") {
+  if (type === "kids") {
+    if (Capacitor.isNativePlatform()) {
+      try { Haptics.notification({ type: NotificationType.Success }); } catch (_) {}
+      setTimeout(() => { try { Haptics.impact({ style: ImpactStyle.Medium }); } catch (_) {} }, 300);
+      setTimeout(() => { try { Haptics.notification({ type: NotificationType.Success }); } catch (_) {} }, 600);
+    } else {
+      if (navigator.vibrate) navigator.vibrate([60, 80, 60, 80, 100, 80, 60]);
+    }
+  } else {
+    // Adult — just reuse existing milestone for now
+    triggerHaptic("milestone");
+  }
+}
+
 // ─── GEAR ICON ────────────────────────────────────────────────────
 function GearIcon({ color, size = 20 }) {
   return (
@@ -322,99 +343,109 @@ const CATEGORIES = [
     id: "family", name: "Family & Chores", icon: "🏠", color: C.warm,
     description: "Build routines at home",
     habits: [
-      { name: "Make your bed", icon: "🛏", location: "Bedroom", target: 1 },
-      { name: "Clear the dinner table", icon: "🍽", location: "Dining table", target: 1 },
-      { name: "Empty the dishwasher", icon: "✨", location: "Kitchen", target: 1 },
-      { name: "Take out the trash", icon: "🗑", location: "Kitchen door", target: 1 },
-      { name: "Feed the pet", icon: "🐾", location: "Kitchen", target: 1 },
-      { name: "Tidy your room", icon: "📦", location: "Bedroom", target: 1 },
-      { name: "Pack your school bag", icon: "🎒", location: "Bedroom", target: 1 },
+      { name: "Make your bed", icon: "🛏", location: "Bedroom", target: 1, science: { claim: "Described as a 'keystone habit' — completing one small task first thing triggers a chain reaction of productivity. Bed-makers report better productivity and greater wellbeing.", source: "National Sleep Foundation" } },
+      { name: "Clear the dinner table", icon: "🍽", location: "Dining table", target: 1, science: { claim: "Children who contribute to the household develop a stronger sense of belonging and purpose. A 25-year study found children who started chores at age 3–4 were more self-sufficient and successful in their mid-20s.", source: "University of Minnesota (Rossmann, 2002)" } },
+      { name: "Empty the dishwasher", icon: "✨", location: "Kitchen", target: 1, science: { claim: "Completing a task from start to finish builds follow-through and self-efficacy. Children who do regular chores are better able to delay gratification — a key predictor of academic success.", source: "Center for Parenting Education" } },
+      { name: "Take out the trash", icon: "🗑", location: "Kitchen door", target: 1, science: { claim: "Taking responsibility for shared spaces teaches accountability. Research links early household participation to stronger relationships with family and friends later in life.", source: "University of Minnesota (Rossmann)" } },
+      { name: "Feed the pet", icon: "🐾", location: "Kitchen", target: 1, science: { claim: "Caring for an animal teaches empathy, routine, and responsibility. Cross-cultural research shows children who care for others demonstrate higher levels of prosocial behaviour.", source: "Developmental Psychology (Rogoff, 2003)" } },
+      { name: "Tidy your room", icon: "📦", location: "Bedroom", target: 1, science: { claim: "A cluttered environment competes for your attention. Research from Princeton found visual clutter reduces performance and increases stress — a tidy space supports focus and calm.", source: "Princeton Neuroscience Institute" } },
+      { name: "Pack your school bag", icon: "🎒", location: "Bedroom", target: 1, science: { claim: "Planning ahead develops executive function — the same prefrontal cortex skills linked to academic success, self-regulation, and problem-solving in children.", source: "Developmental Psychology" } },
     ]
   },
   {
     id: "health", name: "Health & Body", icon: "💊", color: C.green,
     description: "Care for yourself daily",
     habits: [
-      { name: "Morning medication", icon: "💊", location: "Bathroom shelf", target: 1 },
-      { name: "Evening medication", icon: "🌙", location: "Bedside table", target: 1 },
-      { name: "Drink a glass of water", icon: "💧", location: "Kitchen", target: 8 },
-      { name: "Take vitamins", icon: "🌿", location: "Kitchen", target: 1 },
-      { name: "Morning stretch", icon: "🧘", location: "Bedroom floor", target: 1 },
-      { name: "Weigh in", icon: "⚖️", location: "Bathroom", target: 1 },
-      { name: "Skincare routine", icon: "✨", location: "Bathroom mirror", target: 1 },
+      { name: "Morning medication", icon: "💊", location: "Bathroom shelf", target: 1, science: { claim: "WHO estimates up to 50% of patients with chronic illness don't take medication as prescribed. A consistent daily cue — same time, same place — significantly improves adherence.", source: "World Health Organization" } },
+      { name: "Evening medication", icon: "🌙", location: "Bedside table", target: 1, science: { claim: "Consistent timing supports therapeutic drug levels. A simple daily cue — same time, same place — is one of the most effective strategies for medication adherence.", source: "WHO / Clinical Pharmacology" } },
+      { name: "Drink a glass of water", icon: "💧", location: "Kitchen", target: 8, science: { claim: "A 2023 study of 1,957 adults found 56% were physiologically dehydrated. Poor hydration predicted significant cognitive decline over 2 years.", source: "BMC Medicine, 2023" } },
+      { name: "Take vitamins", icon: "🌿", location: "Kitchen", target: 1, science: { claim: "Sticking to a daily supplement routine is harder than it seems — adherence improves significantly when tied to a consistent cue: same time, same place, same trigger.", source: "WHO / Habit Formation Research" } },
+      { name: "Morning stretch", icon: "🧘", location: "Bedroom floor", target: 1, science: { claim: "ACSM recommends flexibility exercises 2–3x/week. Just 5–10 minutes of daily stretching maintains joint mobility and reduces stiffness.", source: "American College of Sports Medicine" } },
+      { name: "Skincare routine", icon: "✨", location: "Bathroom mirror", target: 1, science: { claim: "Consistent self-care routines support psychological wellbeing. Research links daily personal care habits to improved self-esteem and a more positive start to the day.", source: "Psychology Today" } },
+      { name: "Apply sunscreen", icon: "🧴", location: "Bathroom", target: 1, science: { claim: "An Australian randomised trial (1,621 people, 15-year follow-up) found daily sunscreen users had half the melanoma rate. A 2018 University of Sydney study found regular use reduced melanoma risk by 40% in under-40s.", source: "Journal of Clinical Oncology / JAMA Dermatology, 2018" } },
+      { name: "Morning water", icon: "💧", location: "Kitchen", target: 1, science: { claim: "A 2023 study of 1,957 adults found 56% were physiologically dehydrated. Poor hydration predicted significant cognitive decline over 2 years.", source: "BMC Medicine, 2023" } },
+      { name: "Caffeine cut-off", icon: "☕", location: "Kitchen", target: 1, science: { claim: "Caffeine has a half-life of 5–6 hours. Harvard research shows evening stimulant exposure suppresses melatonin and shifts circadian rhythms by up to 3 hours.", source: "Harvard / PNAS" } },
+      { name: "Same bedtime", icon: "🛏", location: "Bedroom", target: 1, science: { claim: "Room light before bed suppresses melatonin onset in 99% of people. A consistent bedtime protects circadian alignment and improves sleep quality.", source: "Journal of Clinical Endocrinology & Metabolism" } },
+      { name: "Eat a fruit or veg", icon: "🍎", location: "Kitchen", target: 1, science: { claim: "WHO recommends 400g+ of fruit and vegetables daily. Higher intake is consistently linked to reduced cardiovascular disease and cancer risk.", source: "WHO Dietary Guidelines" } },
     ]
   },
   {
     id: "screenfree", name: "Screen-Free Time", icon: "📵", color: C.slateLight,
     description: "Presence over phones",
     habits: [
-      { name: "Phone down at dinner", icon: "🍴", location: "Dining table", target: 1 },
-      { name: "Phone down at bedtime", icon: "🌙", location: "Bedside table", target: 1 },
-      { name: "Homework focus mode", icon: "📚", location: "Desk", target: 1 },
-      { name: "Family screen-free hour", icon: "👨‍👩‍👧", location: "Living room", target: 1 },
-      { name: "Morning phone-free time", icon: "☀️", location: "Kitchen", target: 1 },
+      { name: "Phone down at dinner", icon: "🍴", location: "Dining table", target: 1, science: { claim: "Screens at the table reduce conversation quality and family connection. Evening device use also suppresses melatonin and disrupts sleep — but the real benefit here is being present with your people.", source: "Harvard / PNAS" } },
+      { name: "Phone down at bedtime", icon: "🌙", location: "Bedside table", target: 1, science: { claim: "A study of 122,058 adults found screen use before bed was associated with decreased sleep duration and worse sleep quality. Blue light suppresses melatonin onset in 99% of people.", source: "JAMA Network Open" } },
+      { name: "Homework focus mode", icon: "📚", location: "Desk", target: 1, science: { claim: "Switching between screens and study material significantly reduces learning and recall. Removing the phone from the room — not just silencing it — is the most effective strategy.", source: "Educational Research" } },
+      { name: "Family screen-free hour", icon: "👨‍👩‍👧", location: "Living room", target: 1, science: { claim: "Strong social relationships increase survival odds by 50% — comparable to quitting smoking. Device-free family time is how those bonds are built.", source: "PLoS Medicine (Holt-Lunstad, 2010)" } },
+      { name: "Morning phone-free time", icon: "☀️", location: "Kitchen", target: 1, science: { claim: "Checking your phone first thing floods your brain with information before your cortisol-awakening response completes. Delaying phone use for 30 min lets your natural alertness system do its job.", source: "NIH / Circadian Research" } },
+      { name: "Eat without screens", icon: "🍽", location: "Dining table", target: 1, science: { claim: "Mindful eating research shows eating without distractions improves satiety awareness and helps regulate appetite and portion control.", source: "NIH / PMC" } },
     ]
   },
   {
     id: "morning", name: "Morning Routine", icon: "☀️", color: C.accent,
     description: "Own your morning",
     habits: [
-      { name: "Wake up on time", icon: "⏰", location: "Bedside table", target: 1 },
-      { name: "Make coffee / breakfast", icon: "☕", location: "Kitchen", target: 1 },
-      { name: "Brush teeth", icon: "🦷", location: "Bathroom", target: 1 },
-      { name: "Exercise or movement", icon: "🏃", location: "Home entrance", target: 1 },
-      { name: "Journal or gratitude", icon: "📓", location: "Desk", target: 1 },
-      { name: "Review daily priorities", icon: "📋", location: "Desk", target: 1 },
-      { name: "No phone 30 minutes", icon: "📵", location: "Bedroom", target: 1 },
+      { name: "Wake up on time", icon: "⏰", location: "Bedside table", target: 1, science: { claim: "Consistent wake times align your circadian rhythm. A study found early morning light exposure before 10am significantly improved sleep quality.", source: "PMC / Scientific Reports, 2025" } },
+      { name: "Make coffee / breakfast", icon: "☕", location: "Kitchen", target: 1, science: { claim: "Eating breakfast supports circadian alignment, metabolism, and daytime energy. Skipping breakfast is associated with higher cardiovascular mortality risk and poorer concentration.", source: "Cleveland Clinic" } },
+      { name: "Brush teeth", icon: "🦷", location: "Bathroom", target: 1, science: { claim: "The ADA recommends brushing twice daily for 2 minutes. Poor oral health is linked to cardiovascular disease, diabetes, and respiratory infections — your mouth is a gateway to systemic health.", source: "American Dental Association" } },
+      { name: "Exercise or movement", icon: "🏃", location: "Home entrance", target: 1, science: { claim: "WHO recommends 150–300 min/week of moderate activity. A meta-analysis of 111,309 people found significant mortality reduction starting at just 2,517 steps/day.", source: "JACC, 2023 / WHO" } },
+      { name: "Journal or gratitude", icon: "📓", location: "Desk", target: 1, science: { claim: "A 2024 JAMA Psychiatry study of 49,275 women found the highest gratitude scores predicted 9% lower all-cause mortality over 4 years, independent of health and income.", source: "JAMA Psychiatry, 2024" } },
+      { name: "Review daily priorities", icon: "📋", location: "Desk", target: 1, science: { claim: "Writing down your top priorities reduces decision fatigue and increases task completion. A consistent planning habit creates structure that reduces anxiety about what to do next.", source: "Behavioural Science" } },
+      { name: "No phone 30 minutes", icon: "📵", location: "Bedroom", target: 1, science: { claim: "Blue light from screens suppresses melatonin and shifts circadian rhythms by up to 3 hours. Delaying phone use for 30 min allows your cortisol-awakening response to complete naturally.", source: "Harvard / PNAS" } },
+      { name: "Morning sunlight", icon: "☀️", location: "Front door", target: 1, science: { claim: "Getting natural light within 30–60 min of waking resets your circadian rhythm, suppresses melatonin, and boosts serotonin and alertness.", source: "NIH / Scientific Reports" } },
     ]
   },
   {
     id: "learning", name: "Learning & Growth", icon: "📖", color: C.warm,
     description: "Keep growing every day",
     habits: [
-      { name: "Read for 20 minutes", icon: "📖", location: "Armchair / Desk", target: 1 },
-      { name: "Practice an instrument", icon: "🎸", location: "Living room", target: 1 },
-      { name: "Language learning", icon: "🌍", location: "Desk", target: 1 },
-      { name: "Study block", icon: "📚", location: "Desk", target: 1 },
-      { name: "Educational podcast", icon: "🎧", location: "Anywhere", target: 1 },
-      { name: "Flashcard review", icon: "🃏", location: "Desk", target: 1 },
+      { name: "Read for 20 minutes", icon: "📖", location: "Armchair / Desk", target: 1, science: { claim: "Children who read for 20 min/day are exposed to 1.8 million words per year. Reading for pleasure is the strongest predictor of academic success — more powerful than socioeconomic background.", source: "OECD PISA / Yale School of Public Health" } },
+      { name: "Practice an instrument", icon: "🎸", location: "Living room", target: 1, science: { claim: "Learning music strengthens neural pathways for language, memory, and executive function. Children who practise an instrument show enhanced verbal memory and attention.", source: "Harvard / Frontiers in Neuroscience" } },
+      { name: "Language learning", icon: "🌍", location: "Desk", target: 1, science: { claim: "Regular language learning strengthens working memory and attention control. Bilingual individuals show stronger cognitive reserve across the lifespan.", source: "Neuropsychologia" } },
+      { name: "Study block", icon: "📚", location: "Desk", target: 1, science: { claim: "Focused study blocks of 25–50 min with short breaks are more effective than marathon sessions. Breaking study into chunks improves concentration and recall.", source: "Psychological Science" } },
+      { name: "Educational podcast", icon: "🎧", location: "Anywhere", target: 1, science: { claim: "Listening to educational content during routine activities turns downtime into learning time — a practical way to fit growth into a busy schedule.", source: "Behavioural Science" } },
+      { name: "Flashcard review", icon: "🃏", location: "Desk", target: 1, science: { claim: "Spaced repetition — reviewing material at increasing intervals — is one of the most robust findings in learning science. Active recall strengthens memory each time.", source: "Psychological Science" } },
     ]
   },
   {
     id: "mindfulness", name: "Mindfulness", icon: "🧘", color: C.slateLight,
     description: "Quiet the noise",
     habits: [
-      { name: "Meditate", icon: "🧘", location: "Bedroom", target: 1 },
-      { name: "Gratitude journaling", icon: "📓", location: "Desk", target: 1 },
-      { name: "Evening wind-down", icon: "🌙", location: "Bedside table", target: 1 },
-      { name: "Breathing exercise", icon: "🌬", location: "Anywhere", target: 1 },
-      { name: "Digital detox hour", icon: "📵", location: "Living room", target: 1 },
-      { name: "Pray or reflect", icon: "🙏", location: "Anywhere", target: 1 },
+      { name: "Meditate", icon: "🧘", location: "Bedroom", target: 1, science: { claim: "An 8-week mindfulness program (avg. 27 min/day) produced MRI-documented increases in hippocampal grey matter and reductions in the amygdala, correlating with lower stress.", source: "Harvard / Psychiatry Research: Neuroimaging" } },
+      { name: "Gratitude journaling", icon: "📓", location: "Desk", target: 1, science: { claim: "A meta-analysis of 64 randomised clinical trials found gratitude journaling reduced anxiety and depression symptoms and improved positive mood.", source: "Einstein Journal / PMC, 2023" } },
+      { name: "Evening wind-down", icon: "🌙", location: "Bedside table", target: 1, science: { claim: "Room light before bed suppresses melatonin onset in 99% of people and shortens melatonin duration by ~90 min. A consistent wind-down routine signals your brain to prepare for sleep.", source: "Journal of Clinical Endocrinology & Metabolism" } },
+      { name: "Breathing exercise", icon: "🌬", location: "Anywhere", target: 1, science: { claim: "Diaphragmatic breathing sessions significantly lower salivary cortisol and improve sustained attention in healthy adults.", source: "Frontiers in Psychology, 2017" } },
+      { name: "Digital detox hour", icon: "📵", location: "Living room", target: 1, science: { claim: "Evening device use suppresses melatonin, delays circadian timing by ~1.5 hours, and reduces REM sleep. Even 1 hour of screen-free time before bed improves sleep onset.", source: "Harvard / PNAS" } },
+      { name: "Pray or reflect", icon: "🙏", location: "Anywhere", target: 1, science: { claim: "Contemplative practices — including prayer, reflection, and meditation — have been shown across multiple trials to reduce anxiety and depression and improve emotional wellbeing.", source: "Einstein Journal / PMC, 2023" } },
+      { name: "Time in nature", icon: "🌿", location: "Outdoors", target: 1, science: { claim: "A study of 19,806 people found 120+ min/week in nature linked to 59% higher odds of good health and 23% higher wellbeing. Can be split across multiple short visits.", source: "Scientific Reports (White et al., 2019)" } },
     ]
   },
   {
     id: "fitness", name: "Fitness", icon: "🏋️", color: C.green,
     description: "Move your body",
     habits: [
-      { name: "Morning workout", icon: "💪", location: "Gym bag / Door", target: 1 },
-      { name: "Evening walk", icon: "🚶", location: "Front door", target: 1 },
-      { name: "Stretching routine", icon: "🤸", location: "Living room", target: 1 },
-      { name: "Log water intake", icon: "💧", location: "Kitchen", target: 1 },
-      { name: "Meal prep", icon: "🥗", location: "Kitchen", target: 1 },
-      { name: "Post-workout recovery", icon: "🛁", location: "Bathroom", target: 1 },
+      { name: "Morning workout", icon: "💪", location: "Gym bag / Door", target: 1, science: { claim: "WHO recommends 150–300 min/week of moderate activity. Morning exercise may enhance fat oxidation and improve circadian alignment for better sleep that night.", source: "WHO Physical Activity Guidelines, 2020" } },
+      { name: "Evening walk", icon: "🚶", location: "Front door", target: 1, science: { claim: "A JAMA study of 2,110 adults found 7,000+ steps/day was associated with 50–70% lower all-cause mortality. An evening walk also aids digestion and wind-down.", source: "JAMA Network Open (Paluch, 2021)" } },
+      { name: "Stretching routine", icon: "🤸", location: "Living room", target: 1, science: { claim: "ACSM recommends flexibility exercises 2–3x/week. Regular stretching improves joint range of motion, gait speed, and balance — reducing fall risk as we age.", source: "American College of Sports Medicine" } },
+      { name: "Log water intake", icon: "💧", location: "Kitchen", target: 1, science: { claim: "Poor hydration predicted cognitive decline over 2 years in a study of 1,957 adults. Simply tracking your intake raises awareness and increases consumption.", source: "BMC Medicine, 2023" } },
+      { name: "Meal prep", icon: "🥗", location: "Kitchen", target: 1, science: { claim: "A systematic review found meal planning is associated with a more varied diet and lower obesity rates — even after controlling for income and education.", source: "International Journal of Behavioral Nutrition" } },
+      { name: "Post-workout recovery", icon: "🛁", location: "Bathroom", target: 1, science: { claim: "Recovery — including hydration, nutrition, and rest — is when your body actually adapts and gets stronger. Rest is productive, not lazy.", source: "ACSM / Sports Medicine" } },
+      { name: "Midday walk", icon: "🚶", location: "Outdoors", target: 1, science: { claim: "A meta-analysis of 111,309 people found optimal mortality reduction at ~8,763 steps/day, with significant benefits starting at just 2,517 steps/day.", source: "JACC, 2023" } },
+      { name: "Movement break", icon: "🧍", location: "Anywhere", target: 1, science: { claim: "A Columbia University study found 5 min of walking every 30 min of sitting significantly reduced blood sugar, blood pressure, and fatigue.", source: "Columbia University, 2023" } },
+      { name: "Strength exercise", icon: "💪", location: "Home / Gym", target: 1, science: { claim: "WHO recommends muscle-strengthening activities 2+ days/week, associated with reduced all-cause mortality, cardiovascular disease, and diabetes risk.", source: "WHO Guidelines, 2020" } },
     ]
   },
   {
     id: "kids", name: "Kids Special", icon: "⭐", color: C.kids,
     description: "Made for little champions", isKids: true,
     habits: [
-      { name: "Homework done", icon: "📚", location: "Desk", target: 1 },
-      { name: "Reading time", icon: "📖", location: "Bedroom", target: 1 },
-      { name: "Practice instrument", icon: "🎵", location: "Living room", target: 1 },
-      { name: "Help with dinner", icon: "🍳", location: "Kitchen", target: 1 },
-      { name: "Be kind moment", icon: "💛", location: "Anywhere", target: 1 },
-      { name: "Screen-free afternoon", icon: "🌳", location: "Living room", target: 1 },
-      { name: "Outdoor play", icon: "⚽", location: "Back door", target: 1 },
+      { name: "Homework done", icon: "📚", location: "Desk", target: 1, science: { claim: "A consistent homework routine builds executive function, time management, and academic self-efficacy. The key is same time, same place — which reduces resistance and procrastination.", source: "Developmental Psychology" } },
+      { name: "Reading time", icon: "📖", location: "Bedroom", target: 1, science: { claim: "Children who read for pleasure perform better academically — it's the strongest predictor of school success, more powerful than socioeconomic background.", source: "OECD PISA" } },
+      { name: "Practice instrument", icon: "🎵", location: "Living room", target: 1, science: { claim: "Music training strengthens neural pathways for language, memory, and executive function. Children who practise regularly show enhanced verbal memory and attention.", source: "Harvard / Frontiers in Neuroscience" } },
+      { name: "Help with dinner", icon: "🍳", location: "Kitchen", target: 1, science: { claim: "Children who help with meal preparation eat more vegetables and develop practical life skills. A 25-year study links early household contribution to mid-20s success.", source: "University of Minnesota (Rossmann)" } },
+      { name: "Be kind moment", icon: "💛", location: "Anywhere", target: 1, science: { claim: "Practising kindness increases positive emotion and social connection. A review of 70 studies found prosocial behaviour is consistently associated with lower depression and higher wellbeing.", source: "UCLA Health" } },
+      { name: "Screen-free afternoon", icon: "🌳", location: "Living room", target: 1, science: { claim: "Children may be more sensitive to blue light than adults — one study found melatonin suppression was twice as strong in primary school children vs. adults at the same light level.", source: "PMC / Sleep Medicine" } },
+      { name: "Outdoor play", icon: "⚽", location: "Back door", target: 1, science: { claim: "A study of 19,806 people found 120+ min/week in nature linked to 59% higher odds of good health. Active outdoor play supports both physical development and mental health in children.", source: "Scientific Reports (White et al., 2019)" } },
     ]
   },
 ];
@@ -946,7 +977,7 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
 // ─── COMPLETION FLASH ─────────────────────────────────────────────
 function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
   const [countdown, setCountdown] = useState(FLASH_COUNTDOWN_SECONDS);
-  const isKid = habit?.isKid || member?.isKid;
+  const isKid = getProgressVisual(member) === 'tree';
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
@@ -963,7 +994,7 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
-  const taps = habit?.taps || 0;
+  const taps = Math.min(habit?.taps || 0, habit?.target || 1);
   const target = habit?.target || 1;
   const justCompleted = taps >= target;
   return (
@@ -1011,7 +1042,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
   const swipeLocked = useRef(false);
   const swipeTimeout = useRef(null);
 
-  const taps = habit.taps || 0;
+  const taps = Math.min(habit.taps || 0, habit.target || 1);
   const target = habit.target || 1;
   const completed = taps >= target;
   const isMulti = target > 1;
@@ -1069,7 +1100,8 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
     setSwipeX(prev => prev < -SWIPE_THRESHOLD ? -ACTION_WIDTH : 0);
   };
 
-  const handleHoldStart = () => {
+  const handleHoldStart = (e) => {
+    if (e?.preventDefault) e.preventDefault();
     holdInterval.current = setInterval(() => {
       setHoldProgress(p => {
         if (p >= 100) {
@@ -1087,7 +1119,8 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
   };
   const handleHoldEnd = () => { clearInterval(holdInterval.current); setHoldProgress(0); };
 
-  const startLongPress = () => {
+  const startLongPress = (e) => {
+    if (e?.preventDefault) e.preventDefault();
     if (!completed) return;
     longInterval.current = setInterval(() => {
       setLongPressProgress(p => {
@@ -1111,11 +1144,12 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
         </div>
       )}
       <div
-        onTouchStart={(e) => { handleSwipeStart(e); if (swipeX === 0) startLongPress(); }}
+        onTouchStart={(e) => { handleSwipeStart(e); if (swipeX === 0) startLongPress(e); }}
         onTouchEnd={(e) => { handleSwipeEnd(); if (swipeX === 0) endLongPress(); }}
         onTouchCancel={handleSwipeEnd}
         onTouchMove={handleSwipeMove}
         onMouseDown={startLongPress} onMouseUp={endLongPress}
+        onContextMenu={(e) => e.preventDefault()}
         style={{ width: "100%", background: C.white, borderRadius: 20, padding: 18, boxShadow: `0 4px 20px ${habit.color}18`, border: `1px solid ${habit.color}30`, position: "relative", overflow: "hidden", cursor: "pointer", userSelect: "none", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
         {longPressProgress > 0 && <div style={{ position: "absolute", inset: 0, background: `${habit.color}12`, width: `${longPressProgress}%`, zIndex: 0 }} />}
         <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 1 }}>
@@ -1184,7 +1218,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
               <div style={{ fontSize: 10, color: `${C.slateLight}70`, textAlign: "center", marginBottom: 8, lineHeight: 1.5 }}>
                 The physical tile is the whole point of Ritual.<br /><span style={{ color: C.accent }}>We recommend going to your tile.</span>
               </div>
-              <div onMouseDown={handleHoldStart} onMouseUp={handleHoldEnd} onTouchStart={handleHoldStart} onTouchEnd={handleHoldEnd}
+              <div onMouseDown={handleHoldStart} onMouseUp={handleHoldEnd} onTouchStart={handleHoldStart} onTouchEnd={handleHoldEnd} onContextMenu={(e) => e.preventDefault()}
                 style={{ padding: "11px", borderRadius: 12, border: `1.5px solid ${C.sandDark}`, background: C.offwhite, cursor: "pointer", textAlign: "center", userSelect: "none", position: "relative", overflow: "hidden" }}>
                 <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${holdProgress}%`, background: `${C.accent}20` }} />
                 <div style={{ fontSize: 11, color: C.slateLight, position: "relative" }}>{holdProgress > 0 ? `Hold… ${Math.round(holdProgress)}%` : "Hold to manually complete"}</div>
@@ -1200,11 +1234,74 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
 }
 
 // ─── CELEBRATION OVERLAY ─────────────────────────────────────────
-function CelebrationOverlay({ onDone }) {
+function CelebrationOverlay({ member, onDone, soundEnabled }) {
+  const isTree = getProgressVisual(member) === 'tree';
   useEffect(() => {
-    const t = setTimeout(onDone, 3000);
+    const duration = isTree ? 4000 : 3000;
+    const t = setTimeout(onDone, duration);
+    // Haptics on mount
+    if (isTree) {
+      triggerCelebrationHaptic("kids");
+    } else {
+      triggerHaptic("milestone");
+    }
     return () => clearTimeout(t);
   }, []); // eslint-disable-line
+  // ── KIDS / TREE celebration ──
+  if (isTree) {
+    const EMOJIS = ['🍃', '✨', '🌿', '⭐', '🌱'];
+    const particles = Array.from({ length: 20 }, (_, i) => ({
+      id: i,
+      left: `${5 + (i * 4.75) % 90}%`,
+      emoji: EMOJIS[i % EMOJIS.length],
+      size: 16 + (i % 4) * 4,
+      delay: `${((i * 0.08) % 1.5).toFixed(2)}s`,
+      duration: `${(2.5 + (i % 5) * 0.35).toFixed(1)}s`,
+    }));
+    return (
+      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center",
+        justifyContent: "center", zIndex: 9999, pointerEvents: "none", overflow: "hidden",
+        background: "rgba(237, 232, 224, 0.97)" }}>
+        {/* Decorative circles */}
+        <div style={{ position: "absolute", top: -30, right: -20, width: 140, height: 140,
+          borderRadius: "50%", background: "rgba(183,175,160,0.15)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: 120, left: -25, width: 120, height: 120,
+          borderRadius: "50%", background: "rgba(166,191,159,0.12)", pointerEvents: "none" }} />
+        {/* Botanical particles */}
+        {particles.map(p => (
+          <div key={p.id} style={{ position: "absolute", top: "-30px", left: p.left,
+            fontSize: p.size, lineHeight: 1,
+            animation: `confettiFall ${p.duration} ${p.delay} ease-in forwards`,
+            pointerEvents: "none" }}>
+            {p.emoji}
+          </div>
+        ))}
+        {/* Central content */}
+        <div style={{ textAlign: "center", animation: "celebFadeIn 0.5s ease forwards",
+          position: "relative", zIndex: 1, padding: "0 40px" }}>
+          <div style={{ fontSize: 64, marginBottom: 8, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>🌳</div>
+          {member?.name && (
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#7A7060",
+              fontFamily: "'DM Sans', sans-serif", marginBottom: 16 }}>
+              {member.name}
+            </div>
+          )}
+          <div style={{ background: "rgba(255,255,255,0.85)", borderRadius: 20,
+            padding: "24px 28px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
+            <div style={{ fontSize: 28, fontWeight: 700, color: "#4A3F35",
+              fontFamily: "'DM Serif Display', serif", lineHeight: 1.3, marginBottom: 8 }}>
+              You did it!
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 400, color: "#7A7060",
+              fontFamily: "'DM Sans', sans-serif", lineHeight: 1.5 }}>
+              Every ritual complete — your tree is in full bloom!
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  // ── ADULT / STREAK celebration (unchanged) ──
   const COLORS = ["#C4956A", "#7BA05B", "#F4B8A8", "#E8A090", "#9BC07A", "#C47B4A"];
   const particles = Array.from({ length: 20 }, (_, i) => ({
     id: i,
@@ -1216,13 +1313,20 @@ function CelebrationOverlay({ onDone }) {
     radius: i % 3 === 0 ? "50%" : i % 3 === 1 ? "3px" : "2px",
   }));
   return (
-    <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, pointerEvents: "none", overflow: "hidden" }}>
+    <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center",
+      justifyContent: "center", zIndex: 9999, pointerEvents: "none", overflow: "hidden" }}>
       {particles.map(p => (
-        <div key={p.id} style={{ position: "absolute", top: "-20px", left: p.left, width: p.size, height: p.size, borderRadius: p.radius, background: p.color, animation: `confettiFall ${p.duration} ${p.delay} ease-in forwards` }} />
+        <div key={p.id} style={{ position: "absolute", top: "-20px", left: p.left,
+          width: p.size, height: p.size, borderRadius: p.radius, background: p.color,
+          animation: `confettiFall ${p.duration} ${p.delay} ease-in forwards` }} />
       ))}
-      <div style={{ textAlign: "center", animation: "celebFadeIn 0.5s ease forwards", width: "78%", position: "relative", zIndex: 1 }}>
+      <div style={{ textAlign: "center", animation: "celebFadeIn 0.5s ease forwards",
+        width: "78%", position: "relative", zIndex: 1 }}>
         <div style={{ fontSize: 52, marginBottom: 12, lineHeight: 1 }}>🌸</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", lineHeight: 1.3, background: "rgba(255,255,255,0.93)", borderRadius: 20, padding: "18px 24px", boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: "#1E1C18",
+          fontFamily: "'DM Serif Display', serif", lineHeight: 1.3,
+          background: "rgba(255,255,255,0.93)", borderRadius: 20, padding: "18px 24px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }}>
           All done!<br />
           <span style={{ fontSize: 15, fontWeight: 500, color: "#7A7060" }}>Your tree is in full bloom!</span>
         </div>
@@ -1412,7 +1516,7 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
 
 // ─── TODAY SCREEN ─────────────────────────────────────────────────
 function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward, onEditHabit, onDeleteHabit }) {
-  if (currentMember?.isKid) {
+  if (getProgressVisual(currentMember) === 'tree') {
     return <KidsTreeView habits={habits} weekCompletions={weekCompletions} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} />;
   }
 
@@ -2327,7 +2431,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   if (view === "habits") return (
     <div style={{ padding: "0 20px 140px" }}>
       <button onClick={() => onBack ? onBack() : setView("menu")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
-      <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20, lineHeight: 1.6 }}>Every habit is pre-loaded and ready to link to your tile.</div>
+      <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20, lineHeight: 1.6 }}>Explore habits backed by research — from daily family routines to science-proven wellbeing boosters.</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         {CATEGORIES.map(cat => (
           <div key={cat.id} onClick={() => { setSelectedCat(cat); setView("category"); }} style={{ background: cat.isKids ? `linear-gradient(135deg, ${C.kids}15, ${C.kidsLight}10)` : C.white, borderRadius: 20, padding: 18, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: cat.isKids ? `1.5px solid ${C.kids}30` : "1px solid rgba(0,0,0,0.05)" }}>
@@ -2376,6 +2480,29 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           <div style={{ fontSize: 12, color: C.slateLight }}>Tile at: {selectedHabit.location}</div>
         </div>
       </div>
+      {selectedHabit.science && (
+        <div style={{
+          background: `linear-gradient(135deg, ${C.green}0F, ${C.green}05)`,
+          border: `1.5px solid ${C.green}26`,
+          borderRadius: 16,
+          padding: 18,
+          marginBottom: 12,
+        }}>
+          <div style={{
+            fontSize: 11, fontWeight: 700, textTransform: "uppercase",
+            letterSpacing: 0.5, color: C.green, marginBottom: 8,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            🔬 Why this habit matters
+          </div>
+          <div style={{ fontSize: 13, color: C.slateDark, lineHeight: 1.55 }}>
+            {selectedHabit.science.claim}
+          </div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginTop: 8, fontStyle: "italic" }}>
+            {selectedHabit.science.source}
+          </div>
+        </div>
+      )}
       <div style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>How many times per day?</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24, marginTop: 12 }}>
@@ -2621,21 +2748,25 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
   // ── Family Highlights ──────────────────────────────────────────
   const highlights = useMemo(() => {
     const tapsByMember = {};
-    weekCompletions.forEach(c => { if (c.taps > 0) tapsByMember[c.memberId] = (tapsByMember[c.memberId] || 0) + c.taps; });
+    weekCompletions.forEach(c => {
+      if (c.taps > 0) {
+        const habit = habits.find(h => h.id === c.habitId);
+        tapsByMember[c.memberId] = (tapsByMember[c.memberId] || 0) + Math.min(c.taps, habit?.target || 1);
+      }
+    });
     const hero = [...members].sort((a, b) => (tapsByMember[b.id] || 0) - (tapsByMember[a.id] || 0))[0];
 
-    const streakChamp = [...members].sort((a, b) => (b.streak || 0) - (a.streak || 0))[0];
-
-    const earlyTaps = {}, nightTaps = {};
-    weekCompletions.forEach(c => {
-      if (!c.completedAt || c.taps <= 0) return;
-      const rawTs = c.completedAt;
-      const h = new Date(/Z|[+-]\d{2}:?\d{2}$/.test(rawTs) ? rawTs : rawTs + 'Z').getHours();
-      if (h < 9) earlyTaps[c.memberId] = (earlyTaps[c.memberId] || 0) + 1;
-      if (h >= 20) nightTaps[c.memberId] = (nightTaps[c.memberId] || 0) + 1;
+    // Live streak calculation from analyticsData (not stale DB value)
+    const liveStreaks = {};
+    members.forEach(m => {
+      if (analyticsData) {
+        const dates = analyticsData.filter(c => c.memberId === m.id && c.taps > 0).map(c => c.date);
+        liveStreaks[m.id] = calcStreakFromDates(dates);
+      } else {
+        liveStreaks[m.id] = m.streak || 0;
+      }
     });
-    const earlyBird = members.filter(m => earlyTaps[m.id] > 0).sort((a, b) => (earlyTaps[b.id] || 0) - (earlyTaps[a.id] || 0))[0];
-    const nightOwl = members.filter(m => nightTaps[m.id] > 0).sort((a, b) => (nightTaps[b.id] || 0) - (nightTaps[a.id] || 0))[0];
+    const streakChamp = [...members].sort((a, b) => (liveStreaks[b.id] || 0) - (liveStreaks[a.id] || 0))[0];
 
     const sharedIds = new Set(habits.filter(h => h.completionType === 'shared').map(h => h.id));
     const sharedTaps = {};
@@ -2651,39 +2782,31 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     });
     const consistency = [...members].sort((a, b) => (daysByMember[b.id] || 0) - (daysByMember[a.id] || 0))[0];
 
+    // Best Day / Weakest Day this week
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const countsByDate = {};
+    weekCompletions.forEach(c => { if (c.taps > 0) countsByDate[c.date] = (countsByDate[c.date] || 0) + 1; });
+    const todayIdx = getTodayIndex(); // Mon=0
+    const wkDates = getWeekDates();
+    const elapsedDates = wkDates.slice(0, todayIdx + 1);
+    let bestDay = null, weakestDay = null;
+    if (elapsedDates.length >= 3) {
+      const dayEntries = elapsedDates.map(d => ({ date: d, count: countsByDate[d] || 0, dayName: dayNames[new Date(d.replace(/-/g, '/')).getDay()] }));
+      bestDay = dayEntries.reduce((a, b) => b.count > a.count ? b : a);
+      weakestDay = dayEntries.reduce((a, b) => b.count < a.count ? b : a);
+      if (bestDay.count === 0) bestDay = null;
+      if (weakestDay && bestDay && weakestDay.dayName === bestDay.dayName) weakestDay = null;
+    }
+
     return {
       hero: tapsByMember[hero?.id] > 0 ? { member: hero, count: tapsByMember[hero.id] } : null,
-      streakChamp: streakChamp?.streak > 0 ? { member: streakChamp, streak: streakChamp.streak } : null,
-      earlyBird: earlyBird ? { member: earlyBird, count: earlyTaps[earlyBird.id] } : null,
-      nightOwl: nightOwl ? { member: nightOwl, count: nightTaps[nightOwl.id] } : null,
+      streakChamp: liveStreaks[streakChamp?.id] > 0 ? { member: streakChamp, streak: liveStreaks[streakChamp.id] } : null,
       sharedMVP: sharedMVP ? { member: sharedMVP, count: sharedTaps[sharedMVP.id] } : null,
       consistency: daysByMember[consistency?.id] > 0 ? { member: consistency, days: daysByMember[consistency.id] } : null,
+      bestDay,
+      weakestDay,
     };
-  }, [weekCompletions, members, habits]);
-
-  // ── Time-of-day patterns (3 buckets covering full 24h) ────────
-  const timePatterns = useMemo(() => {
-    const counts = [0, 0, 0]; // Morning, Afternoon, Evening
-    let total = 0;
-    filteredWeek.forEach(c => {
-      if (!c.completedAt || c.taps <= 0) return;
-      const rawTs = c.completedAt;
-      const h = new Date(/Z|[+-]\d{2}:?\d{2}$/.test(rawTs) ? rawTs : rawTs + 'Z').getHours();
-      total++;
-      if (h >= 6 && h < 12) counts[0]++;
-      else if (h >= 12 && h < 18) counts[1]++;
-      else counts[2]++; // 6pm–6am wraps midnight
-    });
-    const pct = i => total > 0 ? Math.round((counts[i] / total) * 100) : 0;
-    return {
-      total,
-      buckets: [
-        { label: "Morning", sublabel: "6am – 12pm", pct: pct(0), icon: "🌅" },
-        { label: "Afternoon", sublabel: "12pm – 6pm", pct: pct(1), icon: "☀️" },
-        { label: "Evening", sublabel: "6pm – 6am", pct: pct(2), icon: "🌙" },
-      ],
-    };
-  }, [filteredWeek]);
+  }, [weekCompletions, members, habits, analyticsData]);
 
   // ── Streak Watch ───────────────────────────────────────────────
   const streakWatch = useMemo(() => {
@@ -2728,7 +2851,13 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     });
 
     // Numerator: actual taps, capped at target per record
-    const completed = myCompletions.reduce((sum, c) => {
+    // For shared habits, count completions from ANY member (not just currentMember)
+    const sharedHabitIds = new Set(habits.filter(h => h.completionType === 'shared').map(h => h.id));
+    const sharedCompletions = weekCompletions.filter(c => sharedHabitIds.has(c.habitId) && c.taps > 0);
+    const completed = myCompletions.filter(c => !sharedHabitIds.has(c.habitId)).reduce((sum, c) => {
+      const habit = habits.find(h => h.id === c.habitId);
+      return sum + Math.min(c.taps, habit?.target || 1);
+    }, 0) + sharedCompletions.reduce((sum, c) => {
       const habit = habits.find(h => h.id === c.habitId);
       return sum + Math.min(c.taps, habit?.target || 1);
     }, 0);
@@ -2742,7 +2871,8 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
         ? (todayIdx + 1)
         : activeDays.filter(d => d <= todayIdx).length;
       const possible = Math.max(elapsedActive, 1) * (h.target || 1);
-      const count = myCompletions.filter(c => c.habitId === h.id)
+      const source = sharedHabitIds.has(h.id) ? sharedCompletions : myCompletions;
+      const count = source.filter(c => c.habitId === h.id)
         .reduce((s, c) => s + Math.min(c.taps, h.target || 1), 0);
       return { name: h.name, icon: h.icon, rate: Math.round((count / possible) * 100) };
     }).sort((a, b) => b.rate - a.rate);
@@ -2753,8 +2883,37 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       : weekCompletions.filter(c => c.memberId === currentMember.id && c.taps > 0).map(c => c.date);
     const streak = calcStreakFromDates(memberDates);
 
-    return { completed, totalPossible, percentage, bestHabit: habitStats[0] || null, streak };
+    // Consistency: unique active days in last 30 calendar days
+    let consistencyDays = 0;
+    if (analyticsData) {
+      const cutoff = isoAddDays(todayKey(), -30);
+      const uniqueDates = new Set(analyticsData.filter(c => c.memberId === currentMember.id && c.taps > 0 && c.date > cutoff).map(c => c.date));
+      consistencyDays = uniqueDates.size;
+    }
+    const consistencyPct = Math.round((consistencyDays / 30) * 100);
+
+    // Recent activity for streak recovery messaging (last 14 days)
+    let recentDays = 0;
+    if (analyticsData && streak === 0) {
+      const cutoff14 = isoAddDays(todayKey(), -14);
+      const recent = new Set(analyticsData.filter(c => c.memberId === currentMember.id && c.taps > 0 && c.date > cutoff14).map(c => c.date));
+      recentDays = recent.size;
+    }
+
+    return { completed, totalPossible, percentage, bestHabit: habitStats[0] || null, streak, consistencyDays, consistencyPct, recentDays };
   }, [weekCompletions, habits, currentMember, analyticsData]);
+
+  // ── Habit Formation Progress (~66 days to form a habit) ──────
+  const habitFormation = useMemo(() => {
+    if (!analyticsData || !currentMember) return null;
+    const myHabits = habits.filter(h => !h.assignedMemberIds || h.assignedMemberIds.length === 0 || h.assignedMemberIds.includes(currentMember.id));
+    return myHabits.map(h => {
+      const uniqueDates = new Set(analyticsData.filter(c => c.habitId === h.id && c.memberId === currentMember.id && c.taps > 0).map(c => c.date));
+      const totalDays = uniqueDates.size;
+      const formationPct = Math.min(Math.round((totalDays / 66) * 100), 100);
+      return { habitId: h.id, habitName: h.name, habitIcon: h.icon, totalDays, formationPct, isFormed: totalDays >= 66 };
+    }).filter(x => x.totalDays >= 3).sort((a, b) => b.formationPct - a.formationPct).slice(0, 5);
+  }, [analyticsData, currentMember, habits]);
 
   // ── Habit Health (needs analyticsData) ────────────────────────
   const habitHealth = useMemo(() => {
@@ -2773,9 +2932,16 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     return visibleHabits.map(h => {
       const thisWeek = filteredAnalytics.filter(c => c.habitId === h.id && c.date >= thisWeekStart && c.taps > 0);
       const lastWeek = filteredAnalytics.filter(c => c.habitId === h.id && c.date >= lwStartStr && c.date <= lwEndStr && c.taps > 0);
-      // twRate uses days elapsed (not 7) so early-week rates are comparable to last week
-      const twRate = thisWeek.length / daysElapsed;
-      const lwRate = lastWeek.length / 7;
+      // Active days this week (elapsed) and last week (full 7)
+      const activeDays = h.daysActive;
+      const twActiveDays = (!activeDays || activeDays.length === 0)
+        ? daysElapsed
+        : activeDays.filter(d => d <= (daysElapsed - 1)).length; // d <= todayIdx
+      const lwActiveDays = (!activeDays || activeDays.length === 0)
+        ? 7
+        : activeDays.length; // full week = all active days
+      const twRate = twActiveDays > 0 ? thisWeek.length / twActiveDays : 0;
+      const lwRate = lwActiveDays > 0 ? lastWeek.length / lwActiveDays : 0;
       // Relative % change: how much better/worse is this week's pace vs last week?
       const delta = lwRate > 0 ? Math.round(((twRate - lwRate) / lwRate) * 100) : null;
       const twPct = Math.round(twRate * 100);
@@ -2788,10 +2954,18 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     if (kids.length === 0) return null;
     const tapsByKid = {};
     weekCompletions.forEach(c => {
-      if (c.taps > 0 && kids.find(k => k.id === c.memberId)) tapsByKid[c.memberId] = (tapsByKid[c.memberId] || 0) + c.taps;
+      if (c.taps > 0 && kids.find(k => k.id === c.memberId)) {
+        const habit = habits.find(h => h.id === c.habitId);
+        tapsByKid[c.memberId] = (tapsByKid[c.memberId] || 0) + Math.min(c.taps, habit?.target || 1);
+      }
     });
-    return kids.map(k => ({ member: k, taps: tapsByKid[k.id] || 0 })).sort((a, b) => b.taps - a.taps);
-  }, [kids, weekCompletions]);
+    return kids.map(k => {
+      const liveStreak = analyticsData
+        ? calcStreakFromDates(analyticsData.filter(c => c.memberId === k.id && c.taps > 0).map(c => c.date))
+        : (k.streak || 0);
+      return { member: k, taps: tapsByKid[k.id] || 0, liveStreak };
+    }).sort((a, b) => b.taps - a.taps);
+  }, [kids, weekCompletions, analyticsData, habits]);
 
   // ── Personal Bests (needs analyticsData) ──────────────────────
   const personalBests = useMemo(() => {
@@ -2813,7 +2987,6 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     const allTimeRecord = weekTotals[0] || 0;
     const currentWeekKey = getWeekDates()[0];
     const thisWeekCount = byWeek[currentWeekKey] || 0;
-    const previousRecord = weekTotals.find((_, i, arr) => i > 0) || 0;
     const isNewRecord = thisWeekCount > 0 && thisWeekCount >= allTimeRecord && Object.keys(byWeek).length > 1;
 
     // Live streak per habit from analytics history (not stale DB value)
@@ -2825,7 +2998,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       return { habit: h, streak };
     }).filter(x => x.streak >= 3).sort((a, b) => b.streak - a.streak).slice(0, 2);
 
-    return { thisWeekCount, allTimeRecord, previousRecord, isNewRecord, habitStreaks };
+    return { thisWeekCount, allTimeRecord, isNewRecord, habitStreaks };
   }, [filteredAnalytics, currentMember, habits, showingFamily]);
 
   const insightCard = (content) => (
@@ -2892,6 +3065,29 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             <span style={{ fontSize: 13, color: C.slateLight }}>Current streak</span>
             <span style={{ fontWeight: 700, fontSize: 16, color: C.warm }}>🔥 {weeklySummary.streak} days</span>
           </div>
+          {weeklySummary.streak === 0 && weeklySummary.recentDays > 0 && (
+            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 4 }}>
+              {weeklySummary.recentDays >= 10
+                ? `Active ${weeklySummary.recentDays} of last 14 days — start a new streak today!`
+                : weeklySummary.recentDays >= 5
+                ? `Showed up ${weeklySummary.recentDays} of last 14 days — keep going!`
+                : `Active recently — great day to restart!`}
+            </div>
+          )}
+          {analyticsData && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <span style={{ fontSize: 13, color: C.slateLight }}>Consistency</span>
+                <span style={{ fontWeight: 600, fontSize: 13, color: weeklySummary.consistencyPct >= 80 ? C.green : weeklySummary.consistencyPct >= 50 ? C.warm : C.slateLight }}>
+                  {weeklySummary.consistencyDays} of last 30 days
+                </span>
+              </div>
+              <div style={{ height: 6, background: C.sandLight, borderRadius: 3 }}>
+                <div style={{ height: "100%", borderRadius: 3, width: `${weeklySummary.consistencyPct}%`, transition: "width 0.6s ease",
+                  background: weeklySummary.consistencyPct >= 80 ? C.green : weeklySummary.consistencyPct >= 50 ? C.warm : `${C.slate}55` }} />
+              </div>
+            </div>
+          )}
           {weeklySummary.bestHabit && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 13, color: C.slateLight }}>Best habit this week</span>
@@ -2909,14 +3105,22 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       </>)}
 
       {/* Kids: Weekly Tree Strip */}
-      {!showingFamily && currentMember?.isKid && insightCard(<>
+      {!showingFamily && getProgressVisual(currentMember) === 'tree' && insightCard(<>
         {cardHeader("🌱", "This Week's Growth", C.accent)}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
           {getWeekDates().map((date, i) => {
-            const dayDone = filteredWeek.filter(c => c.date === date && c.taps > 0).length;
-            const dayHabits = habits.filter(h => !h.assignedMemberIds || h.assignedMemberIds.length === 0 || h.assignedMemberIds.includes(currentMember.id));
-            const possible = dayHabits.length;
-            const dayFillPct = possible > 0 ? dayDone / possible : 0;
+            const dayIdx = i; // Mon=0 … Sun=6
+            const dayHabits = habits.filter(h => {
+              if (h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
+              if (h.daysActive && h.daysActive.length > 0 && !h.daysActive.includes(dayIdx)) return false;
+              return true;
+            });
+            const possible = dayHabits.reduce((s, h) => s + (h.target || 1), 0);
+            const dayDone = dayHabits.reduce((s, h) => {
+              const comps = filteredWeek.filter(c => c.date === date && c.habitId === h.id && c.taps > 0);
+              return s + comps.reduce((t, c) => t + Math.min(c.taps, h.target || 1), 0);
+            }, 0);
+            const dayFillPct = possible > 0 ? Math.min(dayDone / possible, 1) : 0;
             const barH = Math.round(dayFillPct * 28);
             const dayLabel = ["M","T","W","T","F","S","S"][i];
             const isToday = i === getTodayIndex();
@@ -2945,10 +3149,10 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
         {!hasWeekData ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>Complete some habits this week to see highlights!</div>
         ) : <>
-          {highlightRow("🥇", "Household Hero", highlights.hero ? `${highlights.hero.member.avatar} ${highlights.hero.member.name} (${highlights.hero.count} tasks)` : null, C.accent)}
+          {highlightRow("🥇", "Household Hero", highlights.hero ? `${highlights.hero.member.avatar} ${highlights.hero.member.name} (${highlights.hero.count} completions)` : null, C.accent)}
           {highlightRow("🔥", "Streak Champion", highlights.streakChamp ? `${highlights.streakChamp.member.avatar} ${highlights.streakChamp.member.name} (${highlights.streakChamp.streak} days)` : null, C.accent)}
-          {highlightRow("🌅", "Early Bird", highlights.earlyBird ? `${highlights.earlyBird.member.avatar} ${highlights.earlyBird.member.name} (${highlights.earlyBird.count} before 9am)` : null, C.green)}
-          {highlightRow("🌙", "Night Owl", highlights.nightOwl ? `${highlights.nightOwl.member.avatar} ${highlights.nightOwl.member.name} (${highlights.nightOwl.count} after 8pm)` : null, C.slate)}
+          {highlightRow("📅", "Best Day", highlights.bestDay ? `${highlights.bestDay.dayName} (${highlights.bestDay.count} completion${highlights.bestDay.count !== 1 ? 's' : ''})` : null, C.green)}
+          {highlights.weakestDay && highlights.weakestDay.count >= 0 && highlightRow("💪", "Needs Work", `${highlights.weakestDay.dayName} (${highlights.weakestDay.count} completion${highlights.weakestDay.count !== 1 ? 's' : ''})`, C.slateLight)}
           {highlightRow("🤝", "Shared Task MVP", highlights.sharedMVP ? `${highlights.sharedMVP.member.avatar} ${highlights.sharedMVP.member.name} (${highlights.sharedMVP.count} shared)` : null, C.warm)}
           {highlightRow("📅", "Most Consistent", highlights.consistency ? `${highlights.consistency.member.avatar} ${highlights.consistency.member.name} (${highlights.consistency.days} days active)` : null, C.green)}
           {!highlights.hero && !highlights.streakChamp && (
@@ -2984,29 +3188,27 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
         </>);
       })()}
 
-      {/* 3. When You Work Best */}
-      {insightCard(<>
-        {cardHeader("⏰", showingFamily ? "When Your Family Works Best" : "When You Work Best", C.green)}
-        {timePatterns.total === 0 ? (
-          <div style={{ textAlign: "center", padding: "16px 0", color: C.slateLight, fontSize: 13, fontStyle: "italic" }}>
-            Complete more habits to see when you're most productive! 🌟
-          </div>
-        ) : (
-          timePatterns.buckets.map((t, i) => (
-            <div key={i} style={{ marginBottom: i < 2 ? 10 : 0 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <div style={{ fontSize: 12, color: C.slate }}>{t.icon} {t.label} <span style={{ color: C.slateLight }}>({t.sublabel})</span></div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: t.pct >= 40 ? C.accent : C.slateLight }}>{t.pct}%</div>
+      {/* 2b. Habit Strength (My Stats only) */}
+      {!showingFamily && habitFormation && habitFormation.length > 0 && insightCard(<>
+        {cardHeader("🌱", "Habit Strength", C.green)}
+        <div style={{ fontSize: 11, color: C.slateLight, marginTop: -8, marginBottom: 12 }}>Research shows habits take ~66 days to become automatic</div>
+        {habitFormation.map((x, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < habitFormation.length - 1 ? 10 : 0 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 8, background: `${C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{x.habitIcon}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{x.habitName}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: x.isFormed ? C.green : C.slateLight }}>{x.isFormed ? "✓ Habit formed!" : `${x.totalDays} / 66 days`}</span>
               </div>
-              <div style={{ height: 6, background: C.sandLight, borderRadius: 3 }}>
-                <div style={{ height: "100%", borderRadius: 3, background: t.pct >= 40 ? `linear-gradient(90deg, ${C.accent}, ${C.accentLight})` : `${C.slate}55`, width: `${t.pct}%`, transition: "width 0.6s ease" }} />
+              <div style={{ height: 5, background: C.sandLight, borderRadius: 3 }}>
+                <div style={{ height: "100%", borderRadius: 3, background: C.accent, width: `${x.formationPct}%`, transition: "width 0.6s ease" }} />
               </div>
             </div>
-          ))
-        )}
+          </div>
+        ))}
       </>)}
 
-      {/* 4. Habit Health */}
+      {/* 3. Habit Health */}
       {insightCard(<>
         {cardHeader("📊", "Habit Health", C.green)}
         {!filteredAnalytics ? loadingSkeleton : habitHealth && habitHealth.length > 0 ? (
@@ -3015,7 +3217,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             if (x.twPct === 100 && x.thisWeekDays >= 5) { icon = "🎯"; label = "100% this week!"; color = C.green; }
             else if (x.delta !== null && x.delta >= 15) { icon = "📈"; label = `+${x.delta}% vs last week`; color = C.green; }
             else if (x.delta !== null && x.delta <= -15) { icon = "📉"; label = `${x.delta}% vs last week`; color = C.error; }
-            else if (x.thisWeekDays <= 1 && x.lastWeekDays >= 4) { icon = "⚠️"; label = "Needs attention"; color = C.warm; }
+            else if (x.thisWeekDays <= 1 && x.lastWeekDays >= 4 && x.daysElapsed >= 3) { icon = "⚠️"; label = "Needs attention"; color = C.warm; }
             else { icon = "✓"; label = `${x.thisWeekDays} of ${x.daysElapsed} days`; color = C.slateLight; }
             return (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < habitHealth.length - 1 ? 10 : 0 }}>
@@ -3048,10 +3250,10 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
               <div style={{ width: 36, height: 36, borderRadius: 10, background: `${k.member.color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>{k.member.avatar}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{k.member.name}</div>
-                <div style={{ fontSize: 11, color: C.slateLight }}>{k.taps} task{k.taps !== 1 ? "s" : ""} this week</div>
+                <div style={{ fontSize: 11, color: C.slateLight }}>{k.taps} completion{k.taps !== 1 ? "s" : ""} this week</div>
               </div>
-              {k.member.streak > 0 && (
-                <div style={{ fontSize: 11, color: C.accent, fontWeight: 600, padding: "3px 8px", borderRadius: 10, background: `${C.accent}12` }}>🔥 {k.member.streak}</div>
+              {k.liveStreak > 0 && (
+                <div style={{ fontSize: 11, color: C.accent, fontWeight: 600, padding: "3px 8px", borderRadius: 10, background: `${C.accent}12` }}>🔥 {k.liveStreak}</div>
               )}
             </div>
           ))
@@ -3065,7 +3267,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           <div>
             {personalBests.isNewRecord && (
               <div style={{ background: `${C.accent}12`, borderRadius: 12, padding: "10px 14px", marginBottom: 10, border: `1px solid ${C.accent}30` }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>🎊 New record this week!</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>🎊 Best week in months!</div>
                 <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{personalBests.thisWeekCount} habits completed</div>
               </div>
             )}
@@ -3073,7 +3275,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, color: C.slate }}>This week: <span style={{ fontWeight: 700 }}>{personalBests.thisWeekCount} habits</span></div>
                 {personalBests.allTimeRecord > personalBests.thisWeekCount && (
-                  <div style={{ fontSize: 11, color: C.slateLight }}>Best (last 30 days): {personalBests.allTimeRecord} in a week</div>
+                  <div style={{ fontSize: 11, color: C.slateLight }}>Best (recent): {personalBests.allTimeRecord} in a week</div>
                 )}
               </div>
             )}
@@ -3095,8 +3297,8 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
         )}
       </>)}
 
-      {/* Rewards section */}
-      {family?.rewards?.length > 0 && (
+      {/* Rewards section — hidden for solo users */}
+      {!soloMode && family?.rewards?.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.slate, letterSpacing: 0.5, marginBottom: 12, textTransform: "uppercase" }}>Rewards</div>
 
@@ -3206,7 +3408,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
           <div style={{ width: 44, height: 44, borderRadius: "50%", background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: C.white }}>{family.name[0].toUpperCase()}</div>
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: C.slate }}>{family.name.charAt(0).toUpperCase() + family.name.slice(1)}</div>
-            <div style={{ fontSize: 12, color: C.slateLight }}>PIN: {family.pin}</div>
+            <div style={{ fontSize: 12, color: C.slateLight, userSelect: 'text', WebkitUserSelect: 'text' }}>PIN: {family.pin}</div>
           </div>
         </div>
       </div>
@@ -3286,6 +3488,20 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
           </div>
           <div onClick={onToggleSound} style={{ width: 46, height: 26, borderRadius: 13, cursor: "pointer", background: soundEnabled ? C.green : C.sandDark, position: "relative", transition: "background 0.2s ease", flexShrink: 0 }}>
             <div style={{ width: 22, height: 22, borderRadius: "50%", background: C.white, position: "absolute", top: 2, left: soundEnabled ? 22 : 2, transition: "left 0.2s ease", boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }} />
+          </div>
+        </div>
+        <div style={{ marginTop: 16, borderTop: `1px solid ${C.sandDark}40`, paddingTop: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>Progress Visual</div>
+          <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2, marginBottom: 10 }}>Choose how your daily progress looks</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[{ value: 'tree', label: 'Growing Tree', icon: '\uD83C\uDF33' }, { value: 'streak', label: 'Streak Counter', icon: '\uD83D\uDD25' }].map(opt => {
+              const active = getProgressVisual(currentMember) === opt.value;
+              return (
+                <button key={opt.value} onClick={() => onEditMember(currentMember.id, { progressVisual: opt.value })} style={{ flex: 1, padding: "10px 8px", borderRadius: 12, border: active ? `2px solid ${C.accent}` : `1.5px solid ${C.sandDark}`, background: active ? `${C.accent}10` : C.white, color: active ? C.accent : C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s ease" }}>
+                  <span style={{ fontSize: 18, display: "block", marginBottom: 2 }}>{opt.icon}</span>{opt.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -3520,6 +3736,21 @@ function ManageScreen({
               <div style={{ width: 18, height: 18, borderRadius: "50%", background: C.white, position: "absolute", top: 2, left: editIsKid ? 20 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
             </div>
           </div>
+          <div style={{ background: C.white, borderRadius: 14, padding: "14px 16px", border: `1.5px solid ${C.sandDark}` }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: C.slate, marginBottom: 4 }}>Progress Visual</div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>Choose how daily progress looks</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[{ value: 'tree', label: 'Growing Tree', icon: '\uD83C\uDF33' }, { value: 'streak', label: 'Streak Counter', icon: '\uD83D\uDD25' }].map(opt => {
+                const m = family.members.find(x => x.id === editingMemberId);
+                const active = getProgressVisual(m) === opt.value;
+                return (
+                  <button key={opt.value} onClick={async () => { await onEditMember(editingMemberId, { progressVisual: opt.value }); onToast("Visual updated"); }} style={{ flex: 1, padding: "10px 8px", borderRadius: 12, border: active ? `2px solid ${C.accent}` : `1.5px solid ${C.sandDark}`, background: active ? `${C.accent}10` : C.white, color: active ? C.accent : C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s ease" }}>
+                    <span style={{ fontSize: 18, display: "block", marginBottom: 2 }}>{opt.icon}</span>{opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: C.white, borderRadius: 14, padding: "14px 16px", border: `1.5px solid ${C.sandDark}` }}>
             {SETUP_MEMBER_COLORS.map(col => (
               <div key={col} onClick={() => setEditColor(col)} style={{ width: 32, height: 32, borderRadius: "50%", background: col, cursor: "pointer", border: editColor === col ? "2.5px solid #1E1C18" : "2.5px solid transparent", boxSizing: "border-box" }} />
@@ -3632,7 +3863,7 @@ function ManageScreen({
           <div style={{ width: 32, height: 32, borderRadius: "50%", background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white, flexShrink: 0 }}>{family.name[0].toUpperCase()}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{family.name.charAt(0).toUpperCase() + family.name.slice(1)}</div>
-            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 1 }}>PIN: {family.pin}</div>
+            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 1, userSelect: 'text', WebkitUserSelect: 'text' }}>PIN: {family.pin}</div>
           </div>
         </div>
         {family.members.map((m, idx) => (
@@ -3647,7 +3878,23 @@ function ManageScreen({
             )}
           </div>
         ))}
-        {isAdmin && settingsRow("+", `${C.accent}20`, "Add family member", "Add a new kid or adult", () => setActiveSubView("addMember"), { last: true })}
+        {isAdmin && (soloMode ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '14px 16px', background: '#f8f5f0', borderRadius: 12,
+            opacity: 0.85
+          }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: '50%',
+              background: '#e8e0d8', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', fontSize: 16
+            }}>👥</div>
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 14, color: '#5a5a5a' }}>Add family members</div>
+              <div style={{ fontSize: 12, color: '#999' }}>Contact us for family upgrade options</div>
+            </div>
+          </div>
+        ) : settingsRow("+", `${C.accent}20`, "Add family member", "Add a new kid or adult", () => setActiveSubView("addMember"), { last: true }))}
       </>)}
 
       {/* PREFERENCES */}
@@ -3661,6 +3908,25 @@ function ManageScreen({
           </div>
           <div onClick={onToggleSound} style={{ width: 46, height: 26, borderRadius: 13, cursor: "pointer", background: soundEnabled ? C.green : C.sandDark, position: "relative", transition: "background 0.2s ease", flexShrink: 0 }}>
             <div style={{ width: 22, height: 22, borderRadius: "50%", background: C.white, position: "absolute", top: 2, left: soundEnabled ? 22 : 2, transition: "left 0.2s ease", boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }} />
+          </div>
+        </div>
+        <div style={{ padding: "13px 0", borderTop: `1px solid ${C.sandLight}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 9, background: `${C.accent}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🎨</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Progress visual</div>
+              <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>Choose how your daily progress looks</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginLeft: 46 }}>
+            {[{ value: 'tree', label: 'Growing Tree', icon: '🌳' }, { value: 'streak', label: 'Streak Counter', icon: '🔥' }].map(opt => {
+              const active = getProgressVisual(currentMember) === opt.value;
+              return (
+                <button key={opt.value} onClick={() => onEditMember(currentMember.id, { progressVisual: opt.value })} style={{ flex: 1, padding: "10px 8px", borderRadius: 12, border: active ? `2px solid ${C.accent}` : `1.5px solid ${C.sandDark}`, background: active ? `${C.accent}10` : C.white, color: active ? C.accent : C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s ease" }}>
+                  <span style={{ fontSize: 18, display: "block", marginBottom: 2 }}>{opt.icon}</span>{opt.label}
+                </button>
+              );
+            })}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 0", borderTop: `1px solid ${C.sandLight}` }}>
@@ -3715,7 +3981,7 @@ function ManageScreen({
           {" "}and{" "}
           <span onClick={async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } }} style={{ color: C.accent, cursor: "pointer", textDecoration: "underline" }}>Terms of Use</span>.
         </p>
-        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.35</p>
+        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.40</p>
       </div>
     </div>
   );
@@ -4103,7 +4369,9 @@ export default function RitualApp() {
         return true;
       })
       .map(h => {
-        if (soloMode) {
+        const isSharedHabit = h.completionType === 'shared';
+        // Shared habits always aggregate household-wide, even in solo mode
+        if (soloMode && !isSharedHabit) {
           const myCompletions = todayCompletions.filter(c => c.habitId === h.id && c.memberId === currentMember.id);
           const myTaps = myCompletions.reduce((sum, c) => sum + c.taps, 0);
           const topCompletion = [...myCompletions].sort((a, b) => b.taps - a.taps)[0];
@@ -4132,10 +4400,14 @@ export default function RitualApp() {
       const todayDone = myHabitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
       result[todayIndex] = Math.round((todayDone / denominator) * 100);
       // Past days: filter completions to this member's habits only
+      // Shared habits count completions from ANY member (household-wide)
+      const sharedHabitIds = new Set(habits.filter(h => h.completionType === 'shared').map(h => h.id));
       for (let i = 0; i < todayIndex; i++) {
         const dateStr = weekDates[i];
-        const dayCompletions = weekCompletions.filter(c => c.date === dateStr && c.memberId === currentMember.id && c.taps > 0 && myHabitIds.has(c.habitId));
-        result[i] = Math.round((dayCompletions.length / denominator) * 100);
+        const dayCompletions = weekCompletions.filter(c => c.date === dateStr && c.taps > 0 && myHabitIds.has(c.habitId)
+          && (sharedHabitIds.has(c.habitId) || c.memberId === currentMember.id));
+        const completedIds = new Set(dayCompletions.map(c => c.habitId));
+        result[i] = Math.round((completedIds.size / denominator) * 100);
       }
     } else {
       // Family mode: household aggregate (any habit done by anyone)
@@ -4331,6 +4603,12 @@ export default function RitualApp() {
     }
 
     const today = todayKey();
+    // Shared habits: block further taps once household-wide target is met
+    const isSharedHabit = habit.completionType === 'shared';
+    if (isSharedHabit) {
+      const householdTaps = todayCompletions.filter(c => c.habitId === habitId).reduce((sum, c) => sum + c.taps, 0);
+      if (householdTaps >= (habit.target || 1)) return;
+    }
     // Fix #13: use this member's own tap count, not the family aggregate from habit.taps
     const memberCompletion = todayCompletions.find(c => c.habitId === habitId && c.memberId === resolvedMember?.id);
     const memberCurrentTaps = memberCompletion?.taps || 0;
@@ -4362,7 +4640,36 @@ export default function RitualApp() {
         const othersDone = myHabitsWithTaps.filter(h => h.id !== habitId).every(h => (h.taps || 0) >= (h.target || 1));
         if (othersDone) {
           setCelebratedDate(today);
-          triggerHaptic("milestone");
+          // Sound: create AudioContext NOW (inside tap gesture) but schedule notes for 2.7s later
+          const isTreeUser = getProgressVisual(resolvedMember) === 'tree';
+          if (soundEnabled && isTreeUser) {
+            try {
+              const AC = window.AudioContext || window.webkitAudioContext;
+              if (AC) {
+                const ctx = new AC();
+                const note = (freq, t, dur, vol = 0.22) => {
+                  const osc = ctx.createOscillator();
+                  const g = ctx.createGain();
+                  osc.connect(g); g.connect(ctx.destination);
+                  osc.type = "sine";
+                  osc.frequency.setValueAtTime(freq, t);
+                  g.gain.setValueAtTime(0, t);
+                  g.gain.linearRampToValueAtTime(vol, t + 0.02);
+                  g.gain.linearRampToValueAtTime(0, t + dur);
+                  osc.start(t); osc.stop(t + dur + 0.05);
+                };
+                // Schedule celebration jingle to play at t+2.7s (when overlay appears)
+                const n = ctx.currentTime + 2.7;
+                note(523.25, n, 0.18);           // C5
+                note(659.25, n + 0.12, 0.18);    // E5
+                note(783.99, n + 0.24, 0.18);    // G5
+                note(1046.50, n + 0.36, 0.18);   // C6
+                note(1318.51, n + 0.48, 0.18);   // E6
+                note(1046.50, n + 0.65, 0.4, 0.15); // sustained C6
+                setTimeout(() => ctx.close(), 4500);
+              }
+            } catch (_) {}
+          }
           setTimeout(() => setShowCelebration(true), 2700);
         }
       }
@@ -4732,6 +5039,7 @@ export default function RitualApp() {
       const dbUp = {};
       if (updates.name !== undefined) { dbUp.name = updates.name; dbUp.avatar = updates.avatar; }
       if (updates.isKid !== undefined) dbUp.is_kid = updates.isKid;
+      if (updates.progressVisual !== undefined) dbUp.progress_visual = updates.progressVisual;
       if (updates.color !== undefined) dbUp.color = updates.color;
       await supabase.from("members").update(dbUp).eq("id", memberId);
     }
@@ -4860,7 +5168,7 @@ export default function RitualApp() {
         input:focus{border-color:${C.accent} !important;outline:none;}
         input::placeholder{color:${C.sandDark};}
         /* FIX 1: Responsive layout */
-        .ritual-root{max-width:390px;margin:0 auto;background:${C.sandLight};position:relative;min-height:100vh;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+        .ritual-root{max-width:390px;margin:0 auto;background:${C.sandLight};position:relative;height:100vh;height:100dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         .habit-grid{display:flex;flex-direction:column;gap:10px;}
         .tab-bar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:390px;background:rgba(250,248,245,0.96);backdrop-filter:blur(24px);border-top:1px solid ${C.sandDark}50;padding:10px 0 26px;display:flex;justify-content:space-around;}
         @media(min-width:768px){
@@ -4873,7 +5181,7 @@ export default function RitualApp() {
         }
       `}</style>
 
-      <div className="ritual-root">
+      <div className="ritual-root" onContextMenu={(e) => e.preventDefault()}>
         {/* Toast notifications — auto-dismiss after 3s, stacks from bottom */}
         {toasts.map((t, i) => (
           <div key={t.id} style={{
@@ -5009,7 +5317,7 @@ export default function RitualApp() {
       )}
 
       {/* Celebration overlay — shown on 100% daily completion (once per day) */}
-      {showCelebration && <CelebrationOverlay onDone={() => setShowCelebration(false)} />}
+      {showCelebration && <CelebrationOverlay member={currentMemberRef.current} onDone={() => setShowCelebration(false)} soundEnabled={soundEnabled} />}
 
       {/* Assign Tile Modal — shown whenever an unassigned tile is tapped */}
       {unassignedTileUID && (

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ritual-dev",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": ["/c", "cd /d C:\\Users\\Guest1\\OneDrive\\Desktop\\Games\\ritual-v2 && npm start"],
+      "port": 3000
+    }
+  ]
+}

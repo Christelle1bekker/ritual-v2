@@ -13,6 +13,17 @@ try {
   console.warn('[Capgo] notifyAppReady() failed at startup:', e);
 }
 
+// ─── GLOBAL ERROR CATCHERS (diagnostic — visible in iOS app switcher title) ──
+window.addEventListener('error', (e) => {
+  document.title = 'ERR: ' + e.message;
+  console.error('GLOBAL ERROR:', e.message, e.filename, e.lineno);
+});
+
+window.addEventListener('unhandledrejection', (e) => {
+  document.title = 'REJ: ' + (e.reason?.message || e.reason || 'unknown');
+  console.error('UNHANDLED REJECTION:', e.reason);
+});
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);

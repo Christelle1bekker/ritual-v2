@@ -52,6 +52,15 @@ export default async function handler(req, res) {
   }
 
   const { timeStr, dateStr } = getMelbourneTime();
+  console.log(`[reminders] cron fired at Melbourne time ${timeStr} (date: ${dateStr})`);
+
+  // Diagnostic: count members with push tokens
+  const { data: tokenCheck } = await supabase.from('members').select('id').not('push_token', 'is', null);
+  console.log(`[reminders] members with push_token: ${tokenCheck?.length ?? 0}`);
+
+  // Diagnostic: count habits with any reminder_time set
+  const { data: reminderCheck } = await supabase.from('habits').select('id').not('reminder_time', 'is', null);
+  console.log(`[reminders] habits with reminder_time set: ${reminderCheck?.length ?? 0}`);
 
   // Find habits with reminder_time in a 5-minute window around current Melbourne time
   const [hh, mm] = timeStr.split(':').map(Number);
@@ -62,6 +71,7 @@ export default async function handler(req, res) {
     const tm = String(totalMins % 60).padStart(2, '0');
     times.push(`${th}:${tm}`);
   }
+  console.log(`[reminders] checking reminder_time window: ${times.join(', ')}`);
 
   const { data: habits, error: habitsErr } = await supabase
     .from('habits')
@@ -69,8 +79,10 @@ export default async function handler(req, res) {
     .in('reminder_time', times);
 
   if (habitsErr || !habits?.length) {
+    console.log(`[reminders] no habits due — reason: ${habitsErr?.message || 'none in window'}`);
     return res.status(200).json({ ok: true, sent: 0, reason: habitsErr?.message || 'No habits due' });
   }
+  console.log(`[reminders] habits due in this window: ${habits.length}`);
 
   let sent = 0;
   const apnsJwt = makeApnsJwt();
@@ -119,5 +131,6 @@ export default async function handler(req, res) {
     }
   }
 
+  console.log(`[reminders] done — notifications sent: ${sent}`);
   return res.status(200).json({ ok: true, sent });
 }

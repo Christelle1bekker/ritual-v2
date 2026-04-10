@@ -210,6 +210,10 @@ comment on column members.onboarding_complete is
 --     restrictive. This function runs as the table owner and bypasses that check,
 --     while also returning the new row so the caller doesn't need a second
 --     login_family RPC round-trip.
+--
+--     DESIGN NOTE: PIN is NOT unique across families (see migration 19).
+--     "Bekker 1234" and "Jones 1234" are different families and both valid.
+--     Duplicate detection uses name+pin together (handled by login_family check before calling this).
 create or replace function create_family(family_name text, family_pin text)
 returns table (id uuid, name text, pin text)
 language plpgsql
@@ -217,16 +221,64 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into families (name, pin) values (family_name, family_pin);
   return query
-    select f.id, f.name, f.pin
-    from families f
-    where f.pin = family_pin;
+    insert into families (name, pin)
+    values (family_name, family_pin)
+    returning families.id, families.name, families.pin;
 end;
 $$;
 
 comment on function create_family(text, text) is
-  'Creates a new family row and returns it. SECURITY DEFINER so it works regardless of RLS insert policies on the families table.';
+  'Creates a new family row and returns it. PIN is not unique across families — callers should check for duplicate name+pin via login_family before calling this. SECURITY DEFINER so it works regardless of RLS insert policies on the families table.';
+
+
+-- 17. is_solo column — distinguish solo accounts from family accounts (March 2026)
+--     Solo accounts are created via the "Just me" onboarding flow.
+--     Previously indistinguishable at DB level (solo mode was localStorage-only).
+alter table families add column if not exists is_solo boolean default false;
+update families set is_solo = false where is_solo is null;
+comment on column families.is_solo is
+  'True for accounts created via the "Just me" solo flow. False for family accounts. Set at creation time.';
+
+
+-- 18. login_family RPC — name+pin family lookup (March 2026)
+--     BUG FIX: Previous version matched on PIN alone (WHERE pin = family_pin).
+--     Since PIN is no longer unique, this must match on BOTH name AND pin.
+--     Uses LOWER() for case-insensitive name matching so "Bekker" == "bekker".
+create or replace function login_family(family_name text, family_pin text)
+returns table (id uuid, name text, pin text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return query
+    select f.id, f.name, f.pin
+    from families f
+    where lower(f.name) = lower(family_name)
+    and f.pin = family_pin;
+end;
+$$;
+
+comment on function login_family(text, text) is
+  'Looks up a family by name (case-insensitive) and PIN. Returns the matching row, or zero rows if name+pin do not match any family.';
+
+
+-- 19. Drop unique PIN constraint — PIN is a convenience code, not a unique identifier (March 2026)
+--     Multiple families can share the same PIN. Login uses name+pin together.
+--     Keep a regular (non-unique) index for lookup performance.
+--
+--     IMPORTANT: Run this block AFTER running migrations 16–18 above.
+--     First find the constraint name (it may vary):
+--       SELECT constraint_name FROM information_schema.table_constraints
+--       WHERE table_name = 'families' AND constraint_type = 'UNIQUE';
+--     Then drop it. Most likely name is 'families_pin_key':
+alter table families drop constraint if exists families_pin_key;
+-- If the constraint has a different name, run the SELECT above and adjust:
+-- alter table families drop constraint <constraint_name>;
+--
+-- Add a regular (non-unique) index for PIN lookups:
+create index if not exists idx_families_pin on families(pin);
 
 
 -- ═══════════════════════════════════════════════════════════════════
