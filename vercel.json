@@ -12,12 +12,6 @@
   ],
   "redirects": [
     {
-      "source": "/",
-      "has": [{ "type": "host", "value": "app.ritualhabits.com.au" }],
-      "destination": "https://ritualhabits.com.au/start",
-      "permanent": false
-    },
-    {
       "source": "/:uid",
       "has": [{ "type": "host", "value": "t.ritualhabits.com.au" }],
       "destination": "https://ritual-v2-mu.vercel.app/t/:uid",

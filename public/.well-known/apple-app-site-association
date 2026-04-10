@@ -4,7 +4,7 @@
     "details": [
       {
         "appIDs": ["UDB2JG9XK6.com.ritualhabits.app"],
-        "paths": ["NOT /", "*"]
+        "paths": ["*"]
       }
     ]
   }

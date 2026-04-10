@@ -1,6 +1,6 @@
 /* Ritual PWA — Service Worker (Wave 5) */
 
-const CACHE_VERSION = 'ritual-v1';
+const CACHE_VERSION = 'ritual-v4';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 
