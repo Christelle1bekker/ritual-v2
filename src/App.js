@@ -4038,7 +4038,7 @@ function ManageScreen({
           {" "}and{" "}
           <span onClick={async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } }} style={{ color: C.accent, cursor: "pointer", textDecoration: "underline" }}>Terms of Use</span>.
         </p>
-        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.43</p>
+        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.44</p>
       </div>
     </div>
   );
@@ -4424,7 +4424,6 @@ export default function RitualApp() {
     if (!currentMember) return habitsWithTaps;
     return habits
       .filter(h => {
-        if (soloMode && h.isKid) return false;
         if (soloMode && h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
         // Kids always see only their assigned habits, regardless of soloMode
         if (currentMember.isKid && h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(currentMember.id)) return false;
@@ -4456,7 +4455,7 @@ export default function RitualApp() {
     if (soloMode && currentMember) {
       // Solo mode: show only this member's personal completions
       const myHabitIds = new Set(habits
-        .filter(h => !h.isKid && (!h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember.id)))
+        .filter(h => !h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember.id))
         .map(h => h.id));
       const denominator = Math.max(myHabitIds.size, 1);
       // Today: count from myHabitsWithTaps (already filtered to member)
