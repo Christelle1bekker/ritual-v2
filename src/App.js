@@ -943,6 +943,10 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
   }
 
   useEffect(() => {
+    console.log('[WHO_DID_THIS] modal rendered, habit =', habit?.name, 'members =', displayMembers.map(m => m.name));
+  }, []); // eslint-disable-line
+
+  useEffect(() => {
     const handle = (e) => { if (e.key === "Escape") onCancel(); };
     document.addEventListener("keydown", handle);
     return () => document.removeEventListener("keydown", handle);
@@ -956,7 +960,7 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 340 }}>
         {displayMembers.map(m => (
-          <button key={m.id} onClick={() => onSelect(m)} style={{ padding: "18px 20px", borderRadius: 22, border: "none", background: `linear-gradient(135deg, ${m.color}35, ${m.color}20)`, borderLeft: `4px solid ${m.color}`, display: "flex", alignItems: "center", gap: 16, cursor: "pointer", width: "100%" }}>
+          <button key={m.id} onClick={() => { console.log('[WHO_DID_THIS] member tapped =', m.name); onSelect(m); }} style={{ padding: "18px 20px", borderRadius: 22, border: "none", background: `linear-gradient(135deg, ${m.color}35, ${m.color}20)`, borderLeft: `4px solid ${m.color}`, display: "flex", alignItems: "center", gap: 16, cursor: "pointer", width: "100%" }}>
             <div style={{ width: 52, height: 52, borderRadius: "50%", background: `linear-gradient(135deg, ${m.color}, ${m.color}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: C.white, flexShrink: 0, boxShadow: `0 4px 16px ${m.color}50` }}>{m.avatar}</div>
             <div style={{ textAlign: "left", flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
@@ -970,6 +974,57 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
         ))}
       </div>
       <button onClick={onCancel} style={{ marginTop: 28, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 20, padding: "10px 28px", fontSize: 13, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+    </div>
+  );
+}
+
+// ─── INACTIVE DAY MODAL ───────────────────────────────────────────
+// Shown when a tile is tapped for a habit that exists and is assigned,
+// but isn't scheduled for today (days_active doesn't include todayIndex).
+function InactiveDayModal({ habit, onEdit, onClose }) {
+  const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+  useEffect(() => {
+    console.log('[INACTIVE_DAY_MODAL] rendered, habit =', habit?.name, 'days_active =', habit?.daysActive);
+  }, []); // eslint-disable-line
+
+  useEffect(() => {
+    const handle = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handle);
+    return () => document.removeEventListener("keydown", handle);
+  }, [onClose]);
+
+  // Format a Mon=0 … Sun=6 index array into a warm, human-readable list.
+  const formatDays = (arr) => {
+    if (!Array.isArray(arr) || arr.length === 0) return "no days";
+    const sorted = [...arr].sort((a, b) => a - b);
+    const names = sorted.map(i => DAY_LABELS[i]).filter(Boolean);
+    if (names.length === 1) return names[0];
+    let consecutive = true;
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] !== sorted[i - 1] + 1) { consecutive = false; break; }
+    }
+    if (consecutive && names.length >= 3) return `${names[0]} to ${names[names.length - 1]}`;
+    if (names.length === 2) return `${names[0]} & ${names[1]}`;
+    return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
+  };
+
+  const habitColor = habit?.color || C.accent;
+  const dayList = formatDays(habit?.daysActive);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
+      <div style={{ width: "100%", maxWidth: 340, background: `linear-gradient(135deg, ${habitColor}22, ${habitColor}10)`, borderLeft: `4px solid ${habitColor}`, borderRadius: 24, padding: "32px 26px 26px", boxShadow: "0 20px 50px rgba(0,0,0,0.35)" }}>
+        <div style={{ textAlign: "center", marginBottom: 22 }}>
+          <div style={{ width: 76, height: 76, borderRadius: "50%", background: `linear-gradient(135deg, ${habitColor}, ${habitColor}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 38, margin: "0 auto 16px", boxShadow: `0 8px 24px ${habitColor}66` }}>{habit?.icon || "◈"}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", marginBottom: 12, lineHeight: 1.25 }}>Not scheduled for today</div>
+          <div style={{ fontSize: 15, color: "rgba(255,255,255,0.85)", lineHeight: 1.55, fontFamily: "'DM Sans', sans-serif" }}>
+            <span style={{ fontWeight: 700, color: C.white }}>{habit?.name}</span> isn't scheduled for today. It's set to run on <span style={{ fontWeight: 700, color: C.white }}>{dayList}</span>.
+          </div>
+        </div>
+        <button onClick={() => { console.log('[INACTIVE_DAY_MODAL] edit schedule tapped, habit =', habit?.name); onEdit(habit?.id); }} style={{ width: "100%", padding: "14px 20px", borderRadius: 18, border: "none", background: `linear-gradient(135deg, ${habitColor}, ${habitColor}DD)`, color: C.white, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", boxShadow: `0 6px 16px ${habitColor}55`, marginBottom: 10 }}>Edit schedule</button>
+        <button onClick={onClose} style={{ width: "100%", padding: "12px 20px", borderRadius: 18, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.75)", fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Got it</button>
+      </div>
     </div>
   );
 }
@@ -1086,6 +1141,8 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
     const dx = e.touches[0].clientX - swipeStartX.current;
     const dy = e.touches[0].clientY - swipeStartY.current;
     if (!swipeLocked.current && Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+    // Any real movement cancels an in-progress long-press undo
+    endLongPress();
     if (!swipeLocked.current) {
       if (Math.abs(dy) > Math.abs(dx)) { setSwiping(false); return; }
       swipeLocked.current = true;
@@ -1125,7 +1182,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
     longInterval.current = setInterval(() => {
       setLongPressProgress(p => {
         if (p >= 100) { clearInterval(longInterval.current); onUndo(habit.id); setLongPressProgress(0); return 100; }
-        return p + 5;
+        return p + 3;
       });
     }, 40);
   };
@@ -1145,8 +1202,8 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
       )}
       <div
         onTouchStart={(e) => { handleSwipeStart(e); if (swipeX === 0) startLongPress(e); }}
-        onTouchEnd={(e) => { handleSwipeEnd(); if (swipeX === 0) endLongPress(); }}
-        onTouchCancel={handleSwipeEnd}
+        onTouchEnd={(e) => { handleSwipeEnd(); endLongPress(); }}
+        onTouchCancel={(e) => { handleSwipeEnd(); endLongPress(); }}
         onTouchMove={handleSwipeMove}
         onMouseDown={startLongPress} onMouseUp={endLongPress}
         onContextMenu={(e) => e.preventDefault()}
@@ -3981,7 +4038,7 @@ function ManageScreen({
           {" "}and{" "}
           <span onClick={async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } }} style={{ color: C.accent, cursor: "pointer", textDecoration: "underline" }}>Terms of Use</span>.
         </p>
-        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.40</p>
+        <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.43</p>
       </div>
     </div>
   );
@@ -4206,6 +4263,7 @@ export default function RitualApp() {
   const [mounted, setMounted] = useState(false);
   const tileHandled = useRef(null);
   const [unassignedTileUID, setUnassignedTileUID] = useState(null);
+  const [inactiveDayHabit, setInactiveDayHabit] = useState(null);
   const [deepLinkTileUID, setDeepLinkTileUID] = useState(null);
   const currentMemberRef = useRef(currentMember);
   useEffect(() => { currentMemberRef.current = currentMember; }, [currentMember]);
@@ -4285,6 +4343,7 @@ export default function RitualApp() {
     try { CapApp.addListener('appUrlOpen', (event) => {
       try {
         let urlStr = event.url || '';
+        console.log('[TILE TAP] appUrlOpen: received URL =', urlStr);
         // Ensure the URL has a protocol — NFC tags sometimes omit https://
         if (urlStr && !urlStr.includes('://')) urlStr = 'https://' + urlStr;
         const url = new URL(urlStr);
@@ -4293,10 +4352,14 @@ export default function RitualApp() {
         if (!raw) raw = url.searchParams.get('tile');
         if (raw) {
           // Normalise: strip colons and dots (tile UIDs may arrive as 04:A3:2B or 04.A3.2B)
-          setDeepLinkTileUID(raw.replace(/[:.]/g, '').toUpperCase());
+          const normalized = raw.replace(/[:.]/g, '').toUpperCase();
+          console.log('[TILE TAP] appUrlOpen: extracted tile_uid =', normalized);
+          setDeepLinkTileUID(normalized);
+        } else {
+          console.log('[TILE TAP] appUrlOpen: no tile UID in URL');
         }
       } catch (e) {
-        // Silently ignore malformed URLs
+        console.warn('[TILE TAP] appUrlOpen: malformed URL', e);
       }
     }); } catch (e) { console.warn('[Capgo] appUrlOpen listener failed:', e); }
 
@@ -4578,16 +4641,22 @@ export default function RitualApp() {
   };
 
   const handleComplete = async (habitId, member, fromDigital) => {
+    console.log('[WHO_DID_THIS] onSelect callback fired, habitId =', habitId, 'member =', member?.name);
     const habit = habitsWithTaps.find(h => h.id === habitId);
-    if (!habit) return;
+    if (!habit) {
+      console.warn('[HANDLE_COMPLETE] habit not found for id =', habitId, '— clearing modal');
+      setWhoDidThis(null);
+      return;
+    }
 
     // ── Resolve who completed this habit (#6, #7) ──────────────────
-    // Logic mirrors tile-tap: ask WhoDidThis for kid/unassigned/multi-person habits;
+    // Logic mirrors tile-tap: ask WhoDidThis for kid/unassigned/multi-person/shared habits;
     // auto-assign individual habits to their single assigned member.
     let resolvedMember = member;
     if (!resolvedMember) {
       const ids = habit.assignedMemberIds;
       const askWho = !soloMode && (
+        habit.completionType === 'shared' || // shared household habit always asks
         habit.isKid ||          // kid habit always asks
         !ids ||                 // unassigned = everyone
         ids.length === 0 ||     // unassigned = everyone
@@ -4603,11 +4672,19 @@ export default function RitualApp() {
     }
 
     const today = todayKey();
-    // Shared habits: block further taps once household-wide target is met
+    // Shared habits: block further taps once household-wide target is met.
+    // The household tap count is the MAX across members (not the sum) because
+    // shared-habit sync replicates the same tap count to every assigned member,
+    // so summing would multiply by the member count and always exceed target.
     const isSharedHabit = habit.completionType === 'shared';
     if (isSharedHabit) {
-      const householdTaps = todayCompletions.filter(c => c.habitId === habitId).reduce((sum, c) => sum + c.taps, 0);
-      if (householdTaps >= (habit.target || 1)) return;
+      const sharedCompletions = todayCompletions.filter(c => c.habitId === habitId);
+      const householdTaps = sharedCompletions.length > 0 ? Math.max(...sharedCompletions.map(c => c.taps || 0)) : 0;
+      if (householdTaps >= (habit.target || 1)) {
+        console.log('[HANDLE_COMPLETE] shared habit already at target, closing modal');
+        setWhoDidThis(null);
+        return;
+      }
     }
     // Fix #13: use this member's own tap count, not the family aggregate from habit.taps
     const memberCompletion = todayCompletions.find(c => c.habitId === habitId && c.memberId === resolvedMember?.id);
@@ -5072,55 +5149,79 @@ export default function RitualApp() {
     try {
       // Support URL formats, deep links (Capacitor), and query params:
       let raw = null;
+      let appState = 'unknown';
       if (deepLinkTileUID) {
         raw = deepLinkTileUID;
+        appState = 'deep-link';
         setDeepLinkTileUID(null);
       } else {
         const pathMatch = window.location.pathname.match(/^\/t\/(.+)$/);
         if (pathMatch) {
           raw = decodeURIComponent(pathMatch[1]);
+          appState = 'cold-launch-url';
         } else {
           raw = new URLSearchParams(window.location.search).get("tile");
+          if (raw) appState = 'query-param';
         }
       }
       if (!raw) return;
+      console.log('[TILE TAP] tile URL trigger fired, raw =', raw, 'app state =', appState);
       // Normalise: strip colons and dots (tile UIDs may arrive as 04:A3:2B or 04.A3.2B)
       const tileUID = raw.replace(/[:.]/g, "").toUpperCase();
-      // Prevent handling the same tile URL twice within this page load
-      if (tileHandled.current === tileUID) return;
-      tileHandled.current = tileUID;
+      console.log('[TILE TAP] extracted tile_uid =', tileUID);
+      // Debounce same-tile taps within 1 second to dedupe double-fires,
+      // but allow genuine repeat scans of the same tile later.
+      const now = Date.now();
+      if (tileHandled.current && tileHandled.current.uid === tileUID && now - tileHandled.current.ts < 1000) {
+        console.log('[TILE TAP] debounced duplicate tap for', tileUID);
+        return;
+      }
+      tileHandled.current = { uid: tileUID, ts: now };
       window.history.replaceState({}, "", "/");
       const assignedHabit = habitsWithTaps.find(h => h.tileUid === tileUID);
-      if (assignedHabit) {
-        const ids = assignedHabit.assignedMemberIds;
-        // Multi-person habits ALWAYS ask "Who did this?"
-        const shouldAskWho =
-          assignedHabit.isKid ||    // Kids habits always ask
-          !ids ||                    // Everyone habits ask
-          ids.length === 0 ||        // Everyone habits ask
-          ids.length > 1;            // Multi-person habits ALWAYS ask
-        if (shouldAskWho) {
-          setWhoDidThis(assignedHabit);
-        } else {
-          // Single-person habit — check if the right person is tapping
-          const assignedMember = family?.members?.find(m => m.id === ids[0]);
-          if (!assignedMember) {
-            console.error("Assigned member not found");
-            return;
-          }
-          // Always complete for the assigned member regardless of who is currently
-          // active in the app — the tile is the identity signal, not the UI state.
-          // Auto-switch the active member to them so the UI reflects the right person.
-          if (currentMemberRef.current?.id !== assignedMember.id) {
-            setCurrentMember(assignedMember);
-          }
-          handleComplete(assignedHabit.id, assignedMember, false);
-        }
-      } else {
+      if (!assignedHabit) {
+        console.log('[TILE TAP] no habit assigned to tile =', tileUID, '— opening AssignTileModal');
         setUnassignedTileUID(tileUID);
+        return;
+      }
+      // Check if habit is scheduled for today. days_active uses Mon=0 … Sun=6
+      // (matches getTodayIndex and the daysActive editor in ManageHabitsScreen).
+      const todayDayIdx = getTodayIndex();
+      if (Array.isArray(assignedHabit.daysActive) && assignedHabit.daysActive.length > 0 && !assignedHabit.daysActive.includes(todayDayIdx)) {
+        console.log('[TILE TAP] habit not active today — day=' + todayDayIdx + ', days_active=[' + assignedHabit.daysActive.join(',') + ']');
+        setInactiveDayHabit(assignedHabit);
+        return;
+      }
+      const ids = assignedHabit.assignedMemberIds;
+      const isSharedHabit = assignedHabit.completionType === 'shared';
+      console.log('[TILE TAP] habit found =', assignedHabit.name, 'completionType =', assignedHabit.completionType, 'isKid =', assignedHabit.isKid, 'assignedMemberIds =', ids);
+      // Multi-person or shared household habits ALWAYS ask "Who did this?"
+      const shouldAskWho =
+        isSharedHabit ||           // Shared household habits ALWAYS ask, regardless of assignees
+        assignedHabit.isKid ||     // Kids habits always ask
+        !ids ||                    // Everyone habits ask
+        ids.length === 0 ||        // Everyone habits ask
+        ids.length > 1;            // Multi-person habits ALWAYS ask
+      console.log('[TILE TAP] currentMember =', currentMemberRef.current?.name, '| decision =', shouldAskWho ? 'show WhoDidThis' : 'auto-complete');
+      if (shouldAskWho) {
+        setWhoDidThis(assignedHabit);
+      } else {
+        // Single-person habit — complete for the assigned member
+        const assignedMember = family?.members?.find(m => m.id === ids[0]);
+        if (!assignedMember) {
+          console.error('[TILE TAP] assigned member not found for id =', ids[0]);
+          return;
+        }
+        // Always complete for the assigned member regardless of who is currently
+        // active in the app — the tile is the identity signal, not the UI state.
+        // Auto-switch the active member to them so the UI reflects the right person.
+        if (currentMemberRef.current?.id !== assignedMember.id) {
+          setCurrentMember(assignedMember);
+        }
+        handleComplete(assignedHabit.id, assignedMember, false);
       }
     } catch (e) {
-      console.warn('[Ritual] Tile URL handling failed:', e);
+      console.warn('[TILE TAP] handling failed:', e);
       // Graceful fallback — clear pending tile state, stay on home screen
       setDeepLinkTileUID(null);
     }
@@ -5193,9 +5294,15 @@ export default function RitualApp() {
             color: C.white, borderRadius: 14, padding: "11px 18px",
             fontSize: 13, fontWeight: 600,
             boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
-            maxWidth: 320, textAlign: "center",
+            maxWidth: "min(320px, calc(100vw - 32px))",
+            width: "max-content",
+            boxSizing: "border-box",
+            overflow: "hidden",
+            wordBreak: "break-word",
+            overflowWrap: "break-word",
+            textAlign: "center",
+            lineHeight: 1.35,
             fontFamily: "'DM Sans', sans-serif",
-            whiteSpace: "nowrap",
             animation: "slideUp 0.3s ease",
             pointerEvents: "none",
           }}>
@@ -5334,6 +5441,20 @@ export default function RitualApp() {
             setManageInitialView("custom");
             setTab("manage");
           }}
+        />
+      )}
+
+      {/* Inactive Day Modal — shown when a tile's habit isn't scheduled for today */}
+      {inactiveDayHabit && (
+        <InactiveDayModal
+          habit={inactiveDayHabit}
+          onEdit={(habitId) => {
+            setInactiveDayHabit(null);
+            setEditHabitId(habitId || null);
+            setManageInitialView("habitsManage");
+            setTab("manage");
+          }}
+          onClose={() => setInactiveDayHabit(null)}
         />
       )}
     </>
