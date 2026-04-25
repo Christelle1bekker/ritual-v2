@@ -952,7 +952,7 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
     return () => document.removeEventListener("keydown", handle);
   }, [onCancel]);
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
       <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div style={{ fontSize: 44, marginBottom: 12 }}>{habit.icon}</div>
         <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Who completed this?</div>
@@ -1013,7 +1013,7 @@ function InactiveDayModal({ habit, onEdit, onClose }) {
   const dayList = formatDays(habit?.daysActive);
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
       <div style={{ width: "100%", maxWidth: 340, background: `linear-gradient(135deg, ${habitColor}22, ${habitColor}10)`, borderLeft: `4px solid ${habitColor}`, borderRadius: 24, padding: "32px 26px 26px", boxShadow: "0 20px 50px rgba(0,0,0,0.35)" }}>
         <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ width: 76, height: 76, borderRadius: "50%", background: `linear-gradient(135deg, ${habitColor}, ${habitColor}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 38, margin: "0 auto 16px", boxShadow: `0 8px 24px ${habitColor}66` }}>{habit?.icon || "◈"}</div>
@@ -1053,7 +1053,7 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
   const target = habit?.target || 1;
   const justCompleted = taps >= target;
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 999, background: isKid ? 'linear-gradient(165deg, #E6DFD4 0%, #EDE8DF 40%, #F5F2EB 100%)' : `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, animation: "flashIn 0.3s ease" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", overflow: "hidden", zIndex: 999, background: isKid ? 'linear-gradient(165deg, #E6DFD4 0%, #EDE8DF 40%, #F5F2EB 100%)' : `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, animation: "flashIn 0.3s ease" }}>
       {isKid && <>
         <div style={{ position: "absolute", top: -30, right: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(183,175,160,0.15)", pointerEvents: "none" }} />
         <div style={{ position: "absolute", bottom: 90, left: -25, width: 110, height: 110, borderRadius: "50%", background: "rgba(166,191,159,0.12)", pointerEvents: "none" }} />
@@ -1316,7 +1316,7 @@ function CelebrationOverlay({ member, onDone, soundEnabled }) {
       duration: `${(2.5 + (i % 5) * 0.35).toFixed(1)}s`,
     }));
     return (
-      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center",
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", display: "flex", alignItems: "center",
         justifyContent: "center", zIndex: 9999, pointerEvents: "none", overflow: "hidden",
         background: "rgba(237, 232, 224, 0.97)" }}>
         {/* Decorative circles */}
@@ -4212,7 +4212,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 500, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", zIndex: 500, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onClick={handleContainerClick}
