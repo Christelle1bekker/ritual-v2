@@ -6,6 +6,7 @@ import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
+import { useNfcScanner } from './hooks/useNfcScanner';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
 const C = {
@@ -4306,6 +4307,29 @@ export default function RitualApp() {
     if (next && tab === "family") setTab("today");
   };
 
+  // ─── Active tile scanning ───────────────────────────────────────
+  // Step C: wired to the [DEBUG] button below. Step D replaces with a
+  // styled FAB and gates rendering on isAvailable().
+  const { scan } = useNfcScanner();
+  const handleDebugScan = async () => {
+    let urlStr;
+    try {
+      urlStr = await scan();
+    } catch (e) {
+      console.warn('[TILE TAP] activeScan: scan failed', e);
+      return;
+    }
+    if (!urlStr) return; // session ended without a read (cancel/timeout/error)
+    console.log('[TILE TAP] activeScan: received URL =', urlStr);
+    const tileUID = parseTileUrl(urlStr);
+    if (tileUID) {
+      console.log('[TILE TAP] activeScan: extracted tile_uid =', tileUID);
+      setDeepLinkTileUID(tileUID);
+    } else {
+      console.log('[TILE TAP] activeScan: no tile UID in URL');
+    }
+  };
+
   // ─── Toast notification system ──────────────────────────────────
   const [toasts, setToasts] = useState([]);
   const toastCounter = useRef(0);
@@ -5322,6 +5346,33 @@ export default function RitualApp() {
             {t.message}
           </div>
         ))}
+        {/*
+          [DEBUG] Step C debug-only scan trigger. TEMPORARY — Step D replaces
+          with the styled FAB. zIndex intentionally above all production UI
+          (current max is 9999 on the kid celebration overlay).
+        */}
+        <button
+          onClick={handleDebugScan}
+          style={{
+            position: 'fixed',
+            top: 'max(8px, env(safe-area-inset-top))',
+            right: 8,
+            zIndex: 99999,
+            pointerEvents: 'auto',
+            padding: '6px 12px',
+            background: 'rgba(192,80,77,0.92)',
+            color: '#FFFFFF',
+            border: 'none',
+            borderRadius: 6,
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0.3,
+            fontFamily: "'DM Sans', sans-serif",
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+          }}>
+          [DEBUG] Scan tile
+        </button>
         {/* Header */}
         <div style={{ padding: "20px 24px 12px", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 4 }}>
