@@ -115,6 +115,27 @@ function calcStreakFromDates(dates) {
   return streak;
 }
 
+// Parse a tile URL into a normalised tile UID, or null if the URL doesn't
+// carry one. Handles both /t/{id} path-style and ?tile={id} query-string
+// formats, with a https:// prepend for protocol-less inputs (NFC tags
+// sometimes omit it). Genuinely no-throw — caller does not need try/catch.
+function parseTileUrl(urlStr) {
+  if (!urlStr) return null;
+  let normalized = urlStr;
+  if (!normalized.includes('://')) normalized = 'https://' + normalized;
+  let url;
+  try { url = new URL(normalized); } catch { return null; }
+  let raw = null;
+  const pathMatch = url.pathname.match(/^\/t\/(.+)$/);
+  if (pathMatch) {
+    try { raw = decodeURIComponent(pathMatch[1]); } catch { return null; }
+  }
+  if (!raw) raw = url.searchParams.get('tile');
+  if (!raw) return null;
+  // Tile UIDs may arrive as 04:A3:2B or 04.A3.2B — strip separators, uppercase.
+  return raw.replace(/[:.]/g, '').toUpperCase();
+}
+
 // ─── SUPABASE NORMALISERS ─────────────────────────────────────────
 function normalizeMember(m) {
   const name = m.name || '';
@@ -4342,19 +4363,12 @@ export default function RitualApp() {
     // Deep links: handle tile URLs opened via Universal Links
     try { CapApp.addListener('appUrlOpen', (event) => {
       try {
-        let urlStr = event.url || '';
+        const urlStr = event.url || '';
         console.log('[TILE TAP] appUrlOpen: received URL =', urlStr);
-        // Ensure the URL has a protocol — NFC tags sometimes omit https://
-        if (urlStr && !urlStr.includes('://')) urlStr = 'https://' + urlStr;
-        const url = new URL(urlStr);
-        const pathMatch = url.pathname.match(/^\/t\/(.+)$/);
-        let raw = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
-        if (!raw) raw = url.searchParams.get('tile');
-        if (raw) {
-          // Normalise: strip colons and dots (tile UIDs may arrive as 04:A3:2B or 04.A3.2B)
-          const normalized = raw.replace(/[:.]/g, '').toUpperCase();
-          console.log('[TILE TAP] appUrlOpen: extracted tile_uid =', normalized);
-          setDeepLinkTileUID(normalized);
+        const tileUID = parseTileUrl(urlStr);
+        if (tileUID) {
+          console.log('[TILE TAP] appUrlOpen: extracted tile_uid =', tileUID);
+          setDeepLinkTileUID(tileUID);
         } else {
           console.log('[TILE TAP] appUrlOpen: no tile UID in URL');
         }
