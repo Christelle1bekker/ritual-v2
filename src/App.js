@@ -4310,7 +4310,7 @@ export default function RitualApp() {
   // ─── Active tile scanning ───────────────────────────────────────
   // FAB on the Today tab opens an iOS reader session; reads route through
   // the same deep-link path as passive taps (setDeepLinkTileUID).
-  const { scan, isAvailable } = useNfcScanner();
+  const { scan, isAvailable, showSettings: showNfcSettings } = useNfcScanner();
   const [nfcAvailable, setNfcAvailable] = useState(false);
   useEffect(() => {
     setNfcAvailable(isAvailable());
@@ -4321,6 +4321,12 @@ export default function RitualApp() {
       urlStr = await scan();
     } catch (e) {
       console.warn('[TILE TAP] activeScan: scan failed', e);
+      // iOS getStatus() can't distinguish permission denial (returns NFC_OK
+      // even after denial), so detect via error message string.
+      const msg = String(e?.message || e || '').toLowerCase();
+      if (/denied|unauthorized|permission|not authorized/.test(msg)) {
+        addToast('Allow tile scanning in Settings', 'error', () => { showNfcSettings(); });
+      }
       return;
     }
     if (!urlStr) return; // session ended without a read (cancel/timeout/error)
@@ -4331,15 +4337,19 @@ export default function RitualApp() {
       setDeepLinkTileUID(tileUID);
     } else {
       console.log('[TILE TAP] activeScan: no tile UID in URL');
+      addToast("That doesn't look like a Ritual tile", 'error');
     }
   };
 
   // ─── Toast notification system ──────────────────────────────────
   const [toasts, setToasts] = useState([]);
   const toastCounter = useRef(0);
-  const addToast = useCallback((message, type = 'success') => {
+  // onTap is optional — when supplied, the toast becomes tappable and the
+  // renderer flips pointerEvents/cursor accordingly. Existing callers that
+  // pass nothing keep the original non-interactive behaviour.
+  const addToast = useCallback((message, type = 'success', onTap) => {
     const id = ++toastCounter.current;
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts(prev => [...prev, { id, message, type, onTap }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
   }, []);
 
@@ -5326,7 +5336,7 @@ export default function RitualApp() {
       <div className="ritual-root" onContextMenu={(e) => e.preventDefault()}>
         {/* Toast notifications — auto-dismiss after 3s, stacks from bottom */}
         {toasts.map((t, i) => (
-          <div key={t.id} style={{
+          <div key={t.id} onClick={t.onTap} style={{
             position: "fixed",
             bottom: `calc(90px + env(safe-area-inset-bottom) + ${i * 52}px)`,
             left: "50%", transform: "translateX(-50%)",
@@ -5345,7 +5355,8 @@ export default function RitualApp() {
             lineHeight: 1.35,
             fontFamily: "'DM Sans', sans-serif",
             animation: "slideUp 0.3s ease",
-            pointerEvents: "none",
+            pointerEvents: t.onTap ? "auto" : "none",
+            cursor: t.onTap ? "pointer" : "default",
           }}>
             {t.message}
           </div>

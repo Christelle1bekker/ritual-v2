@@ -168,5 +168,15 @@ export function useNfcScanner() {
 
   const isAvailable = useCallback(() => supported, [supported]);
 
-  return { scan, isAvailable };
+  // Opens the iOS per-app Settings page (UIApplication.openSettingsURLString)
+  // so the user can toggle the NFC permission after a denial.
+  const showSettings = useCallback(async () => {
+    try {
+      await CapacitorNfc.showSettings();
+    } catch (e) {
+      console.warn('[useNfcScanner] showSettings() failed:', e);
+    }
+  }, []);
+
+  return { scan, isAvailable, showSettings };
 }
