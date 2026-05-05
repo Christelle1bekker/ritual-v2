@@ -13,6 +13,17 @@ try {
   console.warn('[Capgo] notifyAppReady() failed at startup:', e);
 }
 
+// Diagnostic: confirm whether the active JS bundle is the one shipped in the
+// IPA (expected when autoUpdate is false) or a Capgo cloud bundle.
+(async () => {
+  try {
+    const { bundle } = await CapacitorUpdater.current();
+    console.log('[Capgo] active bundle on startup:', bundle?.version || 'BUILTIN', 'id:', bundle?.id || 'n/a');
+  } catch (_) {
+    console.log('[Capgo] active bundle query failed');
+  }
+})();
+
 // ─── GLOBAL ERROR CATCHERS (diagnostic — visible in iOS app switcher title) ──
 window.addEventListener('error', (e) => {
   document.title = 'ERR: ' + e.message;

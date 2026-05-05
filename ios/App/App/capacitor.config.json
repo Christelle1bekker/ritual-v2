@@ -12,7 +12,7 @@
 	},
 	"plugins": {
 		"CapacitorUpdater": {
-			"autoUpdate": true
+			"autoUpdate": false
 		},
 		"PushNotifications": {
 			"presentationOptions": [

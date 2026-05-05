@@ -139,8 +139,13 @@ export function useNfcScanner() {
     cleanupRef.current = cleanup;
 
     try {
-      eventListener = await CapacitorNfc.addListener('nfcEvent', (event) => {
+      eventListener = await CapacitorNfc.addListener('nfcEvent', async (event) => {
         const url = extractUrlFromTag(event?.tag);
+        if (url) {
+          // invalidateAfterFirstRead: true has been observed not to dismiss
+          // the iOS reader sheet reliably; explicit stop forces invalidation.
+          try { await CapacitorNfc.stopScanning(); } catch {}
+        }
         resolveScan(url);
       });
       stateListener = await CapacitorNfc.addListener('nfcStateChange', () => {
