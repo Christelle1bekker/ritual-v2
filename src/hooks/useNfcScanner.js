@@ -97,11 +97,21 @@ function extractUrlFromTag(tag) {
 export function useNfcScanner() {
   const [supported, setSupported] = useState(false);
   const scanningRef = useRef(false);
-  // Holds the in-flight scan's cleanup fn so unmount mid-scan can release listeners.
-  const cleanupRef = useRef(null);
+  // Holds { resolve } for the in-flight scan. Always-on listeners (registered
+  // in the mount useEffect below) gate on this: null ref means no scan is in
+  // flight and the event is ignored. This is the safety net against retained
+  // nfcStateChange events that the Capgo plugin buffers across scans
+  // (notifyListeners is called with retainUntilConsumed:true) — without it,
+  // an event fired during the previous scan's invalidation gets replayed
+  // onto the next scan's freshly-attached listener and resolves null before
+  // the user has a chance to tap a tile.
+  const currentScanRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
+    let eventListener = null;
+    let stateListener = null;
+
     (async () => {
       try {
         const { supported: s } = await CapacitorNfc.isSupported();
@@ -109,12 +119,51 @@ export function useNfcScanner() {
       } catch (e) {
         console.warn('[useNfcScanner] isSupported() check failed:', e);
       }
+
+      // Listeners are registered ONCE for the hook's lifetime. Per-scan
+      // registration is racy on iOS: the explicit stopScanning() below (kept
+      // for sheet-dismiss reliability — see comment inside the handler)
+      // triggers a nfcStateChange that the plugin retains, and the next
+      // scan's freshly-attached listener consumed it before the user could
+      // scan. Mount-time listeners + the currentScanRef gate make those
+      // retained events harmless.
+      try {
+        eventListener = await CapacitorNfc.addListener('nfcEvent', async (event) => {
+          const entry = currentScanRef.current;
+          if (!entry) return; // no scan in flight — retained-event safety
+          // Claim the resolution slot synchronously before any await, so a
+          // nfcStateChange triggered by our own stopScanning() below cannot
+          // double-resolve through the state listener.
+          currentScanRef.current = null;
+          const url = extractUrlFromTag(event?.tag);
+          if (url) {
+            // invalidateAfterFirstRead: true has been observed not to dismiss
+            // the iOS reader sheet reliably; explicit stop forces invalidation.
+            try { await CapacitorNfc.stopScanning(); } catch {}
+          }
+          entry.resolve(url);
+        });
+        stateListener = await CapacitorNfc.addListener('nfcStateChange', () => {
+          const entry = currentScanRef.current;
+          if (!entry) return; // no scan in flight — retained-event safety
+          currentScanRef.current = null;
+          // Session invalidated — see LIMITATION note above. Cancel, timeout,
+          // and most errors all arrive here as the same opaque event.
+          entry.resolve(null);
+        });
+      } catch (e) {
+        console.warn('[useNfcScanner] listener registration failed:', e);
+      }
     })();
+
     return () => {
       cancelled = true;
-      // If the component unmounts mid-scan, release listeners.
-      // (cleanup is async — fire-and-forget; listeners drop on next tick.)
-      cleanupRef.current?.();
+      // Drop listeners on unmount. If a scan is in flight at unmount, its
+      // promise goes unobserved alongside the rest of the React tree.
+      (async () => {
+        try { await eventListener?.remove(); } catch {}
+        try { await stateListener?.remove(); } catch {}
+      })();
     };
   }, []);
 
@@ -125,33 +174,9 @@ export function useNfcScanner() {
     }
     scanningRef.current = true;
 
-    let resolveScan;
-    const scanPromise = new Promise((resolve) => { resolveScan = resolve; });
-
-    let eventListener = null;
-    let stateListener = null;
-    const cleanup = async () => {
-      try { await eventListener?.remove(); } catch {}
-      try { await stateListener?.remove(); } catch {}
-      scanningRef.current = false;
-      cleanupRef.current = null;
-    };
-    cleanupRef.current = cleanup;
-
     try {
-      eventListener = await CapacitorNfc.addListener('nfcEvent', async (event) => {
-        const url = extractUrlFromTag(event?.tag);
-        if (url) {
-          // invalidateAfterFirstRead: true has been observed not to dismiss
-          // the iOS reader sheet reliably; explicit stop forces invalidation.
-          try { await CapacitorNfc.stopScanning(); } catch {}
-        }
-        resolveScan(url);
-      });
-      stateListener = await CapacitorNfc.addListener('nfcStateChange', () => {
-        // Session invalidated — see LIMITATION note above. Cancel, timeout,
-        // and most errors all arrive here as the same opaque event.
-        resolveScan(null);
+      const scanPromise = new Promise((resolve) => {
+        currentScanRef.current = { resolve };
       });
 
       await CapacitorNfc.startScanning({
@@ -162,7 +187,11 @@ export function useNfcScanner() {
 
       return await scanPromise;
     } finally {
-      await cleanup();
+      // Handlers null this on resolution; the belt-and-braces clear here
+      // covers the case where startScanning() rejected before any event
+      // fired, so the next scan() doesn't see a stale resolve slot.
+      currentScanRef.current = null;
+      scanningRef.current = false;
     }
   }, []);
 
