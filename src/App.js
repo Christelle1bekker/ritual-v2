@@ -4308,10 +4308,14 @@ export default function RitualApp() {
   };
 
   // ─── Active tile scanning ───────────────────────────────────────
-  // Step C: wired to the [DEBUG] button below. Step D replaces with a
-  // styled FAB and gates rendering on isAvailable().
-  const { scan } = useNfcScanner();
-  const handleDebugScan = async () => {
+  // FAB on the Today tab opens an iOS reader session; reads route through
+  // the same deep-link path as passive taps (setDeepLinkTileUID).
+  const { scan, isAvailable } = useNfcScanner();
+  const [nfcAvailable, setNfcAvailable] = useState(false);
+  useEffect(() => {
+    setNfcAvailable(isAvailable());
+  }, [isAvailable]);
+  const handleScanTile = async () => {
     let urlStr;
     try {
       urlStr = await scan();
@@ -5346,33 +5350,35 @@ export default function RitualApp() {
             {t.message}
           </div>
         ))}
-        {/*
-          [DEBUG] Step C debug-only scan trigger. TEMPORARY — Step D replaces
-          with the styled FAB. zIndex intentionally above all production UI
-          (current max is 9999 on the kid celebration overlay).
-        */}
-        <button
-          onClick={handleDebugScan}
-          style={{
-            position: 'fixed',
-            top: 'max(8px, env(safe-area-inset-top))',
-            right: 8,
-            zIndex: 99999,
-            pointerEvents: 'auto',
-            padding: '6px 12px',
-            background: 'rgba(192,80,77,0.92)',
-            color: '#FFFFFF',
-            border: 'none',
-            borderRadius: 6,
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: 0.3,
-            fontFamily: "'DM Sans', sans-serif",
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-          }}>
-          [DEBUG] Scan tile
-        </button>
+        {tab === "today" && nfcAvailable && (
+          <button
+            onClick={handleScanTile}
+            aria-label="Scan a habit tile"
+            style={{
+              position: 'fixed',
+              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
+              right: 16,
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              background: '#C17B4E',
+              boxShadow: '0 2px 8px rgba(193, 123, 78, 0.35)',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              zIndex: 100,
+              pointerEvents: 'auto',
+              padding: 0,
+            }}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" style={{ display: 'block' }}>
+              <circle cx="12" cy="17" r="1.5" fill="#FFFFFF" stroke="none" />
+              <path d="M8.5 13.5 A 5 5 0 0 1 15.5 13.5" />
+              <path d="M5 11 A 9 9 0 0 1 19 11" />
+            </svg>
+          </button>
+        )}
         {/* Header */}
         <div style={{ padding: "20px 24px 12px", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 4 }}>
