@@ -120,27 +120,26 @@ export function useNfcScanner() {
         console.warn('[useNfcScanner] isSupported() check failed:', e);
       }
 
-      // Listeners are registered ONCE for the hook's lifetime. Per-scan
-      // registration is racy on iOS: the explicit stopScanning() below (kept
-      // for sheet-dismiss reliability — see comment inside the handler)
-      // triggers a nfcStateChange that the plugin retains, and the next
-      // scan's freshly-attached listener consumed it before the user could
-      // scan. Mount-time listeners + the currentScanRef gate make those
-      // retained events harmless.
+      // Listeners are registered ONCE for the hook's lifetime. The Capgo
+      // plugin emits nfcStateChange with retainUntilConsumed: true, so any
+      // event fired during a previous scan's invalidation would be replayed
+      // onto a freshly-attached per-scan listener and resolve the next
+      // scan's promise before the user could tap. Mount-time listeners +
+      // the currentScanRef gate are a general retained-event safety net,
+      // independent of which specific source produced the retained event.
       try {
         eventListener = await CapacitorNfc.addListener('nfcEvent', async (event) => {
           const entry = currentScanRef.current;
           if (!entry) return; // no scan in flight — retained-event safety
-          // Claim the resolution slot synchronously before any await, so a
-          // nfcStateChange triggered by our own stopScanning() below cannot
-          // double-resolve through the state listener.
+          // Claim the resolution slot synchronously so a concurrent
+          // nfcStateChange handler can't double-resolve.
           currentScanRef.current = null;
           const url = extractUrlFromTag(event?.tag);
-          if (url) {
-            // invalidateAfterFirstRead: true has been observed not to dismiss
-            // the iOS reader sheet reliably; explicit stop forces invalidation.
-            try { await CapacitorNfc.stopScanning(); } catch {}
-          }
+          // No explicit stopScanning() here: it generated a stray
+          // nfcStateChange that the plugin retained and the next scan's
+          // listener consumed, resolving null before the user could tap.
+          // iOS's invalidateAfterFirstRead: true handles invalidation with
+          // a properly-suppressed error code on its own.
           entry.resolve(url);
         });
         stateListener = await CapacitorNfc.addListener('nfcStateChange', () => {
