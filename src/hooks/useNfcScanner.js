@@ -99,13 +99,13 @@ export function useNfcScanner() {
   const scanningRef = useRef(false);
   // Holds { resolve } for the in-flight scan. Always-on listeners (registered
   // in the mount useEffect below) gate on this: null ref means no scan is in
-  // flight and the event is ignored. This is the safety net against retained
-  // nfcStateChange events that the Capgo plugin buffers across scans
-  // (notifyListeners is called with retainUntilConsumed:true) — without it,
-  // an event fired during the previous scan's invalidation gets replayed
-  // onto the next scan's freshly-attached listener and resolves null before
-  // the user has a chance to tap a tile.
+  // flight and the event is ignored. This is defence-in-depth against the
+  // retained nfcStateChange events the Capgo plugin buffers across scans
+  // (notifyListeners is called with retainUntilConsumed:true). Primary
+  // protection is the settle delay in scan() — the gate catches anything
+  // that slips through.
   const currentScanRef = useRef(null);
+  const lastScanCompletedAtRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,12 +121,13 @@ export function useNfcScanner() {
       }
 
       // Listeners are registered ONCE for the hook's lifetime. The Capgo
-      // plugin emits nfcStateChange with retainUntilConsumed: true, so any
-      // event fired during a previous scan's invalidation would be replayed
-      // onto a freshly-attached per-scan listener and resolve the next
-      // scan's promise before the user could tap. Mount-time listeners +
-      // the currentScanRef gate are a general retained-event safety net,
-      // independent of which specific source produced the retained event.
+      // plugin emits nfcStateChange with retainUntilConsumed: true, so a
+      // freshly-attached per-scan listener would consume any retained
+      // event from the previous scan's invalidation immediately on attach
+      // and resolve the new scan's promise with null. Mount-time
+      // registration sidesteps the per-scan attach window entirely; the
+      // settle delay in scan() and the currentScanRef gate handle the
+      // remaining timing windows.
       try {
         eventListener = await CapacitorNfc.addListener('nfcEvent', async (event) => {
           const entry = currentScanRef.current;
@@ -135,11 +136,12 @@ export function useNfcScanner() {
           // nfcStateChange handler can't double-resolve.
           currentScanRef.current = null;
           const url = extractUrlFromTag(event?.tag);
-          // No explicit stopScanning() here: it generated a stray
-          // nfcStateChange that the plugin retained and the next scan's
-          // listener consumed, resolving null before the user could tap.
-          // iOS's invalidateAfterFirstRead: true handles invalidation with
-          // a properly-suppressed error code on its own.
+          // Restored explicit stopScanning(): without it the iOS scan
+          // sheet doesn't dismiss reliably (cc0ca11). The retained-event
+          // side effect is now handled by the settle delay in scan()
+          // rather than by removing this call.
+          try { await CapacitorNfc.stopScanning(); } catch {}
+          lastScanCompletedAtRef.current = Date.now();
           entry.resolve(url);
         });
         stateListener = await CapacitorNfc.addListener('nfcStateChange', () => {
@@ -147,7 +149,10 @@ export function useNfcScanner() {
           if (!entry) return; // no scan in flight — retained-event safety
           currentScanRef.current = null;
           // Session invalidated — see LIMITATION note above. Cancel, timeout,
-          // and most errors all arrive here as the same opaque event.
+          // and most errors all arrive here as the same opaque event. Record
+          // completion time so scan() can enforce the settle delay before
+          // the next session starts.
+          lastScanCompletedAtRef.current = Date.now();
           entry.resolve(null);
         });
       } catch (e) {
@@ -172,6 +177,17 @@ export function useNfcScanner() {
       return null;
     }
     scanningRef.current = true;
+
+    // iOS NFCNDEFReaderSession teardown is asynchronous. Starting a new
+    // session before the previous one has finished tearing down silently
+    // fails AND any retained nfcStateChange from the previous invalidation
+    // gets consumed by the next scan's listener. Empirically chosen 750ms
+    // gap covers both.
+    const SETTLE_MS = 750;
+    const elapsed = Date.now() - lastScanCompletedAtRef.current;
+    if (elapsed < SETTLE_MS) {
+      await new Promise((r) => setTimeout(r, SETTLE_MS - elapsed));
+    }
 
     try {
       const scanPromise = new Promise((resolve) => {
