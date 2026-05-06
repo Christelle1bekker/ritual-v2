@@ -1054,7 +1054,11 @@ function InactiveDayModal({ habit, onEdit, onClose }) {
 // ─── COMPLETION FLASH ─────────────────────────────────────────────
 function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
   const [countdown, setCountdown] = useState(FLASH_COUNTDOWN_SECONDS);
-  const isKid = getProgressVisual(member) === 'tree';
+  // 2026-05-06: standardise every per-habit completion overlay to the lighter
+  // "Beautiful work!" version regardless of the user's progress visual preference.
+  // Dark-path ternaries below are preserved untouched for trivial revert — flip
+  // this back to `getProgressVisual(member) === 'tree'` to restore the split.
+  const isKid = true;
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
