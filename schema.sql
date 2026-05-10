@@ -296,6 +296,97 @@ comment on column completions.backfilled_at is
   'When set, this completion was created via the backfill feature, not a live tap. Null for live taps.';
 
 
+-- 21. Account holder column + family creation under Supabase Auth (May 2026)
+--     Phase 1 of the email/password auth migration. Adds a nullable
+--     account_holder_id pointing at auth.users so a family can be claimed
+--     by exactly one Supabase auth user (Netflix-style — one paying account
+--     per household, with members as in-app profiles).
+--
+--     Nullable for now so the column can be backfilled for existing PIN-only
+--     families without breaking writes. Phase 3 will SET NOT NULL after
+--     every row is populated and PIN code paths are removed from the app.
+alter table families
+  add column if not exists account_holder_id uuid references auth.users(id) on delete restrict;
+
+comment on column families.account_holder_id is
+  'Supabase auth user who owns this family (single auth user per family, Netflix-style). Nullable until backfill complete; will become non-null after Phase 3 cleanup.';
+
+create index if not exists idx_families_account_holder
+  on families(account_holder_id) where account_holder_id is not null;
+
+create or replace function create_family_with_account_holder(p_family_name text)
+returns table (id uuid, name text, account_holder_id uuid)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  return query
+    insert into families (name, account_holder_id)
+    values (p_family_name, auth.uid())
+    returning families.id, families.name, families.account_holder_id;
+end;
+$$;
+
+revoke all on function create_family_with_account_holder(text) from public;
+grant execute on function create_family_with_account_holder(text) to authenticated;
+
+comment on function create_family_with_account_holder(text) is
+  'Creates a new family owned by the calling auth user. SECURITY DEFINER so it works regardless of RLS insert policies. Authenticated callers only — anon cannot invoke.';
+
+
+-- ============================================================================
+-- 22. STAGED RLS POLICIES FOR PHASE 3 ACTIVATION (May 2026)
+-- ============================================================================
+-- DO NOT UNCOMMENT IN PHASE 1. These policies replace the current "allow all"
+-- policies and gate every family-scoped read/write on auth.uid() = the
+-- family's account_holder_id. Activating these before backfill
+-- (account_holder_id is populated for every existing family) will lock all
+-- current users out.
+--
+-- Phase 3 sequence:
+--   1. Confirm every families row has account_holder_id IS NOT NULL
+--   2. Drop existing "allow all" policies on each table
+--   3. Uncomment and apply the policies below
+--   4. alter table families alter column account_holder_id set not null
+--   5. Remove PIN-based code paths from App.js
+-- ============================================================================
+
+-- families: only the account holder can read/write their family
+-- drop policy if exists "allow all" on families;
+-- create policy "account_holder_full" on families for all
+--   using (auth.uid() = account_holder_id)
+--   with check (auth.uid() = account_holder_id);
+
+-- members: scoped via family
+-- drop policy if exists "allow all" on members;
+-- create policy "account_holder_full" on members for all
+--   using (family_id in (select id from families where account_holder_id = auth.uid()))
+--   with check (family_id in (select id from families where account_holder_id = auth.uid()));
+
+-- habits: scoped via family
+-- drop policy if exists "allow all" on habits;
+-- create policy "account_holder_full" on habits for all
+--   using (family_id in (select id from families where account_holder_id = auth.uid()))
+--   with check (family_id in (select id from families where account_holder_id = auth.uid()));
+
+-- completions: scoped via family
+-- drop policy if exists "allow all" on completions;
+-- create policy "account_holder_full" on completions for all
+--   using (family_id in (select id from families where account_holder_id = auth.uid()))
+--   with check (family_id in (select id from families where account_holder_id = auth.uid()));
+
+-- rewards: scoped via family
+-- drop policy if exists "allow all" on rewards;
+-- create policy "account_holder_full" on rewards for all
+--   using (family_id in (select id from families where account_holder_id = auth.uid()))
+--   with check (family_id in (select id from families where account_holder_id = auth.uid()));
+
+-- reward_redemptions: TBD — current RLS state unknown per Phase 0 audit.
+--                     Finalise in Phase 3 once dashboard inspection confirms
+--                     whether RLS is enabled and what (if any) policy exists.
+
+
 -- ═══════════════════════════════════════════════════════════════════
 -- NOTES
 -- ═══════════════════════════════════════════════════════════════════
