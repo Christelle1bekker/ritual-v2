@@ -4588,6 +4588,12 @@ export default function RitualApp() {
   const [redemptions, setRedemptions] = useState([]);
   const redemptionsLastFetched = useRef(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  // Phase 2 auth state — true when an authed user has no family yet (post-signup)
+  const [needsFamilyCreation, setNeedsFamilyCreation] = useState(false);
+  const [authedUserEmail, setAuthedUserEmail] = useState(null);
+  const [creatingFamily, setCreatingFamily] = useState(false);
+  const [createFamilyName, setCreateFamilyName] = useState("");
+  const [createFamilyError, setCreateFamilyError] = useState("");
   const [soloMode, setSoloMode] = useState(() => localStorage.getItem("ritual_soloMode") === "true");
   const toggleSoloMode = () => {
     const next = !soloMode;
@@ -4687,11 +4693,45 @@ export default function RitualApp() {
       console.warn('[Capgo] Could not register event listeners:', e);
     }
 
-    // Deep links: handle tile URLs opened via Universal Links
-    try { CapApp.addListener('appUrlOpen', (event) => {
+    // Deep links: handle auth callback URLs FIRST (Supabase email confirmation,
+    // password reset, etc.), then fall through to tile URLs.
+    try { CapApp.addListener('appUrlOpen', async (event) => {
       try {
         const urlStr = event.url || '';
-        console.log('[TILE TAP] appUrlOpen: received URL =', urlStr);
+        console.log('[appUrlOpen] received URL =', urlStr);
+
+        // Auth callback detection: PKCE flow uses ?code=, hash flow uses
+        // #access_token=, and our auth redirect path is /auth/callback.
+        const isAuthPath = /\/auth\/callback(\?|#|$)/.test(urlStr);
+        const hasCode = /[?&]code=/.test(urlStr);
+        const hasAccessToken = /#access_token=/.test(urlStr);
+        if (supabase && (isAuthPath || hasCode || hasAccessToken)) {
+          try {
+            if (hasCode) {
+              const codeMatch = urlStr.match(/[?&]code=([^&#]+)/);
+              const code = codeMatch ? decodeURIComponent(codeMatch[1]) : null;
+              if (code) {
+                const { error } = await supabase.auth.exchangeCodeForSession(code);
+                if (error) console.error('[auth] exchangeCodeForSession failed:', error);
+              }
+            } else if (hasAccessToken) {
+              const hashIdx = urlStr.indexOf('#');
+              const hash = hashIdx >= 0 ? urlStr.slice(hashIdx + 1) : '';
+              const params = new URLSearchParams(hash);
+              const access_token = params.get('access_token');
+              const refresh_token = params.get('refresh_token');
+              if (access_token && refresh_token) {
+                const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+                if (error) console.error('[auth] setSession failed:', error);
+              }
+            }
+          } catch (e) {
+            console.error('[auth] callback handling exception:', e);
+          }
+          return; // Don't fall through to tile handling for auth URLs
+        }
+
+        // Tile URL fallback (existing behaviour)
         const tileUID = parseTileUrl(urlStr);
         if (tileUID) {
           console.log('[TILE TAP] appUrlOpen: extracted tile_uid =', tileUID);
@@ -4700,7 +4740,7 @@ export default function RitualApp() {
           console.log('[TILE TAP] appUrlOpen: no tile UID in URL');
         }
       } catch (e) {
-        console.warn('[TILE TAP] appUrlOpen: malformed URL', e);
+        console.warn('[appUrlOpen] malformed URL', e);
       }
     }); } catch (e) { console.warn('[Capgo] appUrlOpen listener failed:', e); }
 
@@ -4937,10 +4977,55 @@ export default function RitualApp() {
     }
   };
 
+  // Loads the family owned by a Supabase auth user. If a family is found, hydrates
+  // members/habits/rewards and drops the user into the app. If not, flips
+  // needsFamilyCreation so the post-signup family-creation screen renders.
+  const loadFamilyForAuthUser = async (authUserId, authUserEmail) => {
+    if (!supabase || !authUserId) return;
+    try {
+      const { data: famRows, error: famErr } = await supabase
+        .from('families').select('id, name, pin, is_solo')
+        .eq('account_holder_id', authUserId).limit(1);
+      if (famErr) { console.error('❌ loadFamilyForAuthUser families select failed:', famErr); return; }
+      if (!famRows || famRows.length === 0) {
+        setAuthedUserEmail(authUserEmail || null);
+        setNeedsFamilyCreation(true);
+        return;
+      }
+      const fam = famRows[0];
+      const [{ data: members }, { data: habits }, { data: rewards }] = await Promise.all([
+        supabase.from('members').select('*').eq('family_id', fam.id),
+        supabase.from('habits').select('*').eq('family_id', fam.id),
+        supabase.from('rewards').select('*').eq('family_id', fam.id),
+      ]);
+      const familyData = {
+        id: fam.id, name: fam.name, pin: fam.pin || null,
+        members: (members || []).map(normalizeMember),
+        habits: (habits || []).map(normalizeHabit),
+        rewards: (rewards || []).map(normalizeReward),
+      };
+      setNeedsFamilyCreation(false);
+      setAuthedUserEmail(authUserEmail || null);
+      setSoloMode(!!fam.is_solo);
+      await loadDataForFamily(familyData);
+    } catch (e) {
+      console.error('❌ loadFamilyForAuthUser exception:', e);
+    }
+  };
+
   // ─── Auto-login on mount ─────────────────────────────────────────
+  // Order: Supabase session first, PIN fallback only if no session.
   useEffect(() => {
     const init = async () => {
       try {
+        if (supabase) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            await loadFamilyForAuthUser(session.user.id, session.user.email);
+            return;
+          }
+        }
+        // No Supabase session — fall through to PIN auto-login.
         const savedPin = localStorage.getItem("ritual_savedPin");
         const savedFamilyName = localStorage.getItem("ritual_savedFamilyName");
         if (savedPin && savedFamilyName && supabase) {
@@ -4960,6 +5045,27 @@ export default function RitualApp() {
       }
     };
     init();
+  }, []);
+
+  // ─── Supabase auth state listener ────────────────────────────────
+  // Handles sign-in events triggered after mount (e.g. user completes the
+  // email/password form, or returns from the email-confirmation deep link).
+  useEffect(() => {
+    if (!supabase) return;
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        loadFamilyForAuthUser(session.user.id, session.user.email);
+      } else if (event === 'PASSWORD_RECOVERY' && session?.user) {
+        // Recovery link opened — user is signed in but should change their password.
+        // Land them in the app; Settings → Account → Change password is the path.
+        loadFamilyForAuthUser(session.user.id, session.user.email);
+      } else if (event === 'SIGNED_OUT') {
+        setFamily(null); setHabits([]); setTodayCompletions([]); setWeekCompletions([]);
+        setCurrentMember(null); setFlashData(null); setWhoDidThis(null);
+        setNeedsFamilyCreation(false); setAuthedUserEmail(null);
+      }
+    });
+    return () => { subscription?.subscription?.unsubscribe?.(); };
   }, []);
 
   // ─── Save currentMember to localStorage ─────────────────────────
@@ -4994,6 +5100,65 @@ export default function RitualApp() {
     setSoloMode(false);
     localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_savedFamilyName"); localStorage.removeItem("ritual_currentMemberId");
     localStorage.removeItem("ritual_soloMode");
+  };
+
+  // Post-signup family creation: called from the inline "Create your family"
+  // screen. Creates the family via the SECURITY DEFINER RPC (which stamps
+  // account_holder_id = auth.uid()), seeds one default member, then loads.
+  const handleCreateFamilyForAuthedUser = async () => {
+    setCreateFamilyError("");
+    const trimmed = createFamilyName.trim();
+    if (!trimmed) { setCreateFamilyError("Enter a family name"); return; }
+    if (!supabase) { setCreateFamilyError("App not configured. Check Supabase credentials."); return; }
+    setCreatingFamily(true);
+    try {
+      const { data: famRows, error: rpcErr } = await supabase
+        .rpc('create_family_with_account_holder', { p_family_name: trimmed });
+      if (rpcErr || !famRows?.[0]) {
+        console.error('❌ create_family_with_account_holder failed:', rpcErr);
+        setCreateFamilyError("Couldn't create your family. Please try again.");
+        return;
+      }
+      const newFamilyId = famRows[0].id;
+      // Seed one default member named after the auth user (email local-part) so
+      // the app has a current member to work with. The user can rename in Settings.
+      const memberName = (authedUserEmail?.split('@')[0] || 'Me').slice(0, 24);
+      const avatarChar = (memberName[0] || 'M').toUpperCase();
+      const { data: memberRow, error: memErr } = await supabase
+        .from('members')
+        .insert({
+          family_id: newFamilyId, name: memberName, avatar: avatarChar,
+          color: SETUP_MEMBER_COLORS[0], is_kid: false, points: 0, streak: 0,
+        })
+        .select().single();
+      if (memErr) {
+        console.error('❌ default member insert failed:', memErr);
+        setCreateFamilyError("Couldn't finish setup. Please try again.");
+        return;
+      }
+      // Seed starter rewards (mirrors solo create flow)
+      await supabase.from('rewards').insert([
+        { family_id: newFamilyId, name: "Movie night pick", points: 30, icon: "🎬", who: "Everyone", color: C.accent },
+        { family_id: newFamilyId, name: "Choose dinner tonight", points: 20, icon: "🍕", who: "Everyone", color: C.accent },
+        { family_id: newFamilyId, name: "30 min guilt-free downtime", points: 25, icon: "📱", who: "Everyone", color: C.green },
+      ]);
+      const familyData = {
+        id: newFamilyId, name: trimmed, pin: null,
+        members: [normalizeMember(memberRow)],
+        habits: [],
+        rewards: [],
+      };
+      setNeedsFamilyCreation(false);
+      setCreateFamilyName("");
+      setSoloMode(true);
+      await loadDataForFamily(familyData);
+      setCurrentMember(normalizeMember(memberRow));
+    } catch (e) {
+      console.error('❌ handleCreateFamilyForAuthedUser exception:', e);
+      setCreateFamilyError("Something went wrong. Please try again.");
+    } finally {
+      setCreatingFamily(false);
+    }
   };
 
   const handleBackfill = async (habit) => {
@@ -5677,6 +5842,49 @@ export default function RitualApp() {
       <div style={{ fontSize: 12, color: C.sandDark, opacity: 0.4, fontFamily: "'DM Sans', sans-serif", letterSpacing: 1 }}>Loading…</div>
     </div>
   );
+  if (!family && needsFamilyCreation) {
+    return (
+      <div style={{ minHeight: "100vh", width: "100%", maxWidth: 390, margin: "0 auto", background: D.bgCream, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+        <div style={{ padding: "64px 24px 40px" }}>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Create your family.</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid, lineHeight: 1.6 }}>
+            Welcome{authedUserEmail ? `, ${authedUserEmail}` : ""}. Give your space a name to get started.
+          </div>
+        </div>
+        <div style={{ background: D.bgWhite, borderRadius: "20px 20px 0 0", flex: 1, padding: "28px 24px calc(40px + env(safe-area-inset-bottom))", marginTop: -20 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6, display: "block" }}>Family name</label>
+              <input
+                style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: `1.5px solid ${D.border}`, background: D.bgInput, fontSize: 15, color: D.textDark, outline: "none", fontFamily: D.fontBody, boxSizing: "border-box" }}
+                placeholder="e.g. Jones"
+                value={createFamilyName}
+                onChange={e => setCreateFamilyName(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleCreateFamilyForAuthedUser(); }}
+                autoComplete="off"
+                autoFocus
+              />
+              <div style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, marginTop: 6 }}>You can add more members later from Settings.</div>
+            </div>
+            {createFamilyError && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{createFamilyError}</div>}
+            <button
+              onClick={handleCreateFamilyForAuthedUser}
+              disabled={creatingFamily}
+              style={{ background: D.terracotta, color: "#F5EFE6", border: "none", borderRadius: 50, padding: "14px 20px", fontFamily: D.fontBody, fontWeight: 500, fontSize: 15, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: creatingFamily ? "default" : "pointer", opacity: creatingFamily ? 0.7 : 1 }}
+            >
+              <span>{creatingFamily ? "Setting up…" : "Continue"}</span><span>→</span>
+            </button>
+            <button
+              onClick={async () => { try { await supabase?.auth.signOut(); } catch (_) {} }}
+              style={{ background: "transparent", border: "none", color: D.textFaint, fontFamily: D.fontBody, fontSize: 12, textAlign: "center", width: "100%", padding: "8px 0", cursor: "pointer" }}
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (!family) return <LoginScreen onLogin={handleLogin} />;
 
   const TABS = [
