@@ -3974,6 +3974,7 @@ function ManageScreen({
   onAddReward, onEditReward, onDeleteReward,
   onLogout, onRefresh, soundEnabled, onToggleSound, onReplayOnboarding,
   onToast, onEditMember, onRemoveMember, onAddMember,
+  authedUserEmail,
   initialSubView = "main",
   onMounted,
   initialEditHabitId,
@@ -3982,6 +3983,17 @@ function ManageScreen({
   const [editingMemberId, setEditingMemberId] = useState(null);
   const [editName, setEditName] = useState("");
   const [editIsKid, setEditIsKid] = useState(false);
+  // Phase 2 auth modals — only relevant when signed in via Supabase email/password
+  const [showEditEmail, setShowEditEmail] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwError, setPwError] = useState("");
+  const [pwSaving, setPwSaving] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
   const [editColor, setEditColor] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [openHelp, setOpenHelp] = useState(null);
@@ -4308,8 +4320,10 @@ function ManageScreen({
       {/* ACCOUNT */}
       {sectionLabel("ACCOUNT")}
       {card(<>
+        {authedUserEmail && settingsRow("✉", `${C.accent}20`, "Email", authedUserEmail, () => { setNewEmail(authedUserEmail); setEmailError(""); setShowEditEmail(true); })}
+        {authedUserEmail && settingsRow("🔑", `${C.accent}20`, "Change password", null, () => { setPwCurrent(""); setPwNew(""); setPwConfirm(""); setPwError(""); setShowChangePassword(true); })}
         {settingsRow("↺", `${C.green}20`, "Refresh data", "Sync latest data from server", async () => { try { await onRefresh(); } catch (e) {} })}
-        {settingsRow("→", `${C.error}15`, "Sign out", null, () => { if (window.confirm("Sign out? You'll need your PIN to log back in.")) onLogout(); }, { danger: true })}
+        {settingsRow("→", `${C.error}15`, "Sign out", null, () => { if (window.confirm("Sign out? You'll need to sign in again to come back.")) onLogout(); }, { danger: true })}
         {settingsRow("⚠", `${C.error}15`, "Reset all points & streaks", "Cannot be undone — affects all members", async () => {
           if (!window.confirm("Reset all points and streaks to zero?\n\nThis will:\n- Set everyone's points to 0\n- Set all streaks to 0\n- Cannot be undone\n\nAre you sure?")) return;
           try {
@@ -4349,6 +4363,85 @@ function ManageScreen({
         </p>
         <p style={{ fontSize: 11, color: C.sandDark, marginTop: 8 }}>Ritual v1.0.44</p>
       </div>
+
+      {/* Edit email modal — Phase 2 auth */}
+      {showEditEmail && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!emailSaving) setShowEditEmail(false); }}>
+          <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Change email</div>
+            <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 16 }}>You'll receive a confirmation link at the new address.</div>
+            <input style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: `1.5px solid ${C.sandDark}`, background: C.offwhite, fontSize: 15, color: C.slate, outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", marginBottom: 12 }} type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} autoComplete="email" autoCapitalize="none" />
+            {emailError && <div style={{ fontSize: 12, color: C.error, textAlign: "center", marginBottom: 12 }}>{emailError}</div>}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowEditEmail(false)} disabled={emailSaving} style={{ flex: 1, padding: 14, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 14, color: C.slateLight, cursor: emailSaving ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+              <button
+                onClick={async () => {
+                  setEmailError("");
+                  if (!newEmail.trim() || newEmail.trim() === authedUserEmail) { setEmailError("Enter a different email"); return; }
+                  setEmailSaving(true);
+                  try {
+                    const { error } = await supabase.auth.updateUser({ email: newEmail.trim() });
+                    if (error) { setEmailError(error.message || "Could not update email"); return; }
+                    onToast?.("Check your new email to confirm");
+                    setShowEditEmail(false);
+                  } catch (e) {
+                    setEmailError("Something went wrong. Please try again.");
+                  } finally {
+                    setEmailSaving(false);
+                  }
+                }}
+                disabled={emailSaving}
+                style={{ flex: 2, padding: 14, borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`, color: C.white, fontSize: 14, fontWeight: 700, cursor: emailSaving ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif", opacity: emailSaving ? 0.7 : 1 }}
+              >
+                {emailSaving ? "Sending…" : "Send confirmation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change password modal — Phase 2 auth */}
+      {showChangePassword && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!pwSaving) setShowChangePassword(false); }}>
+          <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 16 }}>Change password</div>
+            <input style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: `1.5px solid ${C.sandDark}`, background: C.offwhite, fontSize: 15, color: C.slate, outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", marginBottom: 10 }} type="password" placeholder="Current password" value={pwCurrent} onChange={e => setPwCurrent(e.target.value)} autoComplete="current-password" />
+            <input style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: `1.5px solid ${C.sandDark}`, background: C.offwhite, fontSize: 15, color: C.slate, outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", marginBottom: 10 }} type="password" placeholder="New password (min 8)" value={pwNew} onChange={e => setPwNew(e.target.value)} autoComplete="new-password" />
+            <input style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: `1.5px solid ${C.sandDark}`, background: C.offwhite, fontSize: 15, color: C.slate, outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", marginBottom: 12 }} type="password" placeholder="Confirm new password" value={pwConfirm} onChange={e => setPwConfirm(e.target.value)} autoComplete="new-password" />
+            {pwError && <div style={{ fontSize: 12, color: C.error, textAlign: "center", marginBottom: 12 }}>{pwError}</div>}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowChangePassword(false)} disabled={pwSaving} style={{ flex: 1, padding: 14, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 14, color: C.slateLight, cursor: pwSaving ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+              <button
+                onClick={async () => {
+                  setPwError("");
+                  if (!pwCurrent || !pwNew || !pwConfirm) { setPwError("Fill in all three fields"); return; }
+                  if (pwNew.length < 8) { setPwError("New password must be at least 8 characters"); return; }
+                  if (pwNew !== pwConfirm) { setPwError("New passwords don't match"); return; }
+                  if (!authedUserEmail) { setPwError("No active session — please sign in again"); return; }
+                  setPwSaving(true);
+                  try {
+                    // Verify current password by re-authenticating
+                    const { error: signInErr } = await supabase.auth.signInWithPassword({ email: authedUserEmail, password: pwCurrent });
+                    if (signInErr) { setPwError("Current password is incorrect"); return; }
+                    const { error: upErr } = await supabase.auth.updateUser({ password: pwNew });
+                    if (upErr) { setPwError(upErr.message || "Could not update password"); return; }
+                    onToast?.("Password updated");
+                    setShowChangePassword(false);
+                  } catch (e) {
+                    setPwError("Something went wrong. Please try again.");
+                  } finally {
+                    setPwSaving(false);
+                  }
+                }}
+                disabled={pwSaving}
+                style={{ flex: 2, padding: 14, borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`, color: C.white, fontSize: 14, fontWeight: 700, cursor: pwSaving ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif", opacity: pwSaving ? 0.7 : 1 }}
+              >
+                {pwSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5094,10 +5187,15 @@ export default function RitualApp() {
     if (!currentMember?.isKid && isFirstTime) setTab("manage");
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Sign out of Supabase Auth (no-op if user only had a PIN session).
+    // The onAuthStateChange listener catches SIGNED_OUT and clears React state,
+    // but we also clear here so the PIN-only path works without an auth event.
+    try { await supabase?.auth.signOut(); } catch (e) { console.warn('[auth] signOut failed:', e); }
     setFamily(null); setHabits([]); setTodayCompletions([]); setWeekCompletions([]);
     setCurrentMember(null); setFlashData(null); setWhoDidThis(null);
     setSoloMode(false);
+    setNeedsFamilyCreation(false); setAuthedUserEmail(null);
     localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_savedFamilyName"); localStorage.removeItem("ritual_currentMemberId");
     localStorage.removeItem("ritual_soloMode");
   };
@@ -6071,7 +6169,7 @@ export default function RitualApp() {
             <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} forcePersonal={true} />
           )}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} />}
-          {tab === "manage" && <ManageScreen key={manageResetKey} family={family} currentMember={currentMember} soloMode={soloMode} habits={habits} onAddHabit={handleAddHabit} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onBackfillHabit={handleBackfill} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} onLogout={handleLogout} onRefresh={handleRefreshData} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} onAddMember={handleAddMember} initialSubView={manageInitialView} onMounted={() => { setManageInitialView("main"); setEditHabitId(null); }} initialEditHabitId={editHabitId} />}
+          {tab === "manage" && <ManageScreen key={manageResetKey} family={family} currentMember={currentMember} soloMode={soloMode} habits={habits} onAddHabit={handleAddHabit} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onBackfillHabit={handleBackfill} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} onLogout={handleLogout} onRefresh={handleRefreshData} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} onAddMember={handleAddMember} authedUserEmail={authedUserEmail} initialSubView={manageInitialView} onMounted={() => { setManageInitialView("main"); setEditHabitId(null); }} initialEditHabitId={editHabitId} />}
         </div>
 
         {/* Branding footer */}
