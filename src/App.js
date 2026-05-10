@@ -2061,6 +2061,10 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBackfillHabit, onBack, initialEditHabitId }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null, completionType: 'individual', points: 10, reminderTime: null });
+  // undefined = not yet fetched, null = no completion exists, object = exists
+  const [yesterdayCompletion, setYesterdayCompletion] = useState(undefined);
+  const [showBackfillConfirm, setShowBackfillConfirm] = useState(false);
+  const [isBackfilling, setIsBackfilling] = useState(false);
 
   useEffect(() => {
     if (!initialEditHabitId || !habits?.length) return;
@@ -2076,6 +2080,28 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
     document.addEventListener("keydown", handle);
     return () => document.removeEventListener("keydown", handle);
   }, [editing]);
+
+  // Fetch yesterday's completion for (this habit, current member) so we know whether
+  // to offer the backfill button. Resets when the user closes the edit screen.
+  useEffect(() => {
+    if (!editing || !currentMember?.id || !supabase) {
+      setYesterdayCompletion(undefined);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('completions')
+        .select('id, taps')
+        .eq('habit_id', editing.id)
+        .eq('member_id', currentMember.id)
+        .eq('date', getYesterdayKey())
+        .gt('taps', 0)
+        .maybeSingle();
+      if (!cancelled) setYesterdayCompletion(data || null);
+    })();
+    return () => { cancelled = true; };
+  }, [editing, currentMember?.id]);
 
   if (editing) return (
     <div style={{ padding: "0 20px 140px" }}>
@@ -2219,9 +2245,65 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
             );
           })()}
         </div>
+        {(() => {
+          if (yesterdayCompletion === undefined) return null; // still loading
+          if (yesterdayCompletion) return null; // already complete yesterday
+          if (!currentMember?.id) return null;
+          const yKey = getYesterdayKey();
+          const [yY, yM, yD] = yKey.split('-').map(Number);
+          const yDate = new Date(yY, yM - 1, yD);
+          const yDow = (yDate.getDay() + 6) % 7; // Mon=0..Sun=6 (matches codebase convention)
+          const yesterdayIsScheduled = !editing.daysActive?.length || editing.daysActive.includes(yDow);
+          const currentMemberIsAssignee = !editing.assignedMemberIds?.length || editing.assignedMemberIds.includes(currentMember.id);
+          if (!yesterdayIsScheduled || !currentMemberIsAssignee) return null;
+          return (
+            <div style={{ background: C.white, borderRadius: 20, padding: 16, marginTop: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Forgot yesterday?</div>
+              <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>Mark this ritual as done for yesterday and award points</div>
+              <button
+                onClick={() => setShowBackfillConfirm(true)}
+                disabled={isBackfilling}
+                style={{ width: "100%", padding: "12px", borderRadius: 12, border: `1.5px solid ${C.accent}`, background: `${C.accent}15`, color: C.accent, fontSize: 13, fontWeight: 600, cursor: isBackfilling ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif", opacity: isBackfilling ? 0.6 : 1 }}
+              >
+                Mark as done yesterday
+              </button>
+            </div>
+          );
+        })()}
         <button onClick={() => { onEditHabit(editing.id, { ...form, assignedMemberIds: form.assignedMemberIds || null }); setEditing(null); }} style={{ ...btnPrimary, marginTop: 12 }}>Save Changes</button>
         <button onClick={() => { if (window.confirm(`Delete "${editing.name}"? This removes all completion history.`)) { onDeleteHabit(editing.id); setEditing(null); } }} style={{ ...btnPrimary, background: `${C.error}18`, color: C.error, boxShadow: "none" }}>Delete Habit</button>
       </div>
+      {showBackfillConfirm && editing && (() => {
+        const yKey = getYesterdayKey();
+        const [yY, yM, yD] = yKey.split('-').map(Number);
+        const yDayName = new Date(yY, yM - 1, yD).toLocaleDateString('en-AU', { weekday: 'long' });
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!isBackfilling) setShowBackfillConfirm(false); }}>
+            <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Mark as done yesterday?</div>
+              <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20 }}>Mark {editing.name} as done for yesterday ({yDayName})?</div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setShowBackfillConfirm(false)} disabled={isBackfilling} style={{ flex: 1, padding: 14, borderRadius: 14, border: "none", background: C.offwhite, fontSize: 14, color: C.slateLight, cursor: isBackfilling ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+                <button
+                  onClick={async () => {
+                    if (isBackfilling) return;
+                    setIsBackfilling(true);
+                    try { await onBackfillHabit?.(editing); } finally {
+                      setIsBackfilling(false);
+                      setShowBackfillConfirm(false);
+                      setEditing(null);
+                    }
+                  }}
+                  disabled={isBackfilling}
+                  style={{ ...btnPrimary, flex: 2, opacity: isBackfilling ? 0.7 : 1 }}
+                >
+                  {isBackfilling ? "Marking…" : "Confirm"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 
