@@ -4293,6 +4293,8 @@ export default function RitualApp() {
   const [deepLinkTileUID, setDeepLinkTileUID] = useState(null);
   const currentMemberRef = useRef(currentMember);
   useEffect(() => { currentMemberRef.current = currentMember; }, [currentMember]);
+  const cachedPushTokenRef = useRef(null);
+  const pushTokenWrittenForMemberRef = useRef(null);
   const [manageInitialView, setManageInitialView] = useState("main");
   const [manageResetKey, setManageResetKey] = useState(0);
   const [editHabitId, setEditHabitId] = useState(null);
@@ -4431,11 +4433,13 @@ export default function RitualApp() {
         if (process.env.NODE_ENV === 'development') {
           console.log('Push registration success, token:', token.value);
         }
+        if (token.value) cachedPushTokenRef.current = token.value;
         const memberId = currentMemberRef.current?.id;
         if (memberId && supabase && token.value) {
           supabase.from('members').update({ push_token: token.value }).eq('id', memberId)
             .then(({ error }) => {
               if (error) console.error('❌ Failed to save push token:', error);
+              else pushTokenWrittenForMemberRef.current = memberId;
             }).catch(() => {});
         }
       });
@@ -4457,6 +4461,20 @@ export default function RitualApp() {
       console.warn('[PushNotifications] Init failed — continuing without push:', e);
     }
   }, []);
+
+  // Reconcile cached APNs token with the selected member: handles the case
+  // where APNs returns the token before a member is selected (first launch).
+  useEffect(() => {
+    const memberId = currentMember?.id;
+    const token = cachedPushTokenRef.current;
+    if (!memberId || !token || !supabase) return;
+    if (pushTokenWrittenForMemberRef.current === memberId) return;
+    supabase.from('members').update({ push_token: token }).eq('id', memberId)
+      .then(({ error }) => {
+        if (error) console.error('❌ Failed to save push token:', error);
+        else pushTokenWrittenForMemberRef.current = memberId;
+      }).catch(() => {});
+  }, [currentMember]);
 
   const todayIndex = getTodayIndex();
 
