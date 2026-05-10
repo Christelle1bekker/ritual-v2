@@ -4709,6 +4709,13 @@ export default function RitualApp() {
   // After name-only family creation (auth flow), this holds {id, name} so
   // LoginScreen can render its addMembers view pre-bound to the new family.
   const [pendingAuthFamily, setPendingAuthFamily] = useState(null);
+  // True between PASSWORD_RECOVERY event and the user setting a new password.
+  // Blocks all other app routing while active. NOT persisted across launches.
+  const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
+  const [recoveryNewPw, setRecoveryNewPw] = useState("");
+  const [recoveryConfirmPw, setRecoveryConfirmPw] = useState("");
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoverySaving, setRecoverySaving] = useState(false);
   const [soloMode, setSoloMode] = useState(() => localStorage.getItem("ritual_soloMode") === "true");
   const toggleSoloMode = () => {
     const next = !soloMode;
@@ -5171,13 +5178,16 @@ export default function RitualApp() {
       if (event === 'SIGNED_IN' && session?.user) {
         loadFamilyForAuthUser(session.user.id, session.user.email);
       } else if (event === 'PASSWORD_RECOVERY' && session?.user) {
-        // Recovery link opened — user is signed in but should change their password.
-        // Land them in the app; Settings → Account → Change password is the path.
-        loadFamilyForAuthUser(session.user.id, session.user.email);
+        // Recovery link opened — block all routing on a forced "set new password"
+        // prompt. Family hydration happens after the new password is saved.
+        setAuthedUserEmail(session.user.email || null);
+        setRecoveryNewPw(""); setRecoveryConfirmPw(""); setRecoveryError("");
+        setPasswordRecoveryActive(true);
       } else if (event === 'SIGNED_OUT') {
         setFamily(null); setHabits([]); setTodayCompletions([]); setWeekCompletions([]);
         setCurrentMember(null); setFlashData(null); setWhoDidThis(null);
         setNeedsFamilyCreation(false); setAuthedUserEmail(null);
+        setPasswordRecoveryActive(false); setPendingAuthFamily(null);
       }
     });
     return () => { subscription?.subscription?.unsubscribe?.(); };
@@ -5256,6 +5266,36 @@ export default function RitualApp() {
     } finally {
       setCreatingFamily(false);
     }
+  };
+
+  const handleSetNewPassword = async () => {
+    setRecoveryError("");
+    if (!recoveryNewPw || !recoveryConfirmPw) { setRecoveryError("Fill in both fields"); return; }
+    if (recoveryNewPw.length < 8) { setRecoveryError("Password must be at least 8 characters"); return; }
+    if (recoveryNewPw !== recoveryConfirmPw) { setRecoveryError("Passwords don't match"); return; }
+    if (!supabase) { setRecoveryError("App not configured. Check Supabase credentials."); return; }
+    setRecoverySaving(true);
+    try {
+      const { error: upErr } = await supabase.auth.updateUser({ password: recoveryNewPw });
+      if (upErr) { setRecoveryError(upErr.message || "Could not update password"); return; }
+      setPasswordRecoveryActive(false);
+      setRecoveryNewPw(""); setRecoveryConfirmPw("");
+      addToast("Password updated");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) await loadFamilyForAuthUser(session.user.id, session.user.email);
+    } catch (e) {
+      console.error('❌ handleSetNewPassword exception:', e);
+      setRecoveryError("Something went wrong. Please try again.");
+    } finally {
+      setRecoverySaving(false);
+    }
+  };
+
+  const handleCancelRecovery = async () => {
+    try { await supabase?.auth.signOut(); } catch (e) { console.warn('[auth] signOut failed:', e); }
+    setPasswordRecoveryActive(false);
+    setRecoveryNewPw(""); setRecoveryConfirmPw(""); setRecoveryError("");
+    // SIGNED_OUT in onAuthStateChange handles the rest of state clearing.
   };
 
   // Called by LoginScreen's addMembers finishSetup auth-branch after members
@@ -5953,6 +5993,62 @@ export default function RitualApp() {
       <div style={{ fontSize: 12, color: C.sandDark, opacity: 0.4, fontFamily: "'DM Sans', sans-serif", letterSpacing: 1 }}>Loading…</div>
     </div>
   );
+  if (passwordRecoveryActive) {
+    return (
+      <div style={{ minHeight: "100vh", width: "100%", maxWidth: 390, margin: "0 auto", background: D.bgCream, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+        <div style={{ padding: "64px 24px 40px" }}>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Set a new password.</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid, lineHeight: 1.6 }}>
+            Choose a new password for {authedUserEmail || "your account"}. You'll use it to sign in next time.
+          </div>
+        </div>
+        <div style={{ background: D.bgWhite, borderRadius: "20px 20px 0 0", flex: 1, padding: "28px 24px calc(40px + env(safe-area-inset-bottom))", marginTop: -20 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6, display: "block" }}>New password</label>
+              <input
+                style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: `1.5px solid ${D.border}`, background: D.bgInput, fontSize: 15, color: D.textDark, outline: "none", fontFamily: D.fontBody, boxSizing: "border-box" }}
+                type="password"
+                placeholder="••••••••"
+                value={recoveryNewPw}
+                onChange={e => setRecoveryNewPw(e.target.value)}
+                autoComplete="new-password"
+                autoFocus
+              />
+              <div style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, marginTop: 6 }}>At least 8 characters.</div>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6, display: "block" }}>Confirm new password</label>
+              <input
+                style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: `1.5px solid ${D.border}`, background: D.bgInput, fontSize: 15, color: D.textDark, outline: "none", fontFamily: D.fontBody, boxSizing: "border-box" }}
+                type="password"
+                placeholder="••••••••"
+                value={recoveryConfirmPw}
+                onChange={e => setRecoveryConfirmPw(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleSetNewPassword(); }}
+                autoComplete="new-password"
+              />
+            </div>
+            {recoveryError && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{recoveryError}</div>}
+            <button
+              onClick={handleSetNewPassword}
+              disabled={recoverySaving}
+              style={{ background: D.terracotta, color: "#F5EFE6", border: "none", borderRadius: 50, padding: "14px 20px", fontFamily: D.fontBody, fontWeight: 500, fontSize: 15, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: recoverySaving ? "default" : "pointer", opacity: recoverySaving ? 0.7 : 1 }}
+            >
+              <span>{recoverySaving ? "Saving…" : "Save new password"}</span><span>→</span>
+            </button>
+            <button
+              onClick={handleCancelRecovery}
+              disabled={recoverySaving}
+              style={{ background: "transparent", border: "none", color: D.textFaint, fontFamily: D.fontBody, fontSize: 12, textAlign: "center", width: "100%", padding: "8px 0", cursor: recoverySaving ? "default" : "pointer" }}
+            >
+              Cancel and sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (!family && needsFamilyCreation) {
     return (
       <div style={{ minHeight: "100vh", width: "100%", maxWidth: 390, margin: "0 auto", background: D.bgCream, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
