@@ -112,12 +112,11 @@ export default async function handler(req, res) {
     const pendingIds = memberIds.filter(id => !completedIds.has(id));
     if (!pendingIds.length) continue;
 
-    // Get push tokens for adults only
+    // Get push tokens for any pending member with a registered device.
     const { data: members } = await supabase
       .from('members')
-      .select('id, name, push_token, is_kid')
+      .select('id, name, push_token')
       .in('id', pendingIds)
-      .eq('is_kid', false)
       .not('push_token', 'is', null);
 
     for (const member of (members || [])) {
