@@ -566,7 +566,7 @@ function LoginScreen({ onLogin, initialAuthFamily, onAuthFamilyReady }) {
       setAddingNew(true);
       setMemberColorIdx(0);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const handle = (e) => {
