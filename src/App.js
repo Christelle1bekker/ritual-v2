@@ -548,6 +548,11 @@ function LoginScreen({ onLogin }) {
   const [memberIsKid, setMemberIsKid] = useState(false);
   const [memberColorIdx, setMemberColorIdx] = useState(0);
   const [mounted, setMounted] = useState(false);
+  // Email/password auth state (Phase 2 — coexists with PIN flow)
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [awaitingType, setAwaitingType] = useState("reset"); // "reset" | "signup"
+  const [showPinPath, setShowPinPath] = useState(false);
 
   useEffect(() => { const t = setTimeout(() => setMounted(true), 80); return () => clearTimeout(t); }, []);
 
@@ -557,11 +562,14 @@ function LoginScreen({ onLogin }) {
       if (view === "join") handleJoin();
       else if (view === "create") handleCreate();
       else if (view === "createSolo") handleCreateSolo();
+      else if (view === "emailLogin") handleEmailLogin();
+      else if (view === "emailSignup") handleEmailSignup();
+      else if (view === "forgotPassword") handlePasswordReset();
       else if (view === "addMembers") { if (memberName.trim() && addingNew) addMember(); else if (members.length > 0 && !addingNew) finishSetup(); }
     };
     document.addEventListener("keydown", handle);
     return () => document.removeEventListener("keydown", handle);
-  }, [view, familyName, pin, loading, memberName, members, addingNew]);
+  }, [view, familyName, pin, email, password, loading, memberName, members, addingNew]);
 
   // ── Shared setup styles ────────────────────────────────────────
   const lightInput = {
@@ -679,6 +687,79 @@ function LoginScreen({ onLogin }) {
     finally { setLoading(false); }
   };
 
+  // ── Email/password auth handlers (Phase 2) ──────────────────
+  const AUTH_REDIRECT_URL = 'https://app.ritualhabits.com.au/auth/callback';
+
+  const handleEmailLogin = async () => {
+    setError("");
+    if (!email.trim() || !password) { setError("Enter your email and password"); return; }
+    if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
+    setLoading(true);
+    try {
+      const { error: aerr } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (aerr) {
+        // Don't leak which one was wrong
+        setError("Email or password is incorrect");
+        return;
+      }
+      // The app's onAuthStateChange listener takes over from here — it will
+      // look up the family and route into the app (or post-signup family creation).
+    } catch { setError("Something went wrong. Please try again."); }
+    finally { setLoading(false); }
+  };
+
+  const handleEmailSignup = async () => {
+    setError("");
+    if (!email.trim()) { setError("Enter your email"); return; }
+    if (!password || password.length < 8) { setError("Password must be at least 8 characters"); return; }
+    if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
+    setLoading(true);
+    try {
+      const { data, error: aerr } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { emailRedirectTo: AUTH_REDIRECT_URL },
+      });
+      if (aerr) {
+        const msg = (aerr.message || "").toLowerCase();
+        if (msg.includes("already") || msg.includes("registered")) {
+          setError("An account with this email already exists — try signing in instead.");
+        } else {
+          setError(aerr.message || "Could not create account. Please try again.");
+        }
+        return;
+      }
+      // Supabase returns a user but no session when email confirmation is required.
+      // Show the "check your email" screen.
+      if (data?.user && !data?.session) {
+        setAwaitingType("signup");
+        setView("awaitingReset");
+      } else {
+        // Email confirmation off (unlikely in this project) — onAuthStateChange will handle it.
+      }
+    } catch { setError("Something went wrong. Please try again."); }
+    finally { setLoading(false); }
+  };
+
+  const handlePasswordReset = async () => {
+    setError("");
+    if (!email.trim()) { setError("Enter your email"); return; }
+    if (!supabase) { setError("App not configured. Check Supabase credentials."); return; }
+    setLoading(true);
+    try {
+      const { error: aerr } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${AUTH_REDIRECT_URL}?type=recovery`,
+      });
+      if (aerr) {
+        setError(aerr.message || "Could not send reset link. Please try again.");
+        return;
+      }
+      setAwaitingType("reset");
+      setView("awaitingReset");
+    } catch { setError("Something went wrong. Please try again."); }
+    finally { setLoading(false); }
+  };
+
   const addMember = () => {
     if (!memberName.trim()) return;
     const newMember = {
@@ -736,39 +817,63 @@ function LoginScreen({ onLogin }) {
           </div>
         </div>
         <div style={bottomCard}>
-          <label style={labelStyle}>How will you use Ritual?</label>
-          <div style={{ display: "flex", borderRadius: 50, overflow: "hidden", border: `1.5px solid ${D.border}`, marginBottom: 10 }}>
-            {[{ val: "solo", label: "Just me" }, { val: "family", label: "Family" }].map(opt => (
-              <div key={opt.val} onClick={() => setUseMode(opt.val)} style={{
-                flex: 1, padding: "11px 0", textAlign: "center", cursor: "pointer",
-                fontSize: 14, fontFamily: D.fontBody, fontWeight: 500,
-                borderRadius: 50,
-                background: useMode === opt.val ? D.terracotta : D.bgInput,
-                color: useMode === opt.val ? "#F5EFE6" : D.textMuted,
-                transition: "all 0.2s",
-              }}>{opt.label}</div>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, marginBottom: 20 }}>
-            {useMode === "solo"
-              ? "Track habits solo — upgrade to family any time."
-              : "Set up a shared space for everyone at home."}
-          </div>
           <button
-            onClick={() => { setError(""); setFamilyName(""); setPin(""); setView(useMode === "solo" ? "createSolo" : "create"); }}
-            style={{ ...btnSetup, marginBottom: 8 }}
+            onClick={() => { setError(""); setEmail(""); setPassword(""); setView("emailLogin"); }}
+            style={{ ...btnSetup, marginBottom: 10 }}
           >
-            <span>Get started</span><span>→</span>
+            <span>Sign in with email</span><span>→</span>
           </button>
-          {useMode === "family" && (
-            <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setJoinContext("family"); setView("join"); }} style={btnGhost}>
-              I already have a family code
+          <button
+            onClick={() => { setError(""); setEmail(""); setPassword(""); setView("emailSignup"); }}
+            style={btnGhost}
+          >
+            New here? Create an account
+          </button>
+          <div style={{ height: 1, background: D.border, margin: "20px 0 14px" }} />
+          {!showPinPath ? (
+            <button onClick={() => setShowPinPath(true)} style={{ ...btnGhost, color: D.textMuted }}>
+              I have a family PIN
             </button>
-          )}
-          {useMode === "solo" && (
-            <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setJoinContext("solo"); setView("join"); }} style={btnGhost}>
-              I already have a PIN
-            </button>
+          ) : (
+            <>
+              <label style={labelStyle}>How will you use Ritual?</label>
+              <div style={{ display: "flex", borderRadius: 50, overflow: "hidden", border: `1.5px solid ${D.border}`, marginBottom: 10 }}>
+                {[{ val: "solo", label: "Just me" }, { val: "family", label: "Family" }].map(opt => (
+                  <div key={opt.val} onClick={() => setUseMode(opt.val)} style={{
+                    flex: 1, padding: "11px 0", textAlign: "center", cursor: "pointer",
+                    fontSize: 14, fontFamily: D.fontBody, fontWeight: 500,
+                    borderRadius: 50,
+                    background: useMode === opt.val ? D.terracotta : D.bgInput,
+                    color: useMode === opt.val ? "#F5EFE6" : D.textMuted,
+                    transition: "all 0.2s",
+                  }}>{opt.label}</div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, marginBottom: 20 }}>
+                {useMode === "solo"
+                  ? "Track habits solo — upgrade to family any time."
+                  : "Set up a shared space for everyone at home."}
+              </div>
+              <button
+                onClick={() => { setError(""); setFamilyName(""); setPin(""); setView(useMode === "solo" ? "createSolo" : "create"); }}
+                style={{ ...btnSetup, marginBottom: 8 }}
+              >
+                <span>Get started</span><span>→</span>
+              </button>
+              {useMode === "family" && (
+                <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setJoinContext("family"); setView("join"); }} style={btnGhost}>
+                  I already have a family code
+                </button>
+              )}
+              {useMode === "solo" && (
+                <button onClick={() => { setError(""); setFamilyName(""); setPin(""); setJoinContext("solo"); setView("join"); }} style={btnGhost}>
+                  I already have a PIN
+                </button>
+              )}
+              <button onClick={() => setShowPinPath(false)} style={{ ...btnGhost, color: D.textFaint, fontSize: 12, marginTop: 4 }}>
+                ← Back to email sign in
+              </button>
+            </>
           )}
         </div>
       </>)}
@@ -940,6 +1045,102 @@ function LoginScreen({ onLogin }) {
               <span>{loading ? "Setting up…" : "Start my Rituals"}</span><span>→</span>
             </button>
           </div>
+        </div>
+      </>)}
+
+      {/* ── Email login ───────────────────────────────────────── */}
+      {view === "emailLogin" && (<>
+        <div style={topSection}>
+          <button onClick={() => { setView("welcome"); setError(""); setEmail(""); setPassword(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: D.textMuted, fontSize: 13, fontFamily: D.fontBody, padding: 0, marginBottom: 16, display: "block" }}>← Back</button>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Welcome back.</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid }}>Sign in with your email and password.</div>
+        </div>
+        <div style={bottomCard}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input style={lightInput} type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" autoCapitalize="none" />
+            </div>
+            <div>
+              <label style={labelStyle}>Password</label>
+              <input style={lightInput} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+            </div>
+            {error && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{error}</div>}
+            <button onClick={handleEmailLogin} disabled={loading} style={{ ...btnSetup, opacity: loading ? 0.7 : 1 }}>
+              <span>{loading ? "Signing in…" : "Sign in"}</span><span>→</span>
+            </button>
+            <button onClick={() => { setError(""); setView("forgotPassword"); }} style={btnGhost}>Forgot password?</button>
+            <button onClick={() => { setError(""); setPassword(""); setView("emailSignup"); }} style={{ ...btnGhost, color: D.textMuted }}>Create an account</button>
+          </div>
+        </div>
+      </>)}
+
+      {/* ── Email signup ──────────────────────────────────────── */}
+      {view === "emailSignup" && (<>
+        <div style={topSection}>
+          <button onClick={() => { setView("welcome"); setError(""); setEmail(""); setPassword(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: D.textMuted, fontSize: 13, fontFamily: D.fontBody, padding: 0, marginBottom: 16, display: "block" }}>← Back</button>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Create your account.</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid }}>You'll set up your family right after.</div>
+        </div>
+        <div style={bottomCard}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input style={lightInput} type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" autoCapitalize="none" />
+            </div>
+            <div>
+              <label style={labelStyle}>Password</label>
+              <input style={lightInput} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" />
+              <div style={{ fontSize: 11, fontFamily: D.fontBody, color: D.textMuted, marginTop: 6 }}>At least 8 characters.</div>
+            </div>
+            {error && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{error}</div>}
+            <button onClick={handleEmailSignup} disabled={loading} style={{ ...btnSetup, opacity: loading ? 0.7 : 1 }}>
+              <span>{loading ? "Creating account…" : "Create account"}</span><span>→</span>
+            </button>
+            <button onClick={() => { setError(""); setPassword(""); setView("emailLogin"); }} style={btnGhost}>Already have an account? Sign in</button>
+          </div>
+        </div>
+      </>)}
+
+      {/* ── Forgot password ────────────────────────────────────── */}
+      {view === "forgotPassword" && (<>
+        <div style={topSection}>
+          <button onClick={() => { setView("emailLogin"); setError(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: D.textMuted, fontSize: 13, fontFamily: D.fontBody, padding: 0, marginBottom: 16, display: "block" }}>← Back</button>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>Reset password.</div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid }}>We'll email you a link to choose a new one.</div>
+        </div>
+        <div style={bottomCard}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input style={lightInput} type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" autoCapitalize="none" />
+            </div>
+            {error && <div style={{ fontSize: 12, color: C.error, textAlign: "center" }}>{error}</div>}
+            <button onClick={handlePasswordReset} disabled={loading} style={{ ...btnSetup, opacity: loading ? 0.7 : 1 }}>
+              <span>{loading ? "Sending…" : "Send reset link"}</span><span>→</span>
+            </button>
+          </div>
+        </div>
+      </>)}
+
+      {/* ── Awaiting email (signup confirmation OR password reset) ── */}
+      {view === "awaitingReset" && (<>
+        <div style={topSection}>
+          <button onClick={() => { setView("emailLogin"); setError(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: D.textMuted, fontSize: 13, fontFamily: D.fontBody, padding: 0, marginBottom: 16, display: "block" }}>← Back</button>
+          <div style={{ fontSize: 28, fontFamily: D.fontHeading, fontWeight: 700, letterSpacing: "-0.03em", color: D.textDark, marginBottom: 8 }}>
+            {awaitingType === "signup" ? "Confirm your email." : "Check your email."}
+          </div>
+          <div style={{ fontSize: 13, fontFamily: D.fontBody, color: D.textMid, lineHeight: 1.6 }}>
+            {awaitingType === "signup"
+              ? <>We've sent a confirmation link to <strong>{email || "your email"}</strong>. Tap it to verify your account, then come back here to sign in.</>
+              : <>We've sent a password reset link to <strong>{email || "your email"}</strong>. Tap it to set a new password.</>
+            }
+          </div>
+        </div>
+        <div style={bottomCard}>
+          <button onClick={() => { setView("emailLogin"); setError(""); }} style={{ ...btnSetup, marginBottom: 8 }}>
+            <span>Back to sign in</span><span>→</span>
+          </button>
         </div>
       </>)}
 
