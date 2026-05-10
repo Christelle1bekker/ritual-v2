@@ -532,7 +532,7 @@ function PinInput({ value, onChange }) {
 }
 
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, initialAuthFamily, onAuthFamilyReady }) {
   const [view, setView] = useState("welcome");
   const [useMode, setUseMode] = useState("solo"); // "solo" | "family"
   const [joinContext, setJoinContext] = useState("family"); // "solo" | "family" — adjusts join screen copy
@@ -555,6 +555,18 @@ function LoginScreen({ onLogin }) {
   const [showPinPath, setShowPinPath] = useState(false);
 
   useEffect(() => { const t = setTimeout(() => setMounted(true), 80); return () => clearTimeout(t); }, []);
+
+  // If parent passed a pre-created family (post-signup auth flow), jump
+  // straight into the addMembers view rather than showing welcome.
+  useEffect(() => {
+    if (initialAuthFamily?.id) {
+      setCreatedFamilyId(initialAuthFamily.id);
+      setFamilyName(initialAuthFamily.name || "");
+      setView("addMembers");
+      setAddingNew(true);
+      setMemberColorIdx(0);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handle = (e) => {
@@ -787,6 +799,13 @@ function LoginScreen({ onLogin }) {
         family_id: createdFamilyId, name: m.name, avatar: m.avatar,
         color: m.color, is_kid: m.isKid, points: 0, streak: 0,
       })));
+      // Auth-mode (post-signup): rewards were seeded in handleCreateFamilyForAuthedUser
+      // and the family is owned by the current Supabase auth user. Skip PIN-related
+      // setup and let the parent hydrate via the Supabase session.
+      if (initialAuthFamily?.id) {
+        onAuthFamilyReady?.();
+        return;
+      }
       await supabase.from("rewards").insert([
         { family_id: createdFamilyId, name: "30 min extra screen time", points: 25, icon: "📱", who: "Kids", color: C.kids },
         { family_id: createdFamilyId, name: "Choose dinner", points: 20, icon: "🍕", who: "Everyone", color: C.accent },
@@ -4687,6 +4706,9 @@ export default function RitualApp() {
   const [creatingFamily, setCreatingFamily] = useState(false);
   const [createFamilyName, setCreateFamilyName] = useState("");
   const [createFamilyError, setCreateFamilyError] = useState("");
+  // After name-only family creation (auth flow), this holds {id, name} so
+  // LoginScreen can render its addMembers view pre-bound to the new family.
+  const [pendingAuthFamily, setPendingAuthFamily] = useState(null);
   const [soloMode, setSoloMode] = useState(() => localStorage.getItem("ritual_soloMode") === "true");
   const toggleSoloMode = () => {
     const next = !soloMode;
@@ -5218,44 +5240,35 @@ export default function RitualApp() {
         return;
       }
       const newFamilyId = famRows[0].id;
-      // Seed one default member named after the auth user (email local-part) so
-      // the app has a current member to work with. The user can rename in Settings.
-      const memberName = (authedUserEmail?.split('@')[0] || 'Me').slice(0, 24);
-      const avatarChar = (memberName[0] || 'M').toUpperCase();
-      const { data: memberRow, error: memErr } = await supabase
-        .from('members')
-        .insert({
-          family_id: newFamilyId, name: memberName, avatar: avatarChar,
-          color: SETUP_MEMBER_COLORS[0], is_kid: false, points: 0, streak: 0,
-        })
-        .select().single();
-      if (memErr) {
-        console.error('❌ default member insert failed:', memErr);
-        setCreateFamilyError("Couldn't finish setup. Please try again.");
-        return;
-      }
-      // Seed starter rewards (mirrors solo create flow)
+      // Seed starter rewards (members are added via the existing addMembers flow)
       await supabase.from('rewards').insert([
         { family_id: newFamilyId, name: "Movie night pick", points: 30, icon: "🎬", who: "Everyone", color: C.accent },
         { family_id: newFamilyId, name: "Choose dinner tonight", points: 20, icon: "🍕", who: "Everyone", color: C.accent },
         { family_id: newFamilyId, name: "30 min guilt-free downtime", points: 25, icon: "📱", who: "Everyone", color: C.green },
       ]);
-      const familyData = {
-        id: newFamilyId, name: trimmed, pin: null,
-        members: [normalizeMember(memberRow)],
-        habits: [],
-        rewards: [],
-      };
+      // Hand off to LoginScreen's addMembers view via pendingAuthFamily.
+      setPendingAuthFamily({ id: newFamilyId, name: trimmed });
       setNeedsFamilyCreation(false);
       setCreateFamilyName("");
-      setSoloMode(true);
-      await loadDataForFamily(familyData);
-      setCurrentMember(normalizeMember(memberRow));
     } catch (e) {
       console.error('❌ handleCreateFamilyForAuthedUser exception:', e);
       setCreateFamilyError("Something went wrong. Please try again.");
     } finally {
       setCreatingFamily(false);
+    }
+  };
+
+  // Called by LoginScreen's addMembers finishSetup auth-branch after members
+  // are inserted. Hydrates the family via the existing Supabase session.
+  const handleAuthFamilyReady = async () => {
+    setPendingAuthFamily(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await loadFamilyForAuthUser(session.user.id, session.user.email);
+      }
+    } catch (e) {
+      console.error('❌ handleAuthFamilyReady exception:', e);
     }
   };
 
@@ -5983,7 +5996,7 @@ export default function RitualApp() {
       </div>
     );
   }
-  if (!family) return <LoginScreen onLogin={handleLogin} />;
+  if (!family) return <LoginScreen onLogin={handleLogin} initialAuthFamily={pendingAuthFamily} onAuthFamilyReady={handleAuthFamilyReady} />;
 
   const TABS = [
     { id: "today", icon: "◈", label: "Today" },
