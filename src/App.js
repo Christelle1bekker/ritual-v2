@@ -2058,7 +2058,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 }
 
 // ─── MANAGE HABITS SCREEN ─────────────────────────────────────────
-function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBack, initialEditHabitId }) {
+function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDeleteHabit, onBackfillHabit, onBack, initialEditHabitId }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", location: "", target: 1, isShared: true, assignedMemberIds: null, daysActive: null, completionType: 'individual', points: 10, reminderTime: null });
 
@@ -2258,7 +2258,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
 }
 
 // ─── ADD SCREEN ───────────────────────────────────────────────────
-function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, onAddReward, onEditReward, onDeleteReward, initialView = "menu", onMounted, onBack, soloMode, initialEditHabitId }) {
+function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, onBackfillHabit, onAddReward, onEditReward, onDeleteReward, initialView = "menu", onMounted, onBack, soloMode, initialEditHabitId }) {
   const [view, setView] = useState(initialView);
   useEffect(() => { onMounted?.(); }, []);
   const [selectedCat, setSelectedCat] = useState(null);
@@ -2291,7 +2291,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
   }
 
   if (view === "habitsManage") {
-    return <ManageHabitsScreen habits={habits} family={family} currentMember={currentMember} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBack={() => onBack ? onBack() : setView("menu")} initialEditHabitId={initialEditHabitId} />;
+    return <ManageHabitsScreen habits={habits} family={family} currentMember={currentMember} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBackfillHabit={onBackfillHabit} onBack={() => onBack ? onBack() : setView("menu")} initialEditHabitId={initialEditHabitId} />;
   }
 
   // FIX 8: Custom ritual creation view
@@ -3687,7 +3687,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
 function ManageScreen({
   family, currentMember, soloMode,
   habits,
-  onAddHabit, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit,
+  onAddHabit, onAssignTile, onRemoveTile, onEditHabit, onDeleteHabit, onBackfillHabit,
   onAddReward, onEditReward, onDeleteReward,
   onLogout, onRefresh, soundEnabled, onToggleSound, onReplayOnboarding,
   onToast, onEditMember, onRemoveMember, onAddMember,
@@ -3747,11 +3747,11 @@ function ManageScreen({
     return <ManageTilesScreen habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onBack={goBack} />;
   }
   if (activeSubView === "habitsManage") {
-    return <ManageHabitsScreen habits={habits} family={family} currentMember={currentMember} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBack={goBack} initialEditHabitId={initialEditHabitId} />;
+    return <ManageHabitsScreen habits={habits} family={family} currentMember={currentMember} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBackfillHabit={onBackfillHabit} onBack={goBack} initialEditHabitId={initialEditHabitId} />;
   }
   if (activeSubView === "addRitual" || activeSubView === "custom" || activeSubView === "manageRewards") {
     const initView = activeSubView === "manageRewards" ? "rewards" : activeSubView;
-    return <AddScreen family={family} currentMember={currentMember} onAddHabit={onAddHabit} habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onAddReward={onAddReward} onEditReward={onEditReward} onDeleteReward={onDeleteReward} initialView={initView} onBack={goBack} soloMode={soloMode} />;
+    return <AddScreen family={family} currentMember={currentMember} onAddHabit={onAddHabit} habits={habits} onAssignTile={onAssignTile} onRemoveTile={onRemoveTile} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} onBackfillHabit={onBackfillHabit} onAddReward={onAddReward} onEditReward={onEditReward} onDeleteReward={onDeleteReward} initialView={initView} onBack={goBack} soloMode={soloMode} />;
   }
   if (activeSubView === "howItWorks") {
     return (
@@ -4713,6 +4713,94 @@ export default function RitualApp() {
     localStorage.removeItem("ritual_soloMode");
   };
 
+  const handleBackfill = async (habit) => {
+    if (!habit || !currentMember || !family || !supabase) return;
+
+    const yKey = getYesterdayKey();
+    const targetTaps = habit.target || 1;
+    const pointValue = habit.points || 10;
+    const isShared = habit.completionType === 'shared';
+    const allFamilyMemberIds = (family.members || []).map(m => m.id);
+    const fanOutMemberIds = isShared
+      ? (habit.assignedMemberIds?.length ? habit.assignedMemberIds : allFamilyMemberIds)
+      : [currentMember.id];
+
+    const nowIso = new Date().toISOString();
+    const rows = fanOutMemberIds.map(memberId => ({
+      habit_id: habit.id,
+      member_id: memberId,
+      family_id: family.id,
+      date: yKey,
+      taps: targetTaps,
+      backfilled_at: nowIso,
+    }));
+
+    // Optimistic: award points to current member only (single award)
+    setFamily(f => f && ({ ...f, members: f.members.map(m => m.id === currentMember.id ? { ...m, points: (m.points || 0) + pointValue } : m) }));
+    if (currentMemberRef.current?.id === currentMember.id) {
+      setCurrentMember(m => m ? { ...m, points: (m.points || 0) + pointValue } : m);
+    }
+
+    // Optimistic: if yesterday is in the current week, reflect in weekCompletions
+    const weekDates = getWeekDates();
+    if (weekDates.includes(yKey)) {
+      setWeekCompletions(prev => {
+        const next = [...prev];
+        fanOutMemberIds.forEach(memberId => {
+          const idx = next.findIndex(c => c.habitId === habit.id && c.memberId === memberId && c.date === yKey);
+          if (idx >= 0) next[idx] = { ...next[idx], taps: targetTaps };
+          else next.push({ id: `opt_bf_${Date.now()}_${memberId}`, habitId: habit.id, memberId, familyId: family.id, date: yKey, taps: targetTaps });
+        });
+        return next;
+      });
+    }
+
+    // Light haptic — single, no triple-burst
+    try { await Haptics.impact({ style: ImpactStyle.Light }); } catch (_) {}
+
+    // Upsert completion(s)
+    const { error: upErr } = await supabase
+      .from('completions')
+      .upsert(rows, { onConflict: 'habit_id,member_id,date' });
+    if (upErr) {
+      console.error('❌ Backfill upsert failed:', upErr);
+      addToast('Failed to mark as done', 'error');
+      return;
+    }
+
+    // Award points to current member (race-safe re-read, then write)
+    const { data: freshMember } = await supabase.from('members').select('points').eq('id', currentMember.id).single();
+    const freshPoints = freshMember?.points ?? (currentMember.points || 0);
+    const { error: pe } = await supabase.from('members').update({ points: freshPoints + pointValue }).eq('id', currentMember.id);
+    if (pe) console.error('❌ Backfill points sync failed:', pe);
+
+    // Recompute habit streak cache from all completions on this habit (any member, taps > 0)
+    const { data: habitDates } = await supabase
+      .from('completions').select('date').eq('habit_id', habit.id).gt('taps', 0);
+    const habitStreak = calcStreakFromDates((habitDates || []).map(c => c.date));
+    await supabase.from('habits').update({ streak: habitStreak }).eq('id', habit.id);
+    setHabits(prev => prev.map(h => h.id === habit.id ? { ...h, streak: habitStreak } : h));
+
+    // Recompute member streak cache for every fan-out member (their completions across any habit, taps > 0)
+    for (const memberId of fanOutMemberIds) {
+      const { data: memberDates } = await supabase
+        .from('completions').select('date').eq('member_id', memberId).gt('taps', 0);
+      const memberStreak = calcStreakFromDates((memberDates || []).map(c => c.date));
+      await supabase.from('members').update({ streak: memberStreak }).eq('id', memberId);
+      setFamily(f => f && ({ ...f, members: f.members.map(m => m.id === memberId ? { ...m, streak: memberStreak } : m) }));
+      if (currentMemberRef.current?.id === memberId) {
+        setCurrentMember(m => m && m.id === memberId ? { ...m, streak: memberStreak } : m);
+      }
+    }
+
+    // Insights reads from analyticsData; force a refetch on next visit so the new
+    // backfilled row is included in calcStreakFromDates over analytics history.
+    setAnalyticsData(null);
+    analyticsLastFetched.current = null;
+
+    addToast('Marked as done for yesterday');
+  };
+
   const handleComplete = async (habitId, member, fromDigital) => {
     console.log('[WHO_DID_THIS] onSelect callback fired, habitId =', habitId, 'member =', member?.name);
     const habit = habitsWithTaps.find(h => h.id === habitId);
@@ -5492,7 +5580,7 @@ export default function RitualApp() {
             <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} forcePersonal={true} />
           )}
           {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} />}
-          {tab === "manage" && <ManageScreen key={manageResetKey} family={family} currentMember={currentMember} soloMode={soloMode} habits={habits} onAddHabit={handleAddHabit} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} onLogout={handleLogout} onRefresh={handleRefreshData} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} onAddMember={handleAddMember} initialSubView={manageInitialView} onMounted={() => { setManageInitialView("main"); setEditHabitId(null); }} initialEditHabitId={editHabitId} />}
+          {tab === "manage" && <ManageScreen key={manageResetKey} family={family} currentMember={currentMember} soloMode={soloMode} habits={habits} onAddHabit={handleAddHabit} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onBackfillHabit={handleBackfill} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} onLogout={handleLogout} onRefresh={handleRefreshData} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} onAddMember={handleAddMember} initialSubView={manageInitialView} onMounted={() => { setManageInitialView("main"); setEditHabitId(null); }} initialEditHabitId={editHabitId} />}
         </div>
 
         {/* Branding footer */}
