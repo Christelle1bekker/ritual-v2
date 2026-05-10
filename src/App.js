@@ -2229,7 +2229,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
     <div style={{ padding: "0 20px 140px" }}>
       <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Manage Habits</div>
-      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Tap a habit to edit or delete it</div>
+      <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Tap a habit to edit, delete, or mark as done yesterday</div>
       {habits.length === 0 ? (
         <div style={{ background: C.white, borderRadius: 20, padding: 28, textAlign: "center" }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>◈</div>

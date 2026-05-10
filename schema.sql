@@ -281,6 +281,21 @@ alter table families drop constraint if exists families_pin_key;
 create index if not exists idx_families_pin on families(pin);
 
 
+-- 20. Backfill marker on completions (May 2026)
+--     "Mark as done yesterday" feature writes completion rows with
+--     backfilled_at = now(). Live taps leave it null. Used to
+--     distinguish backfilled rows from organic completions for
+--     analytics, audit, and any future "undo backfill" surface.
+alter table completions
+  add column if not exists backfilled_at timestamptz default null;
+
+create index if not exists idx_completions_backfilled
+  on completions(backfilled_at) where backfilled_at is not null;
+
+comment on column completions.backfilled_at is
+  'When set, this completion was created via the backfill feature, not a live tap. Null for live taps.';
+
+
 -- ═══════════════════════════════════════════════════════════════════
 -- NOTES
 -- ═══════════════════════════════════════════════════════════════════
