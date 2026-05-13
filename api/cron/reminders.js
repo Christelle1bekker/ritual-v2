@@ -7,12 +7,22 @@ const supabase = createClient(
 );
 
 function getMelbourneTime() {
+  // Intl.DateTimeFormat with timeZone 'Australia/Melbourne' handles the
+  // AEST (UTC+10, winter) / AEDT (UTC+11, summer) DST transition automatically.
+  // en-CA produces YYYY-MM-DD date parts natively, and hour12:false gives 24h time.
   const now = new Date();
-  // UTC+11 (AEDT) — adjust for AEST (UTC+10) when needed, but app uses UTC+11
-  const melbourne = new Date(now.getTime() + 11 * 60 * 60 * 1000);
-  const hh = String(melbourne.getUTCHours()).padStart(2, '0');
-  const mm = String(melbourne.getUTCMinutes()).padStart(2, '0');
-  return { timeStr: `${hh}:${mm}`, dateStr: melbourne.toISOString().split('T')[0] };
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Melbourne',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(now).map(p => [p.type, p.value])
+  );
+  return {
+    timeStr: `${parts.hour}:${parts.minute}`,
+    dateStr: `${parts.year}-${parts.month}-${parts.day}`,
+  };
 }
 
 function makeApnsJwt() {
@@ -79,7 +89,7 @@ export default async function handler(req, res) {
     .in('reminder_time', times);
 
   if (habitsErr || !habits?.length) {
-    console.log(`[reminders] no habits due — reason: ${habitsErr?.message || 'none in window'}`);
+    console.log(`[reminders] no habits due — reason: ${habitsErr?.message || 'none in window'} — checked window: ${times.join(', ')} — habits in DB with reminder_time set: ${reminderCheck?.length ?? 0}`);
     return res.status(200).json({ ok: true, sent: 0, reason: habitsErr?.message || 'No habits due' });
   }
   console.log(`[reminders] habits due in this window: ${habits.length}`);
