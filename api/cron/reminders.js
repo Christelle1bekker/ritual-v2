@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { createClient } from '@supabase/supabase-js';
+import http2 from 'node:http2';
 
 const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL,
@@ -35,23 +36,53 @@ function makeApnsJwt() {
   });
 }
 
-async function sendPush(deviceToken, title, body) {
-  const jwtToken = makeApnsJwt();
-  const apnsUrl = `https://api.push.apple.com/3/device/${deviceToken}`;
-  const payload = JSON.stringify({
-    aps: { alert: { title, body }, sound: 'default' },
-  });
-  const res = await fetch(apnsUrl, {
-    method: 'POST',
-    headers: {
-      authorization: `bearer ${jwtToken}`,
+function sendPush(deviceToken, title, body) {
+  return new Promise((resolve) => {
+    const jwtToken = makeApnsJwt();
+    const payload = JSON.stringify({
+      aps: { alert: { title, body }, sound: 'default' },
+    });
+
+    const client = http2.connect('https://api.push.apple.com');
+    client.on('error', (err) => {
+      console.error('[apns] connection error:', err.message);
+      resolve(false);
+    });
+
+    const req = client.request({
+      ':method': 'POST',
+      ':path': `/3/device/${deviceToken}`,
+      'authorization': `bearer ${jwtToken}`,
       'apns-topic': 'com.ritualhabits.app',
       'apns-push-type': 'alert',
       'content-type': 'application/json',
-    },
-    body: payload,
+    });
+
+    let responseStatus = 0;
+    let responseBody = '';
+
+    req.on('response', (headers) => {
+      responseStatus = headers[':status'];
+    });
+    req.on('data', (chunk) => { responseBody += chunk; });
+    req.on('end', () => {
+      client.close();
+      if (responseStatus === 200) {
+        resolve(true);
+      } else {
+        console.error(`[apns] send failed: ${responseStatus} ${responseBody}`);
+        resolve(false);
+      }
+    });
+    req.on('error', (err) => {
+      console.error('[apns] request error:', err.message);
+      client.close();
+      resolve(false);
+    });
+
+    req.write(payload);
+    req.end();
   });
-  return res.ok;
 }
 
 export default async function handler(req, res) {
