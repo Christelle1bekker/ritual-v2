@@ -3219,11 +3219,12 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       return { name: h.name, icon: h.icon, rate: Math.round((count / possible) * 100) };
     }).sort((a, b) => b.rate - a.rate);
 
-    // Live streak from analytics history (not stale DB value)
-    const memberDates = analyticsData
-      ? analyticsData.filter(c => c.memberId === currentMember.id && c.taps > 0).map(c => c.date)
-      : weekCompletions.filter(c => c.memberId === currentMember.id && c.taps > 0).map(c => c.date);
-    const streak = calcStreakFromDates(memberDates);
+    // Live streak from analytics history; fall back to the cached DB streak
+    // while analytics loads (computing from one week of data capped the
+    // streak at ≤7 and showed 1 on a Monday).
+    const streak = analyticsData
+      ? calcStreakFromDates(analyticsData.filter(c => c.memberId === currentMember.id && c.taps > 0).map(c => c.date))
+      : (currentMember.streak || 0);
 
     // Consistency: unique active days in last 30 calendar days
     let consistencyDays = 0;
