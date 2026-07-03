@@ -148,12 +148,16 @@ function normalizeCompletion(c) {
 // name + PIN don't match). Transport/query failures THROW, so callers can
 // tell "wrong PIN" apart from "network blip" — a boot that hydrated from
 // the cache must keep showing it through a blip, not log the family out.
-async function fetchFamilyData(pin, familyName) {
+// `onFamilyId` (optional) fires as soon as the login RPC resolves, letting
+// the boot path start the completions fetch concurrently with the
+// members/habits/rewards selects instead of serially after them.
+async function fetchFamilyData(pin, familyName, onFamilyId) {
   if (!supabase) return null;
   const { data: famRows, error: famErr } = await supabase.rpc('login_family', { family_name: familyName, family_pin: pin });
   if (famErr) { console.error("❌ fetchFamilyData error:", famErr); throw famErr; }
   if (!famRows?.[0]) return null;
   const fam = famRows[0];
+  if (onFamilyId) { try { onFamilyId(fam.id); } catch (_) {} }
   const [membersRes, habitsRes, rewardsRes] = await Promise.all([
     supabase.from("members").select("*").eq("family_id", fam.id),
     supabase.from("habits").select("*").eq("family_id", fam.id),
@@ -5008,7 +5012,7 @@ export default function RitualApp() {
   // yet, so nothing can be yanked). A background revalidation of a
   // cache-hydrated session MERGES — on-screen progress may only ever go up
   // (rules and tests live in src/utils/bootCache.js).
-  const loadDataForFamily = async (familyData) => {
+  const loadDataForFamily = async (familyData, prefetchedCompletions) => {
     const hyd = bootHydrationRef.current;
     const merging = hyd.active && hyd.familyId === familyData.id;
     if (hyd.active && !merging) {
@@ -5066,6 +5070,13 @@ export default function RitualApp() {
           setWeekCompletions(week);
         }
       };
+      // A prefetched promise (started alongside the members/habits/rewards
+      // selects) resolves null on failure — fall through to a fresh fetch
+      // with the retry path in that case.
+      if (prefetchedCompletions) {
+        const result = await prefetchedCompletions;
+        if (result) { applyCompletions(result); return; }
+      }
       try {
         applyCompletions(await fetchWeekAndTodayCompletions(familyData.id));
       } catch (e) {
@@ -5100,6 +5111,10 @@ export default function RitualApp() {
         return;
       }
       const fam = famRows[0];
+      // Completions fetch runs concurrently with the three selects below —
+      // one less serial round-trip on the boot critical path.
+      const completionsPromise = fetchWeekAndTodayCompletions(fam.id)
+        .catch(e => { console.error('❌ prefetched completions failed:', e); return null; });
       const [membersRes, habitsRes, rewardsRes] = await Promise.all([
         supabase.from('members').select('*').eq('family_id', fam.id),
         supabase.from('habits').select('*').eq('family_id', fam.id),
@@ -5119,7 +5134,7 @@ export default function RitualApp() {
       setNeedsFamilyCreation(false);
       setAuthedUserEmail(authUserEmail || null);
       setSoloMode(!!fam.is_solo);
-      await loadDataForFamily(familyData);
+      await loadDataForFamily(familyData, completionsPromise);
     } catch (e) {
       console.error('❌ loadFamilyForAuthUser exception:', e);
     }
@@ -5163,8 +5178,14 @@ export default function RitualApp() {
         const savedPin = localStorage.getItem("ritual_savedPin");
         const savedFamilyName = localStorage.getItem("ritual_savedFamilyName");
         if (savedPin && savedFamilyName && supabase) {
-          const familyData = await fetchFamilyData(savedPin, savedFamilyName);
-          if (familyData) { await loadDataForFamily(familyData); return; }
+          // Start the completions fetch the moment the login RPC yields the
+          // family id, so it overlaps the members/habits/rewards selects.
+          let completionsPromise = null;
+          const familyData = await fetchFamilyData(savedPin, savedFamilyName, (familyId) => {
+            completionsPromise = fetchWeekAndTodayCompletions(familyId)
+              .catch(e => { console.error('❌ prefetched completions failed:', e); return null; });
+          });
+          if (familyData) { await loadDataForFamily(familyData, completionsPromise); return; }
           // null = credentials genuinely rejected (transport errors throw)
           console.warn("⚠️ Saved credentials invalid, clearing");
           localStorage.removeItem("ritual_savedPin");
