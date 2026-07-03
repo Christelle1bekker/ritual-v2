@@ -8,10 +8,12 @@ export function todayKey() {
   return new Date().toLocaleDateString('en-CA', { timeZone: MELB_TZ });
 }
 
-export function getYesterdayKey() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toLocaleDateString('en-CA', { timeZone: MELB_TZ });
+// Melbourne's yesterday, derived from Melbourne's today by pure string math.
+// (Subtracting a device-local calendar day and then formatting in Melbourne
+// goes wrong when the device timezone's DST transitions don't line up with
+// Melbourne's — the "day" subtracted can be 23/25 real hours.)
+export function getYesterdayKey(todayStr = todayKey()) {
+  return isoAddDays(todayStr, -1);
 }
 
 export function getTodayIndex(todayStr = todayKey()) {

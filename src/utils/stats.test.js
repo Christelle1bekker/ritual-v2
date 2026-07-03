@@ -1,5 +1,5 @@
 import {
-  todayKey, getTodayIndex, getWeekDates, isoAddDays, calcStreakFromDates,
+  todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, calcStreakFromDates,
 } from './stats';
 
 // 2026-07-03 is a Friday; 2026-06-29 is the Monday of that week.
@@ -30,6 +30,17 @@ describe('isoAddDays', () => {
 describe('todayKey', () => {
   it('returns a YYYY-MM-DD string', () => {
     expect(todayKey()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('getYesterdayKey', () => {
+  it('is exactly one calendar day before the given today', () => {
+    expect(getYesterdayKey('2026-07-03')).toBe('2026-07-02');
+    expect(getYesterdayKey('2026-07-01')).toBe('2026-06-30');
+    expect(getYesterdayKey('2026-01-01')).toBe('2025-12-31');
+  });
+  it('defaults to Melbourne today and agrees with isoAddDays', () => {
+    expect(getYesterdayKey()).toBe(isoAddDays(todayKey(), -1));
   });
 });
 
