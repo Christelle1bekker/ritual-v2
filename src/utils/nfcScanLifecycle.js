@@ -24,17 +24,30 @@
 //        cc0ca11) → resolve(url)
 //     └─ onStateChange (cancel / 60s iOS timeout / system error — the
 //        plugin collapses all of these into one opaque event) → resolve(null)
-//   either way lastSessionEndedAt is stamped so the next scan settles.
+//     └─ watchdog (WATCHDOG_MS, past iOS's 60s session ceiling) → the
+//        terminal event was swallowed; stopScanning() + resolve(null) so
+//        the single-flight guard can never wedge permanently
+//   either way lastSessionEndedAt is stamped so the next scan settles —
+//   including when startScanning() itself rejects (no back-to-back retry
+//   against a radio that just reported a start failure).
 //
-// Constructor injection (now/schedule/warn) exists purely for tests.
+// Constructor injection (now/schedule/cancel/warn) exists purely for tests.
 import { extractUrlFromTag } from './nfcNdef';
 
 export const SETTLE_MS = 750;
+// iOS hard-caps reader sessions at 60s, so every session MUST produce a
+// terminal event by then. The watchdog sits just past that ceiling as
+// belt-and-braces: if a terminal event is ever swallowed (e.g. the Capgo
+// plugin's TAG path suppresses user-cancel entirely), the scan resolves
+// null instead of wedging the single-flight guard until app restart —
+// which would read exactly like "scanning worked, then stopped working".
+export const WATCHDOG_MS = 65000;
 
 export function createScanLifecycle(nfc, opts = {}) {
   const {
     now = () => Date.now(),
     schedule = (fn, ms) => setTimeout(fn, ms),
+    cancel = (id) => clearTimeout(id),
     warn = (...args) => console.warn(...args),
   } = opts;
 
@@ -49,12 +62,25 @@ export function createScanLifecycle(nfc, opts = {}) {
   let lastSessionEndedAt = 0;
 
   // Claim the resolution slot synchronously so concurrent nfcEvent /
-  // nfcStateChange handlers can't double-resolve one scan.
+  // nfcStateChange handlers can't double-resolve one scan. Cancels the
+  // claimed scan's watchdog — a normally-resolved scan must never see it.
   function claim() {
     const entry = currentScan;
     if (!entry) return null;
     currentScan = null;
+    if (entry.watchdogId != null) cancel(entry.watchdogId);
     return entry;
+  }
+
+  async function onWatchdog(entry) {
+    if (currentScan !== entry) return; // resolved normally — nothing to do
+    currentScan = null;
+    warn('[nfcScanLifecycle] no terminal event within', WATCHDOG_MS, 'ms of session start — force-resolving scan');
+    // If the session were somehow still armed, stop it before releasing the
+    // slot so the next scan doesn't begin() over a live session.
+    try { await nfc.stopScanning(); } catch {}
+    lastSessionEndedAt = now();
+    entry.resolve(null);
   }
 
   async function onNfcEvent(event) {
@@ -99,18 +125,31 @@ export function createScanLifecycle(nfc, opts = {}) {
     try {
       let entry;
       const scanPromise = new Promise((resolve) => {
-        entry = { resolve };
+        entry = { resolve, watchdogId: null };
       });
       currentScan = entry;
+      entry.watchdogId = schedule(() => { onWatchdog(entry); }, WATCHDOG_MS);
 
-      await nfc.startScanning(startOptions);
+      try {
+        await nfc.startScanning(startOptions);
+      } catch (e) {
+        // No session began, but stamp the clock anyway so the next attempt
+        // still gets a settle gap — a start failure (e.g. system resource
+        // unavailable) must not be retried back-to-back.
+        lastSessionEndedAt = now();
+        throw e;
+      }
 
       return await scanPromise;
     } finally {
       // Handlers null this on resolution; the belt-and-braces clear here
       // covers the case where startScanning() rejected before any event
-      // fired, so the next scan() doesn't see a stale resolve slot.
-      currentScan = null;
+      // fired, so the next scan() doesn't see a stale resolve slot (and
+      // its watchdog doesn't fire against a dead scan).
+      if (currentScan) {
+        if (currentScan.watchdogId != null) cancel(currentScan.watchdogId);
+        currentScan = null;
+      }
       scanning = false;
     }
   }

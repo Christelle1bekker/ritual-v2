@@ -1,4 +1,4 @@
-import { createScanLifecycle, SETTLE_MS } from './nfcScanLifecycle';
+import { createScanLifecycle, SETTLE_MS, WATCHDOG_MS } from './nfcScanLifecycle';
 
 // Deterministic clock + scheduler so settle timing is provable without
 // wall-clock sleeps. advance() fires due timers in order and yields to the
@@ -63,6 +63,7 @@ function makeLifecycle(overrides = {}) {
   const lifecycle = createScanLifecycle(nfc, {
     now: clock.now,
     schedule: clock.schedule,
+    cancel: clock.cancel,
     warn,
     ...overrides,
   });
@@ -210,6 +211,22 @@ describe('nfcScanLifecycle — settle delay (invalidation-then-cooldown before r
     await second;
   });
 
+  test('startScanning rejection also stamps the settle clock — no back-to-back retry after a start failure', async () => {
+    const { clock, nfc, lifecycle } = makeLifecycle();
+    nfc.startScanning.mockRejectedValueOnce(new Error('system resource unavailable'));
+    await expect(lifecycle.scan({})).rejects.toThrow('system resource unavailable');
+    expect(nfc.startScanning).toHaveBeenCalledTimes(1);
+
+    // Immediate retry must wait out the settle window
+    const second = lifecycle.scan({});
+    await clock.flush();
+    expect(nfc.startScanning).toHaveBeenCalledTimes(1);
+    await clock.advance(SETTLE_MS);
+    expect(nfc.startScanning).toHaveBeenCalledTimes(2);
+    lifecycle.onNfcEvent(TILE_EVENT);
+    await expect(second).resolves.toBe(TILE_URL);
+  });
+
   test('events arriving during the settle wait (retained replays) are ignored — the slot is not armed yet', async () => {
     const { clock, nfc, lifecycle } = makeLifecycle();
     const first = lifecycle.scan({});
@@ -223,6 +240,94 @@ describe('nfcScanLifecycle — settle delay (invalidation-then-cooldown before r
     lifecycle.onStateChange();
     await clock.advance(SETTLE_MS);
     expect(nfc.startScanning).toHaveBeenCalledTimes(2); // still armed and started
+    lifecycle.onNfcEvent(TILE_EVENT);
+    await expect(second).resolves.toBe(TILE_URL);
+  });
+});
+
+describe('nfcScanLifecycle — watchdog (anti-wedge)', () => {
+  test('a scan whose terminal event is swallowed force-resolves null at WATCHDOG_MS and stops the session', async () => {
+    const { clock, nfc, warn, lifecycle } = makeLifecycle();
+    const scanP = lifecycle.scan({});
+    await clock.flush();
+    expect(nfc.startScanning).toHaveBeenCalledTimes(1);
+
+    // No nfcEvent, no nfcStateChange — e.g. the plugin's TAG path swallowing
+    // user-cancel. The scan must not hang forever.
+    await clock.advance(WATCHDOG_MS - 1);
+    await clock.advance(1);
+    await expect(scanP).resolves.toBeNull();
+    expect(nfc.stopScanning).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  test('after a watchdog-resolved scan, the single-flight guard is released and the next scan works', async () => {
+    const { clock, nfc, lifecycle } = makeLifecycle();
+    const first = lifecycle.scan({});
+    await clock.flush();
+    await clock.advance(WATCHDOG_MS);
+    await expect(first).resolves.toBeNull();
+
+    // Next scan settles then starts a fresh session and resolves normally
+    const second = lifecycle.scan({});
+    await clock.advance(SETTLE_MS);
+    expect(nfc.startScanning).toHaveBeenCalledTimes(2);
+    lifecycle.onNfcEvent(TILE_EVENT);
+    await expect(second).resolves.toBe(TILE_URL);
+  });
+
+  test('watchdog is cancelled on normal resolution — no stray stopScanning later', async () => {
+    const { clock, nfc, lifecycle } = makeLifecycle();
+    const scanP = lifecycle.scan({});
+    await clock.flush();
+    lifecycle.onNfcEvent(TILE_EVENT);
+    await expect(scanP).resolves.toBe(TILE_URL);
+    expect(nfc.stopScanning).toHaveBeenCalledTimes(1); // the sheet-dismiss stop
+
+    await clock.advance(WATCHDOG_MS * 2);
+    expect(nfc.stopScanning).toHaveBeenCalledTimes(1); // watchdog never fired
+    expect(clock.pending()).toBe(0); // no timer left behind
+  });
+
+  test('watchdog is cancelled when nfcStateChange resolves the scan', async () => {
+    const { clock, nfc, lifecycle } = makeLifecycle();
+    const scanP = lifecycle.scan({});
+    await clock.flush();
+    lifecycle.onStateChange();
+    await expect(scanP).resolves.toBeNull();
+
+    await clock.advance(WATCHDOG_MS * 2);
+    expect(nfc.stopScanning).not.toHaveBeenCalled();
+    expect(clock.pending()).toBe(0);
+  });
+
+  test('watchdog is cancelled when startScanning rejects — no timer against a dead scan', async () => {
+    const { clock, nfc, lifecycle } = makeLifecycle();
+    nfc.startScanning.mockRejectedValueOnce(new Error('NO_NFC'));
+    await expect(lifecycle.scan({})).rejects.toThrow('NO_NFC');
+    expect(clock.pending()).toBe(0);
+
+    await clock.advance(WATCHDOG_MS * 2);
+    expect(nfc.stopScanning).not.toHaveBeenCalled();
+  });
+
+  test("an earlier scan's watchdog moment cannot clobber a later in-flight scan", async () => {
+    const { clock, nfc, lifecycle } = makeLifecycle();
+    // Scan 1 resolves normally (its watchdog is cancelled on claim)
+    const first = lifecycle.scan({});
+    await clock.flush();
+    lifecycle.onNfcEvent(TILE_EVENT);
+    await first;
+
+    // Scan 2 arms after the settle window
+    await clock.advance(SETTLE_MS);
+    const second = lifecycle.scan({});
+    await clock.flush();
+    expect(nfc.startScanning).toHaveBeenCalledTimes(2);
+
+    // Advance past the moment scan 1's watchdog WOULD have fired —
+    // scan 2 must still be pending and resolvable
+    await clock.advance(WATCHDOG_MS - SETTLE_MS - 1);
     lifecycle.onNfcEvent(TILE_EVENT);
     await expect(second).resolves.toBe(TILE_URL);
   });
