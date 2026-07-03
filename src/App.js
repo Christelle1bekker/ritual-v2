@@ -8,6 +8,7 @@ import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
 import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, calcStreakFromDates } from './utils/stats';
+import { fetchAllPages } from './utils/fetchPaged';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
 const C = {
@@ -161,11 +162,11 @@ async function fetchFamilyData(pin, familyName) {
 async function fetchTodayCompletions(familyId) {
   if (!supabase) return [];
   try {
-    const { data, error } = await supabase
+    const rows = await fetchAllPages(() => supabase
       .from("completions").select("*")
-      .eq("family_id", familyId).eq("date", todayKey());
-    if (error) console.error("❌ fetchTodayCompletions error:", error);
-    return (data || []).map(normalizeCompletion);
+      .eq("family_id", familyId).eq("date", todayKey())
+      .order("id", { ascending: true }));
+    return rows.map(normalizeCompletion);
   } catch (e) {
     console.error("❌ fetchTodayCompletions exception:", e);
     return [];
@@ -176,26 +177,35 @@ async function fetchWeekCompletions(familyId) {
   if (!supabase) return [];
   try {
     const dates = getWeekDates();
-    const { data } = await supabase
+    const rows = await fetchAllPages(() => supabase
       .from("completions").select("*")
       .eq("family_id", familyId)
-      .gte("date", dates[0]).lte("date", dates[6]);
-    return (data || []).map(normalizeCompletion);
+      .gte("date", dates[0]).lte("date", dates[6])
+      .order("date", { ascending: true }).order("id", { ascending: true }));
+    return rows.map(normalizeCompletion);
   } catch (e) {
     console.error("❌ fetchWeekCompletions exception:", e);
     return [];
   }
 }
 
+// Returns null (not []) on failure so callers can tell "failed to load" apart
+// from "no completions" and fall back to cached DB streak values.
 async function fetchAnalyticsData(familyId) {
-  if (!supabase) return [];
+  if (!supabase) return null;
   const windowStart = new Date(Date.now() - ANALYTICS_WINDOW_DAYS * 86400000)
     .toLocaleDateString('en-CA', { timeZone: MELB_TZ });
-  const { data } = await supabase
-    .from("completions").select("*")
-    .eq("family_id", familyId)
-    .gte("date", windowStart);
-  return (data || []).map(normalizeCompletion);
+  try {
+    const rows = await fetchAllPages(() => supabase
+      .from("completions").select("*")
+      .eq("family_id", familyId)
+      .gte("date", windowStart)
+      .order("date", { ascending: true }).order("id", { ascending: true }));
+    return rows.map(normalizeCompletion);
+  } catch (e) {
+    console.error("❌ fetchAnalyticsData exception:", e);
+    return null;
+  }
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────
@@ -4978,6 +4988,7 @@ export default function RitualApp() {
     const now = Date.now();
     if (analyticsData && analyticsLastFetched.current && now - analyticsLastFetched.current < ANALYTICS_CACHE_MS) return;
     fetchAnalyticsData(family.id).then(data => {
+      if (data === null) return; // fetch failed — leave stale data/DB fallback, retry next visit
       setAnalyticsData(data);
       analyticsLastFetched.current = Date.now();
     }).catch(() => {});
