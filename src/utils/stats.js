@@ -105,6 +105,20 @@ export function memberDayDoneCount(completions, dateStr, memberId, habits) {
   ).length;
 }
 
+// Overlay the live today-completions state onto the week's completions.
+// todayCompletions receives every optimistic update (taps, undo); the
+// week fetch does not — without this merge, week-scoped stats are blind to
+// anything logged today. Rows are keyed by (habit, member, date); the live
+// row wins.
+export function mergeLiveToday(weekCompletions, todayCompletions) {
+  const key = (c) => `${c.habitId}_${c.memberId}_${c.date}`;
+  const liveKeys = new Set(todayCompletions.map(key));
+  return [
+    ...weekCompletions.filter(c => !liveKeys.has(key(c))),
+    ...todayCompletions,
+  ];
+}
+
 // Most recent day strictly before todayStr on which the habit was scheduled.
 // Every-day habits (null/[] activeDays) → yesterday. Falls back to yesterday
 // if activeDays contains no valid weekday.

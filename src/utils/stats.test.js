@@ -1,7 +1,7 @@
 import {
   todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf,
   calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay,
-  memberDayDoneCount,
+  memberDayDoneCount, mergeLiveToday,
 } from './stats';
 
 // 2026-07-03 is a Friday; 2026-06-29 is the Monday of that week.
@@ -199,6 +199,31 @@ describe('uniqueCompletionDays', () => {
   });
   it('range bounds are inclusive', () => {
     expect(uniqueCompletionDays(rows, 'h1', '2026-06-28', '2026-06-29')).toBe(2);
+  });
+});
+
+describe('mergeLiveToday', () => {
+  const week = [
+    { habitId: 'h1', memberId: 'a', date: '2026-07-01', taps: 1 },
+    { habitId: 'h1', memberId: 'a', date: '2026-07-03', taps: 1 }, // stale today row
+  ];
+  it('overlays live today rows over the stale week fetch', () => {
+    const live = [{ habitId: 'h1', memberId: 'a', date: '2026-07-03', taps: 3 }];
+    const merged = mergeLiveToday(week, live);
+    expect(merged).toHaveLength(2);
+    expect(merged.find(c => c.date === '2026-07-03').taps).toBe(3);
+  });
+  it('adds live rows the week fetch has never seen', () => {
+    const live = [{ habitId: 'h2', memberId: 'b', date: '2026-07-03', taps: 1 }];
+    expect(mergeLiveToday(week, live)).toHaveLength(3);
+  });
+  it('keeps past-day rows untouched', () => {
+    const merged = mergeLiveToday(week, []);
+    expect(merged).toEqual(week);
+  });
+  it('live undo (taps=0) replaces the stale completed row', () => {
+    const live = [{ habitId: 'h1', memberId: 'a', date: '2026-07-03', taps: 0 }];
+    expect(mergeLiveToday(week, live).find(c => c.date === '2026-07-03').taps).toBe(0);
   });
 });
 

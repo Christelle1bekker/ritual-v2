@@ -7,7 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
-import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay, memberDayDoneCount } from './utils/stats';
+import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay, memberDayDoneCount, mergeLiveToday } from './utils/stats';
 import { fetchAllPages } from './utils/fetchPaged';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
@@ -4924,6 +4924,14 @@ export default function RitualApp() {
       });
   }, [habits, todayCompletions, currentMember, family?.members, soloMode, todayIndex, habitsWithTaps]);
 
+  // ─── Week completions with live today overlaid ───────────────────
+  // Optimistic updates land in todayCompletions only; weekCompletions is a
+  // boot-time fetch. Screens that read the week must see today's live rows.
+  const weekWithLiveToday = useMemo(
+    () => mergeLiveToday(weekCompletions, todayCompletions),
+    [weekCompletions, todayCompletions]
+  );
+
   // ─── Daily reset detection ───────────────────────────────────────
   const checkDateBoundary = useCallback(() => {
     const today = todayKey();
@@ -5442,6 +5450,11 @@ export default function RitualApp() {
       );
       if (error) console.error("❌ Completion sync failed:", error);
 
+      // Expire the analytics cache (keep the data for stale-while-refetch) so
+      // Insights streaks include this completion on the next visit instead of
+      // lagging up to ANALYTICS_CACHE_MS behind.
+      analyticsLastFetched.current = null;
+
       // Shared/household habit: sync same tap count to all other assigned members
       if (habit.completionType === 'shared' && habit.assignedMemberIds && habit.assignedMemberIds.length > 0) {
         const otherMembers = habit.assignedMemberIds.filter(id => id !== resolvedMember.id);
@@ -5512,6 +5525,7 @@ export default function RitualApp() {
     setTodayCompletions(prev => prev.map(c =>
       c.habitId === habitId && c.memberId === completedById ? { ...c, taps: Math.max(c.taps - 1, 0) } : c
     ));
+    analyticsLastFetched.current = null; // undo must reach Insights on next visit
     if (memberToDeduct) {
       setFamily(f => ({ ...f, members: f.members.map(m => m.id === memberToDeduct.id ? { ...m, points: Math.max((m.points || 0) - habitPointValue, 0) } : m) }));
     }
@@ -6187,7 +6201,7 @@ export default function RitualApp() {
           {tab === "today" && (
             <TodayScreen
               habits={myHabitsWithTaps}
-              weekCompletions={weekCompletions}
+              weekCompletions={weekWithLiveToday}
               currentMember={currentMember} allMembers={family.members || []}
               onComplete={handleComplete} onUndo={handleUndo}
               flashData={flashData} onFlashDone={() => setFlashData(null)}
@@ -6204,9 +6218,9 @@ export default function RitualApp() {
             <FamilyScreen family={family} currentMember={currentMember} onAddMember={handleAddMember} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} redemptions={redemptions} onRedeemReward={handleRedeemReward} onFulfillRedemption={handleFulfillRedemption} onCancelRedemption={handleCancelRedemption} />
           )}
           {tab === "family" && soloMode && (
-            <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} forcePersonal={true} />
+            <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekWithLiveToday} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} forcePersonal={true} />
           )}
-          {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekCompletions} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} />}
+          {tab === "insights" && <InsightsScreen habits={habitsWithTaps} family={family} weekCompletions={weekWithLiveToday} currentMember={currentMember} analyticsData={analyticsData} soloMode={soloMode} />}
           {tab === "manage" && <ManageScreen key={manageResetKey} family={family} currentMember={currentMember} soloMode={soloMode} habits={habits} onAddHabit={handleAddHabit} onAssignTile={handleAssignTile} onRemoveTile={handleRemoveTile} onEditHabit={handleEditHabit} onDeleteHabit={handleDeleteHabit} onBackfillHabit={handleBackfill} onAddReward={handleAddReward} onEditReward={handleEditReward} onDeleteReward={handleDeleteReward} onLogout={handleLogout} onRefresh={handleRefreshData} soundEnabled={soundEnabled} onToggleSound={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem("ritual_soundEnabled", String(next)); }} onReplayOnboarding={async () => { if (currentMember?.id && supabase) { await supabase.from("members").update({ onboarding_complete: false }).eq("id", currentMember.id); setCurrentMember(m => ({ ...m, onboardingComplete: false })); } setShowOnboarding(true); }} onToast={addToast} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} onAddMember={handleAddMember} authedUserEmail={authedUserEmail} initialSubView={manageInitialView} onMounted={() => { setManageInitialView("main"); setEditHabitId(null); }} initialEditHabitId={editHabitId} />}
         </div>
 
