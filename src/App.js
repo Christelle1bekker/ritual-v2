@@ -5287,17 +5287,19 @@ export default function RitualApp() {
     if (pe) console.error('❌ Backfill points sync failed:', pe);
 
     // Recompute habit streak cache from all completions on this habit (any member, taps > 0)
-    const { data: habitDates } = await supabase
-      .from('completions').select('date').eq('habit_id', habit.id).gt('taps', 0);
-    const habitStreak = calcStreakFromDates((habitDates || []).map(c => c.date), undefined, habit.daysActive);
+    const habitDates = await fetchAllPages(() => supabase
+      .from('completions').select('date').eq('habit_id', habit.id).gt('taps', 0)
+      .order('date', { ascending: true }).order('id', { ascending: true }));
+    const habitStreak = calcStreakFromDates(habitDates.map(c => c.date), undefined, habit.daysActive);
     await supabase.from('habits').update({ streak: habitStreak }).eq('id', habit.id);
     setHabits(prev => prev.map(h => h.id === habit.id ? { ...h, streak: habitStreak } : h));
 
     // Recompute member streak cache for every fan-out member (their completions across any habit, taps > 0)
     for (const memberId of fanOutMemberIds) {
-      const { data: memberDates } = await supabase
-        .from('completions').select('date').eq('member_id', memberId).gt('taps', 0);
-      const memberStreak = calcStreakFromDates((memberDates || []).map(c => c.date));
+      const memberDates = await fetchAllPages(() => supabase
+        .from('completions').select('date').eq('member_id', memberId).gt('taps', 0)
+        .order('date', { ascending: true }).order('id', { ascending: true }));
+      const memberStreak = calcStreakFromDates(memberDates.map(c => c.date));
       await supabase.from('members').update({ streak: memberStreak }).eq('id', memberId);
       setFamily(f => f && ({ ...f, members: f.members.map(m => m.id === memberId ? { ...m, streak: memberStreak } : m) }));
       if (currentMemberRef.current?.id === memberId) {
