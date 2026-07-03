@@ -80,7 +80,7 @@ ritual-v2/
 - `maurice_health` — single-row bot heartbeat table (`migrations/2026-04-11_maurice-health.sql`)
 - RPCs: `login_family`, `create_family`, `create_family_with_account_holder` (all SECURITY DEFINER)
 
-⚠️ **Schema drift:** `members.push_token` and `habits.reminder_time` are used by the app but are **not in schema.sql** — they were added directly in the Supabase dashboard. Fold them into schema.sql next time it's touched.
+`members.push_token` and `habits.reminder_time` were originally added directly in the Supabase dashboard; they are now recorded in schema.sql (block 23) and `migrations/2026-07-03_reconcile-drifted-columns.sql` (idempotent — running it against production is a no-op for the columns and refreshes the comments).
 
 **RLS is currently `using (true)` on all app tables** (PIN gates access at app level only). Staged account-holder policies for auth Phase 3 are written but **commented out** in schema.sql §22 — do not activate before `account_holder_id` backfill.
 

@@ -23,6 +23,8 @@ create table if not exists members (
   is_kid     boolean default false,
   points     integer default 0,
   streak     integer default 0,
+  -- APNs device token (hex string); last registering device wins. NULL = none.
+  push_token text default null,
   created_at timestamp default now()
 );
 
@@ -44,6 +46,9 @@ create table if not exists habits (
   is_shared    boolean default true,
   -- points: per-habit point value (reserved for future use, default 10)
   points       integer default 10,
+  -- 'HH:MM' 24h Melbourne-local reminder time (exact-string matched by
+  -- api/cron/reminders.js). NULL = no reminder.
+  reminder_time text default null,
   created_at   timestamp default now()
 );
 
@@ -385,6 +390,22 @@ comment on function create_family_with_account_holder(text) is
 -- reward_redemptions: TBD — current RLS state unknown per Phase 0 audit.
 --                     Finalise in Phase 3 once dashboard inspection confirms
 --                     whether RLS is enabled and what (if any) policy exists.
+
+
+-- 23. Reconcile drifted columns (July 2026)
+--     members.push_token and habits.reminder_time were added directly in the
+--     Supabase dashboard and never recorded here. This block documents them
+--     and makes fresh setups match production. Idempotent.
+--     (Also shipped as migrations/2026-07-03_reconcile-drifted-columns.sql.)
+alter table members
+  add column if not exists push_token text default null;
+comment on column members.push_token is
+  'APNs device token for push notifications (hex string). Written on push registration; last registering device wins. NULL = no registered device / push declined.';
+
+alter table habits
+  add column if not exists reminder_time text default null;
+comment on column habits.reminder_time is
+  'Daily reminder time as ''HH:MM'' (24h, Melbourne local), e.g. ''09:00''. Matched by exact string equality in api/cron/reminders.js. NULL = no reminder.';
 
 
 -- ═══════════════════════════════════════════════════════════════════

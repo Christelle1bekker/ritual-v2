@@ -62,7 +62,7 @@ Boot: auth session (or saved PIN) → family + members + habits + rewards → on
 ## Current state / gotchas (July 2026)
 
 - Auth is mid-migration: PIN login and Supabase email auth coexist (`families.account_holder_id`, Phase 1). Staged RLS for Phase 3 is **commented out** in schema.sql §22 — activating it before backfill locks everyone out.
-- Schema drift: `members.push_token` and `habits.reminder_time` exist in production but not in schema.sql yet.
+- Former schema drift (`members.push_token`, `habits.reminder_time`) is reconciled in schema.sql block 23 / `migrations/2026-07-03_reconcile-drifted-columns.sql`; verify production types match `text` when running it.
 - Points writes are read-then-write (no atomic increment) — known race under concurrent multi-device use.
 - A streak/stats correctness pass with unit tests landed on `ritual-dustoff` (July 2026); see `git log --oneline` for the series before assuming a stats bug is unfixed.
 - `test-results/` is Playwright output — should be gitignored, don't commit it.
