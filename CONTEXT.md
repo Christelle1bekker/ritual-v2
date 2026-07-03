@@ -1,263 +1,138 @@
 # Ritual v2 — Full Project Context
 
+> Regenerated 2026-07-03 from the actual code on branch `ritual-dustoff`.
+> The previous version of this file described the March-2026 web-only app and was badly stale.
+> When this document and the code disagree, trust the code.
+
 ## What is Ritual?
 
-Ritual is a **family habit-tracking app** built with **React (CRA)** and **Supabase** (PostgreSQL backend), deployed on **Vercel**. It's designed around physical NFC tags (called "Tiles") placed around the home — you tap your phone to a tile to log a habit. The app is intentionally minimal, warm, and calm in design (think: linen tones, serif headings, no gamification gimmicks).
+Ritual is a **family habit-tracking app**: physical NFC stickers ("Tiles") placed around the home log habits when tapped with a phone. Warm, calm design (linen tones, serif headings, no gamification gimmicks). It ships as:
 
-**Live URL:** https://ritual-v2-mu.vercel.app
-
----
+- a **native iOS app** (`com.ritualhabits.app`) — Capacitor 8 shell around the React app, distributed via TestFlight
+- a **web app** at https://ritual-v2-mu.vercel.app (also the NFC-tap landing target)
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18 (CRA), single `App.js` file (~1450 lines), no routing library |
-| Backend | Supabase (PostgreSQL + REST API via JS SDK) |
-| Auth | PIN-based (no email/password — family enters a 4-digit PIN) |
-| Hosting | Vercel (auto-deploys from GitHub on push to `main`) |
-| Fonts | Cormorant Garamond (headings) + DM Sans (body) via Google Fonts |
-| CSS | Inline styles only + a small `<style>` tag for global/responsive rules |
+| Frontend | React 18 (CRA), **one ~6,350-line `src/App.js`**, no routing library, inline styles |
+| Pure logic | `src/utils/stats.js` (dates/streaks/aggregation, unit-tested), `src/utils/fetchPaged.js` |
+| Native shell | Capacitor 8: push notifications (APNs), haptics, NFC (`@capgo/capacitor-nfc`), splash, browser, preferences |
+| OTA updates | `@capgo/capacitor-updater` (`autoUpdate: false` — bundles pushed deliberately, `notifyAppReady()` guards rollback) |
+| Backend | Supabase (PostgreSQL via PostgREST + RPCs; Supabase Auth being phased in) |
+| Serverless | Vercel functions in `api/` (streak cron, reminders, Maurice/Debbie Telegram bots) |
+| Hosting | Vercel, auto-deploy on push to `main` |
+| Tests | Jest via `react-scripts` — `npm test` (suites in `src/utils/*.test.js`) |
 
----
-
-## File Structure
+## Repo layout
 
 ```
 ritual-v2/
 ├── src/
-│   ├── App.js          ← entire app (~1450 lines, single file)
-│   └── supabase.js     ← Supabase client init
-├── schema.sql          ← DB schema (run once in Supabase SQL editor)
-├── .env.local          ← local dev env vars (REACT_APP_SUPABASE_URL, REACT_APP_SUPABASE_ANON_KEY)
-├── .env.local.example  ← template
-└── package.json
+│   ├── App.js              ← entire UI (~6,350 lines; components listed below)
+│   ├── index.js            ← entry: Capgo notifyAppReady, error boundary, render
+│   ├── supabase.js         ← client init (Capacitor Preferences as auth storage on native)
+│   ├── hooks/useNfcScanner.js
+│   └── utils/
+│       ├── stats.js        ← date/streak/aggregation helpers (UNIT-TESTED — edit with tests)
+│       ├── fetchPaged.js   ← fetchAllPages(): pages past PostgREST's silent 1000-row cap
+│       └── capacitorAuth.js
+├── api/                    ← Vercel serverless functions (CANNOT import from src/)
+│   ├── cron-streaks.js     ← daily streak reset (Vercel cron, 15:00 UTC = 1am AEST/2am AEDT)
+│   ├── cron/reminders.js   ← habit reminders (Vercel cron, every 5 min)
+│   ├── daily-report.js     ← "Maurice" daily health/usage report (cron-job.org, 06:30 AEST)
+│   ├── telegram-webhook.js ← Maurice on-demand commands (Ritual Ops Telegram group)
+│   ├── social-report.js    ← "Debbie" social/market scan (cron-job.org, few×/week)
+│   ├── debbie-webhook.js   ← Debbie on-demand commands (Telegram)
+│   └── nudge.js
+├── lib/                    ← shared code for api/ functions
+│   ├── maurice-core.js     ← health checks, usage queries, Telegram/email plumbing
+│   └── debbie-core.js      ← Haiku + web-search + Apify Instagram scan
+├── ios/App/                ← Xcode project (open App.xcodeproj, NOT a workspace)
+├── migrations/             ← one-off SQL (idempotent; run in Supabase SQL editor)
+├── schema.sql              ← canonical schema + numbered migration blocks (see drift note!)
+├── scripts/                ← icon/splash generators (jimp/sharp)
+├── spike/                  ← NFC-scanning spike docs + TestFlight handoff notes
+├── capacitor.config.ts
+└── vercel.json             ← crons, /t/:uid redirect, SPA rewrite, AASA header
 ```
 
----
+## Core data conventions (violate these and stats break)
 
-## Database Schema (Supabase / PostgreSQL)
+1. **The canonical "day" is a Melbourne calendar day** (`Australia/Melbourne`). All date keys are `YYYY-MM-DD` strings from `todayKey()`. Never do date math via `new Date('YYYY-MM-DD')` (parses as UTC midnight) — use `isoAddDays`/`mondayKeyOf` from `src/utils/stats.js`.
+2. **Day-of-week arrays are Mon=0 … Sun=6** (`habits.days_active`; `null`/`[]` = every day). Weeks run Monday–Sunday.
+3. **Completions are unique per (habit_id, member_id, date)**; `taps` increments per scan. **Undo leaves a `taps=0` row** — always filter `taps > 0`.
+4. **Shared habits (`completion_type='shared'`) mirror one identical completion row to every assignee.** Any cross-member aggregation must dedupe by (habit, date) (`dedupeByHabitDay`) or it multiplies by family size.
+5. **A "completed day" for streaks = any tap (`taps > 0`)**, deliberately not `taps >= target` (product decision, July 2026). The Today-screen "done" ring does use `taps >= target`.
+6. **Streaks are schedule-aware for habits** (unscheduled days don't break them; `calcStreakFromDates(dates, todayStr, activeDays)`), **but member streaks are deliberately any-day** ("showed up" = completed anything).
+7. **PostgREST silently caps un-ranged selects at 1000 rows.** Any query that can grow must go through `fetchAllPages` with a deterministic `.order()`.
 
-All tables have Row Level Security enabled with `using (true)` policies (open access — PIN handles auth).
+## Database schema (Supabase)
 
-### `families`
-```sql
-id uuid PK, name text, pin text UNIQUE, created_at timestamp
-```
+`schema.sql` is the canonical record — read it; it is genuinely current except for the drift noted below. Summary:
 
-### `members`
-```sql
-id uuid PK, family_id uuid FK→families, name text, avatar text (first letter of name),
-color text (hex), is_kid boolean, points integer, streak integer, created_at timestamp
-```
+- `families` — id, name, pin (NOT unique; login is name+PIN via `login_family` RPC), `is_solo`, `account_holder_id → auth.users` (nullable, auth-migration Phase 1)
+- `members` — family_id, name, avatar, color, is_kid, points, streak, onboarding_complete
+- `habits` — family_id, name/icon/category/color, location, target, streak, is_kid, is_custom, `tile_uid` (normalized NFC UID), is_shared, points, `assigned_member_ids uuid[]` (NULL = everyone), `days_active integer[]` (Mon=0), `completion_type` ('individual'|'shared')
+- `completions` — habit_id, member_id, family_id, date, taps, completed_at, `backfilled_at` (set by "mark done yesterday"), UNIQUE(habit_id, member_id, date)
+- `rewards` — family_id, name, points, icon, who, color, `assigned_to uuid[]`, status
+- `reward_redemptions` — reward/member/family, points_spent, status pending|fulfilled|cancelled
+- `maurice_health` — single-row bot heartbeat table (`migrations/2026-04-11_maurice-health.sql`)
+- RPCs: `login_family`, `create_family`, `create_family_with_account_holder` (all SECURITY DEFINER)
 
-### `habits`
-```sql
-id uuid PK, family_id uuid FK→families, name text, icon text (emoji),
-category text, category_id text, color text (hex), location text (tile location),
-target integer (taps/day), streak integer, is_kid boolean, is_custom boolean,
-tile_configured boolean, created_at timestamp
-```
+⚠️ **Schema drift:** `members.push_token` and `habits.reminder_time` are used by the app but are **not in schema.sql** — they were added directly in the Supabase dashboard. Fold them into schema.sql next time it's touched.
 
-### `completions`
-```sql
-id uuid PK, habit_id uuid FK→habits, member_id uuid FK→members,
-family_id uuid FK→families, date date, taps integer,
-completed_at timestamp,
-UNIQUE(habit_id, member_id, date)
-```
+**RLS is currently `using (true)` on all app tables** (PIN gates access at app level only). Staged account-holder policies for auth Phase 3 are written but **commented out** in schema.sql §22 — do not activate before `account_holder_id` backfill.
 
-### `rewards`
-```sql
-id uuid PK, family_id uuid FK→families, name text, points integer,
-icon text (emoji), who text, color text, created_at timestamp
-```
+## Auth (transitional — two parallel systems)
 
----
+1. **PIN**: family name + 4-digit PIN → `login_family` RPC; saved in `localStorage.ritual_savedPin`/`ritual_savedFamilyName`.
+2. **Supabase email auth** (Netflix-style: one auth user owns a family via `families.account_holder_id`; members are in-app profiles). Sessions persist in Capacitor Preferences on native. Boot tries the auth session first, then falls back to saved PIN.
 
-## App Architecture
+## Boot sequence (first meaningful paint)
 
-### State (in `RitualApp` root component)
-```js
-family          // { id, name, pin, members[], habits[], rewards[] }
-habits          // raw habits from DB (no tap data)
-todayCompletions  // completions for today from DB
-weekCompletions   // completions for this Mon–Sun from DB
-currentMember   // which family member is active (shown in header)
-tab             // "today" | "family" | "add" | "insights" | "settings"
-flashData       // triggers full-screen completion animation
-whoDidThis      // triggers member-selection overlay (for kids' habits)
-```
+`index.js` (Capgo `notifyAppReady`, error boundary) → render → mount effect: `supabase.auth.getSession()` → (auth path: families → members ∥ habits ∥ rewards; PIN path: `login_family` RPC → same three) → `fetchWeekAndTodayCompletions` (one paged query; today derived locally) → `setMounted(true)` unblocks the UI. Until then a "◈ Loading…" screen shows (native splash auto-hides at first paint). Analytics history is **not** fetched at boot — lazily on first Insights visit, 5-minute cache, invalidated on complete/undo/backfill/date-change.
 
-### Key Computed Values (useMemo)
-```js
-habitsWithTaps  // habits merged with todayCompletions → adds .taps, .completedById, .completedBy
-weekData        // [null|number, ...] × 7 — % complete per day this week (null = future)
-```
+## Insights & streaks
 
-### Data Flow
-1. **App mount** → checks `localStorage.ritual_savedPin` → auto-logs in if valid
-2. **Login** → `fetchFamilyData(pin)` → loads family + members + habits + rewards
-3. **After login** → `fetchTodayCompletions()` + `fetchWeekCompletions()` run in parallel
-4. **Habit tap** → optimistic update to `todayCompletions` state + background Supabase upsert
-5. **Points** → optimistic update to `family.members[].points` + background Supabase update
+- `fetchAnalyticsData` pulls the family's **full completion history**, slimmed to `habit_id, member_id, date, taps` with `taps>0` server-side, paginated. Feeds all live Insights metrics: member/habit streaks, streak watch, weekly summary, habit formation (66-day), habit health, kids leaderboard, personal bests (true all-time records).
+- `habits.streak` / `members.streak` in the DB are **caches**: incremented in `handleComplete`, reverted on undo, recomputed on backfill, reset overnight by `api/cron-streaks.js` (skips habits not scheduled yesterday). Insights prefers live computation and falls back to the DB value while analytics loads.
+- All pure calculation logic lives in `src/utils/stats.js` with tests in `stats.test.js`. **Add a test when you change it.**
 
-### Supabase Helper Functions (module-level)
-```js
-fetchFamilyData(pin)         // families + members + habits + rewards in one query
-fetchTodayCompletions(id)    // completions for today
-fetchWeekCompletions(id)     // completions for Mon–Sun of current week
-```
+## NFC tiles
 
-### Normaliser Functions
-Convert Supabase snake_case → camelCase for React state:
-```js
-normalizeMember(m)    // is_kid → isKid, family_id → familyId, etc.
-normalizeHabit(h)     // category_id → categoryId, tile_configured → tileConfigured, etc.
-normalizeCompletion(c) // habit_id → habitId, member_id → memberId, etc.
-```
+- Habit ↔ tile via `habits.tile_uid` (UID normalized: separators stripped, uppercased).
+- URL formats: path `https://…/t/{uid}` (production; `t.ritualhabits.com.au/:uid` 301s there via vercel.json) and legacy `?tile={uid}`. Parsed by `parseTileUrl`.
+- In-app scanning via `useNfcScanner` (`@capgo/capacitor-nfc`); deep links arrive through the Capacitor `appUrlOpen` listener. Associated domain: `applinks:app.ritualhabits.com.au`.
+- Tap routing: shared/kid/unassigned/ambiguous → "Who did this?" overlay; single assignee → auto-complete.
 
----
+## Scheduled jobs & bots
 
-## Component Structure
-
-```
-RitualApp (root)
-├── LoginScreen         — welcome/create family/join family/add members
-├── WhoDidThis          — overlay: "who completed this?" (kids habits)
-├── CompletionFlash     — full-screen animation on tap (10s countdown + undo)
-├── HabitCard           — single habit row with hold-to-complete + tile expand
-├── TodayScreen         — hero progress + week chart + habit grid
-├── FamilyScreen        — member list + points + rewards
-├── AddScreen           — menu → add habit / custom ritual / rewards / tile setup
-├── InsightsScreen      — stats cards (streaks, top habit, points, etc.)
-└── SettingsScreen      — family info + PIN display + sign out
-```
-
----
-
-## Tabs (5)
-
-| Tab | Icon | Content |
+| Job | Trigger | What |
 |---|---|---|
-| Today | ◈ | Progress hero, week bar chart, habit grid |
-| Family | ◉ | Member cards with points + streaks + nudge button |
-| Add | ⊕ | Add habit / custom ritual / manage rewards / tile setup |
-| Insights | ◎ | Stats cards |
-| Settings | ⚙ | Family PIN, member list, sign out |
+| `api/cron-streaks.js` | Vercel cron `0 15 * * *` (1am AEST/2am AEDT) | Resets stale habit/member streak caches for yesterday (schedule-aware, paged) |
+| `api/cron/reminders.js` | Vercel cron `*/5 * * * *` | Habit reminder push notifications (`reminder_time`) |
+| Maurice (`daily-report`, `telegram-webhook`) | cron-job.org 06:30 AEST + Telegram | Health-first daily report + on-demand ops checks; APNs via HTTP/2 |
+| Debbie (`social-report`, `debbie-webhook`) | cron-job.org few×/week + Telegram | Social/market/behavioural-science scans (Haiku + web search + Apify) |
 
----
+Secrets used by `api/`: `SUPABASE_SERVICE_KEY`, `CRON_SECRET`, `MAURICE_CRON_SECRET`, Telegram bot tokens, APNs key — all in Vercel env settings.
 
-## How Tiles Work
+## UI component map (all in App.js — grep for `^function <Name>`)
 
-1. Each habit has a `location` (e.g. "Bedroom door") and a `tile_configured` flag
-2. In **Add → Tile Setup**, the URL for each habit is: `https://ritual-v2-mu.vercel.app?habit={uuid}`
-3. User copies the URL, programs it onto an NFC sticker (tile)
-4. When tapped, the app opens, reads `?habit=` param, finds the habit, and calls `handleComplete`
-5. The `?habit=` param is then cleared from the URL (`window.history.replaceState`)
-6. Once a tile is configured (URL copied), it shows "✅ Configured" and hides the URL (with a "Show URL" button to reveal it again)
+`LoginScreen` (create/join/auth flows) · `TodayScreen` (adult) / `KidsTreeView` (kids tree-growth view) · `HabitCard` (hold-to-complete) · `CompletionFlash` (5s undo window) · `WhoDidThis` · `InactiveDayModal` · `CelebrationOverlay` · `FamilyScreen` (members, points, redemptions) · `AddScreen` (templates + custom habits + rewards) · `ManageHabitsScreen` (edit/delete/backfill) · `ManageTilesScreen` / `AssignTileModal` · `InsightsScreen` (stats cards, My Stats/Family toggle) · `SettingsScreen` · `ManageScreen` · `OnboardingFlow` · `PinInput`.
 
----
+Modes: **solo mode** (`families.is_solo` + localStorage) hides family UI; **kids** get the tree view and orange styling.
 
-## Key UX Details
+## Environments & deployment
 
-- **Active member** — shown in top-right header as coloured avatar circles. Active one: scale 1.25 + glow ring + full opacity. Others: 0.4 opacity + grayscale. Click to switch.
-- **Hold to complete** — habit cards don't complete on single tap. User must hold for ~1s (fills progress bar) OR tap through the expanded tile view. This prevents accidental completions.
-- **Undo** — CompletionFlash shows "Undo tap · 10s" button. Also long-press on a completed card to undo.
-- **Kids habits** — orange/warm styling, show "Who did this?" overlay instead of completing directly (for parents to assign to a child)
-- **Custom rituals** — emoji picker (40 options) + name + location + target count (1–20) + category
-- **Week chart** — only today's column shows the % number. Past days show height only. Future days are greyed out.
-- **PIN** — only shown in Settings tab. Removed from family header and family tab subtitle.
+- **Web**: push to `main` → Vercel auto-deploys (~2 min). `REACT_APP_SUPABASE_URL` / `REACT_APP_SUPABASE_ANON_KEY` in Vercel env + `.env.local` for dev.
+- **iOS**: bump build number in Xcode, Product → Archive → TestFlight (see `spike/c4-xcode-handoff.md` for the exact click-path). OTA JS updates via Capgo (manual channels; `autoUpdate: false`).
+- **Supabase**: project `nupifxbhwfaqyjevmmde`. Schema changes = idempotent SQL in the dashboard editor, mirrored into `schema.sql` (and `migrations/` for one-offs).
 
----
+## Known issues / current state (July 2026)
 
-## Design Tokens
-
-```js
-const C = {
-  sand: "#E8E0D5", sandLight: "#F2EDE7", sandDark: "#C9BFB3",
-  slate: "#3D4A4F", slateLight: "#5A6B72", slateDark: "#2A3438",
-  warm: "#8B7355", warmLight: "#A08C6E",
-  accent: "#C17B4E", accentLight: "#D4956A",  // terracotta/copper — primary CTA colour
-  green: "#5C7A5E", greenLight: "#7A9E7C",
-  white: "#FAF8F5", offwhite: "#F5F0EB",
-  kids: "#E8854A", kidsLight: "#F0A070",       // brighter orange for kids habits
-  kidsBlue: "#5B8DB8", kidsPurple: "#9B7EC8",
-  error: "#C0504D",
-};
-```
-
----
-
-## Responsive Layout
-
-```css
-/* Mobile (default): 390px wide, single column habits */
-.ritual-root { max-width: 390px; margin: 0 auto; }
-.habit-grid  { display: flex; flex-direction: column; gap: 10px; }
-.tab-bar     { width: 390px; }
-
-/* Desktop (768px+): 900px wide, 2-column habit grid */
-@media (min-width: 768px) {
-  .ritual-root { max-width: 900px; }
-  .habit-grid  { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  .tab-bar     { width: 900px; }
-}
-```
-
----
-
-## Vercel Environment Variables
-
-Both set in Vercel project settings → All Environments:
-
-```
-REACT_APP_SUPABASE_URL=https://nupifxbhwfaqyjevmmde.supabase.co
-REACT_APP_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
----
-
-## Habit Categories (built-in templates)
-
-8 categories, each with 5–7 preset habits:
-1. **Family & Chores** (🏠) — make bed, clear table, dishwasher, trash, feed pet, tidy room, school bag
-2. **Health & Body** (💊) — medication AM/PM, water (target 8), vitamins, stretch, weigh in, skincare
-3. **Screen-Free Time** (📵) — phone down at dinner/bedtime, homework focus, family screen-free hour
-4. **Morning Routine** (☀️) — wake up, coffee/breakfast, brush teeth, exercise, journal, priorities, no phone 30min
-5. **Learning & Growth** (📖) — read, instrument, language, study, podcast, flashcards
-6. **Mindfulness** (🧘) — meditate, gratitude, wind-down, breathing, digital detox, pray/reflect
-7. **Fitness** (🏋️) — workout, evening walk, stretching, water log, meal prep, recovery
-8. **Kids Special** (⭐) — homework, reading, instrument, help with dinner, be kind, screen-free, outdoor play
-
----
-
-## What's NOT Yet Built / Possible Next Steps
-
-- **Streak logic** — `streak` field exists in DB but isn't incremented automatically yet (no server-side logic / cron). Currently always shows 0 unless manually updated.
-- **Real-time sync** — currently no Supabase Realtime subscriptions. Data refreshes on login only.
-- **Push notifications** — no nudge delivery (the "Nudge 👋" button updates local state only, doesn't send anything)
-- **Reward redemption** — "Redeem" button renders but has no action
-- **Multi-device sync for member selection** — `currentMember` is saved to localStorage per device, not DB
-- **Streak auto-reset** — if you miss a day, streak doesn't reset automatically
-- **Add rewards** — can view rewards but can't add new ones from the app (only the 3 seeded defaults)
-- **Delete habits** — no delete habit functionality in the UI yet
-- **Habit editing** — can add and configure habits but not rename/edit them after creation
-
----
-
-## Supabase Project Details
-
-- **Project URL:** https://nupifxbhwfaqyjevmmde.supabase.co
-- **Region:** (auto-assigned)
-- **Auth:** disabled (PIN-based, uses anon key with open RLS policies)
-
----
-
-## Git / Deployment
-
-- **Repo:** GitHub (connected to Vercel for auto-deploy)
-- **Branch:** `main`
-- **Latest commit:** `171bc10 — Migrate to Supabase backend + 9 UX fixes`
-- **Vercel project:** `ritual-v2` under `christelle1bekkers-projects`
-- **Production alias:** https://ritual-v2-mu.vercel.app
+- Points writes are read-then-write (no atomic increment RPC) — concurrent completions on two devices can drop points.
+- RLS is open until auth-migration Phase 3 (staged policies in schema.sql §22).
+- Schema drift: `push_token`, `reminder_time` missing from schema.sql (see above).
+- Docs history: streak/stats correctness pass + unit tests landed on `ritual-dustoff` (July 2026) — see `git log` for the fix series.
+- `lib/maurice-core.js` usage queries are un-paged (reports undercount past 1000 rows; cosmetic).
