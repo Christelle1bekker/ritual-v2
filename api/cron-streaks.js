@@ -16,6 +16,24 @@ function getYesterdayMelbourne() {
     .toLocaleDateString('en-CA', { timeZone: 'Australia/Melbourne' });
 }
 
+// Mon=0 … Sun=6 for a YYYY-MM-DD string (same convention as habits.days_active)
+function dayIndexOf(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return (new Date(y, m - 1, d).getDay() + 6) % 7;
+}
+
+// PostgREST silently caps un-ranged selects at 1000 rows; page through instead.
+// buildQuery must return a fresh, deterministically-ordered builder each call.
+async function fetchAllPages(buildQuery, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return rows;
+  }
+}
+
 export default async function handler(req, res) {
   // Security: only allow Vercel cron calls or requests with CRON_SECRET
   const authHeader = req.headers['authorization'];
@@ -30,26 +48,32 @@ export default async function handler(req, res) {
   console.log(`Running streak reset for date: ${yesterday}`);
 
   try {
-    // 1. Get all habits
-    const { data: habits, error: hErr } = await supabase
+    // 1. Get all habits (paged — an un-ranged select caps at 1000 rows)
+    const habits = await fetchAllPages(() => supabase
       .from('habits')
-      .select('id, family_id, streak');
-    if (hErr) throw hErr;
+      .select('id, family_id, streak, days_active')
+      .order('id', { ascending: true }));
 
     // 2. Get all completions from yesterday (taps > 0 only)
-    const { data: completions, error: cErr } = await supabase
+    const completions = await fetchAllPages(() => supabase
       .from('completions')
       .select('habit_id, member_id')
       .eq('date', yesterday)
-      .gt('taps', 0);
-    if (cErr) throw cErr;
+      .gt('taps', 0)
+      .order('id', { ascending: true }));
 
     const completedHabitIds = new Set(completions.map(c => c.habit_id));
     const completedMemberIds = new Set(completions.map(c => c.member_id));
 
-    // 3. Reset habit streaks where no completion yesterday
+    // 3. Reset habit streaks where no completion yesterday.
+    // Skip habits that weren't scheduled yesterday (days_active, Mon=0):
+    // a Mon/Wed/Fri habit must not be reset on Wednesday morning for an
+    // empty Tuesday.
+    const yesterdayIdx = dayIndexOf(yesterday);
     const habitsToReset = habits
-      .filter(h => h.streak > 0 && !completedHabitIds.has(h.id))
+      .filter(h => h.streak > 0
+        && !completedHabitIds.has(h.id)
+        && (!h.days_active || h.days_active.length === 0 || h.days_active.includes(yesterdayIdx)))
       .map(h => h.id);
 
     if (habitsToReset.length > 0) {
@@ -60,11 +84,11 @@ export default async function handler(req, res) {
       if (hrErr) throw hrErr;
     }
 
-    // 4. Get all members
-    const { data: members, error: mErr } = await supabase
+    // 4. Get all members (paged)
+    const members = await fetchAllPages(() => supabase
       .from('members')
-      .select('id, streak');
-    if (mErr) throw mErr;
+      .select('id, streak')
+      .order('id', { ascending: true }));
 
     // 5. Reset member streaks where no completion yesterday
     const membersToReset = members
