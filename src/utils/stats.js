@@ -69,6 +69,19 @@ export function calcStreakFromDates(dates, todayStr = todayKey(), activeDays = n
   return streak;
 }
 
+// Collapse completion rows to one per (habit, day), keeping the max-taps row.
+// Shared habits mirror one identical row per assigned member; summing the raw
+// rows counts the same completion once per member.
+export function dedupeByHabitDay(completions) {
+  const byKey = new Map();
+  completions.forEach(c => {
+    const k = `${c.habitId}_${c.date}`;
+    const prev = byKey.get(k);
+    if (!prev || (c.taps || 0) > (prev.taps || 0)) byKey.set(k, c);
+  });
+  return [...byKey.values()];
+}
+
 // Unique days within [startStr, endStr] (inclusive) on which a habit was
 // completed. Family mode passes rows from several members — a habit
 // "happened" on a day if ANY member completed it, so distinct dates must be

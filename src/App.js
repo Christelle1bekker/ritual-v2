@@ -7,7 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
-import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays } from './utils/stats';
+import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay } from './utils/stats';
 import { fetchAllPages } from './utils/fetchPaged';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
@@ -3189,11 +3189,19 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       totalPossible += Math.max(elapsedActive, 0) * (h.target || 1);
     });
 
-    // Numerator: actual taps, capped at target per record
-    // For shared habits, count completions from ANY member (not just currentMember)
+    // Numerator: actual taps, capped at target per record.
+    // For shared habits, count completions from ANY member (not just currentMember),
+    // but collapse to one row per (habit, day): shared completions are mirrored to
+    // every assignee, so counting rows counts the same completion once per member.
+    // Both numerator terms are restricted to myHabits — the denominator only
+    // counts those, so a stray completion on an unavailable habit would push
+    // the percentage past 100.
+    const myHabitIds = new Set(myHabits.map(h => h.id));
     const sharedHabitIds = new Set(habits.filter(h => h.completionType === 'shared').map(h => h.id));
-    const sharedCompletions = weekCompletions.filter(c => sharedHabitIds.has(c.habitId) && c.taps > 0);
-    const completed = myCompletions.filter(c => !sharedHabitIds.has(c.habitId)).reduce((sum, c) => {
+    const sharedCompletions = dedupeByHabitDay(
+      weekCompletions.filter(c => sharedHabitIds.has(c.habitId) && myHabitIds.has(c.habitId) && c.taps > 0)
+    );
+    const completed = myCompletions.filter(c => !sharedHabitIds.has(c.habitId) && myHabitIds.has(c.habitId)).reduce((sum, c) => {
       const habit = habits.find(h => h.id === c.habitId);
       return sum + Math.min(c.taps, habit?.target || 1);
     }, 0) + sharedCompletions.reduce((sum, c) => {

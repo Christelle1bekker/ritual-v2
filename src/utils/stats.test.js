@@ -1,6 +1,6 @@
 import {
   todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf,
-  calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays,
+  calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay,
 } from './stats';
 
 // 2026-07-03 is a Friday; 2026-06-29 is the Monday of that week.
@@ -150,6 +150,34 @@ describe('calcStreakFromDates', () => {
       // the old completion is still reachable — the point is it terminates.
       expect(calcStreakFromDates(['2026-06-01'], TODAY, [9])).toBe(1);
     });
+  });
+});
+
+describe('dedupeByHabitDay', () => {
+  it('collapses mirrored shared-habit rows to one per habit-day', () => {
+    const rows = [
+      { habitId: 'h1', memberId: 'a', date: '2026-07-01', taps: 1 },
+      { habitId: 'h1', memberId: 'b', date: '2026-07-01', taps: 1 },
+      { habitId: 'h1', memberId: 'c', date: '2026-07-01', taps: 1 },
+      { habitId: 'h1', memberId: 'a', date: '2026-07-02', taps: 1 },
+    ];
+    const deduped = dedupeByHabitDay(rows);
+    expect(deduped).toHaveLength(2);
+    expect(deduped.map(c => c.date).sort()).toEqual(['2026-07-01', '2026-07-02']);
+  });
+  it('keeps the max-taps row for a day', () => {
+    const rows = [
+      { habitId: 'h1', memberId: 'a', date: '2026-07-01', taps: 2 },
+      { habitId: 'h1', memberId: 'b', date: '2026-07-01', taps: 5 },
+    ];
+    expect(dedupeByHabitDay(rows)[0].taps).toBe(5);
+  });
+  it('keeps different habits on the same day separate', () => {
+    const rows = [
+      { habitId: 'h1', memberId: 'a', date: '2026-07-01', taps: 1 },
+      { habitId: 'h2', memberId: 'a', date: '2026-07-01', taps: 1 },
+    ];
+    expect(dedupeByHabitDay(rows)).toHaveLength(2);
   });
 });
 
