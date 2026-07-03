@@ -159,34 +159,25 @@ async function fetchFamilyData(pin, familyName) {
   };
 }
 
-async function fetchTodayCompletions(familyId) {
-  if (!supabase) return [];
-  try {
-    const rows = await fetchAllPages(() => supabase
-      .from("completions").select("*")
-      .eq("family_id", familyId).eq("date", todayKey())
-      .order("id", { ascending: true }));
-    return rows.map(normalizeCompletion);
-  } catch (e) {
-    console.error("❌ fetchTodayCompletions exception:", e);
-    return [];
-  }
-}
-
+// Throws on failure — callers decide whether to retry or swallow. (When this
+// silently returned [] the boot-time retry path could never fire.)
 async function fetchWeekCompletions(familyId) {
   if (!supabase) return [];
-  try {
-    const dates = getWeekDates();
-    const rows = await fetchAllPages(() => supabase
-      .from("completions").select("*")
-      .eq("family_id", familyId)
-      .gte("date", dates[0]).lte("date", dates[6])
-      .order("date", { ascending: true }).order("id", { ascending: true }));
-    return rows.map(normalizeCompletion);
-  } catch (e) {
-    console.error("❌ fetchWeekCompletions exception:", e);
-    return [];
-  }
+  const dates = getWeekDates();
+  const rows = await fetchAllPages(() => supabase
+    .from("completions").select("*")
+    .eq("family_id", familyId)
+    .gte("date", dates[0]).lte("date", dates[6])
+    .order("date", { ascending: true }).order("id", { ascending: true }));
+  return rows.map(normalizeCompletion);
+}
+
+// Today's rows are a subset of the Mon–Sun week fetch — one query serves
+// both, saving a round trip on the boot critical path.
+async function fetchWeekAndTodayCompletions(familyId) {
+  const week = await fetchWeekCompletions(familyId);
+  const tKey = todayKey();
+  return { week, today: week.filter(c => c.date === tKey) };
 }
 
 // Returns null (not []) on failure so callers can tell "failed to load" apart
@@ -4940,12 +4931,9 @@ export default function RitualApp() {
       setLastFetchDate(today);
       setAnalyticsData(null); // invalidate analytics cache on new day
       if (supabase && family) {
-        Promise.all([
-          fetchTodayCompletions(family.id),
-          fetchWeekCompletions(family.id),
-        ]).then(([td, wd]) => {
-          setTodayCompletions(td);
-          setWeekCompletions(wd);
+        fetchWeekAndTodayCompletions(family.id).then(({ week, today }) => {
+          setTodayCompletions(today);
+          setWeekCompletions(week);
         }).catch(() => {});
       }
     }
@@ -5005,22 +4993,16 @@ export default function RitualApp() {
     }
     if (supabase) {
       try {
-        const [todayData, weekData] = await Promise.all([
-          fetchTodayCompletions(familyData.id),
-          fetchWeekCompletions(familyData.id),
-        ]);
-        setTodayCompletions(todayData);
-        setWeekCompletions(weekData);
+        const { week, today } = await fetchWeekAndTodayCompletions(familyData.id);
+        setTodayCompletions(today);
+        setWeekCompletions(week);
       } catch (e) {
         console.error("❌ Completions fetch failed, retrying:", e);
         setTimeout(async () => {
           try {
-            const [todayData, weekData] = await Promise.all([
-              fetchTodayCompletions(familyData.id),
-              fetchWeekCompletions(familyData.id),
-            ]);
-            setTodayCompletions(todayData);
-            setWeekCompletions(weekData);
+            const { week, today } = await fetchWeekAndTodayCompletions(familyData.id);
+            setTodayCompletions(today);
+            setWeekCompletions(week);
           } catch (e2) {
             console.error("❌ Completions retry also failed:", e2);
           }
@@ -5786,18 +5768,17 @@ export default function RitualApp() {
   const handleRefreshData = async () => {
     if (!supabase || !family) return;
     try {
-      const [freshFamily, todayData, weekData] = await Promise.all([
+      const [freshFamily, { week, today }] = await Promise.all([
         fetchFamilyData(family.pin, family.name),
-        fetchTodayCompletions(family.id),
-        fetchWeekCompletions(family.id),
+        fetchWeekAndTodayCompletions(family.id),
       ]);
       if (freshFamily) {
         setHabits(freshFamily.habits || []);
         setFamily(prev => ({ ...prev, members: freshFamily.members, rewards: freshFamily.rewards }));
         setCurrentMember(prev => freshFamily.members.find(m => m.id === prev.id) || prev);
       }
-      setTodayCompletions(todayData);
-      setWeekCompletions(weekData);
+      setTodayCompletions(today);
+      setWeekCompletions(week);
       addToast("✓ Data refreshed");
     } catch (err) {
       console.error("❌ Refresh failed:", err);
