@@ -3,8 +3,14 @@
   "configurations": [
     {
       "name": "ritual-dev",
-      "runtimeExecutable": "cmd.exe",
-      "runtimeArgs": ["/c", "cd /d C:\\Users\\Guest1\\OneDrive\\Desktop\\Games\\ritual-v2 && npm start"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 3000
+    },
+    {
+      "name": "ritual-dev-mock-supabase",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-lc", "REACT_APP_SUPABASE_URL=http://localhost:9999 REACT_APP_SUPABASE_ANON_KEY=mock-anon-key BROWSER=none npm start"],
       "port": 3000
     }
   ]

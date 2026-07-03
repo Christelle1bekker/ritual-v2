@@ -91,7 +91,12 @@ ritual-v2/
 
 ## Boot sequence (first meaningful paint)
 
-`index.js` (Capgo `notifyAppReady`, error boundary) → render → mount effect: `supabase.auth.getSession()` → (auth path: families → members ∥ habits ∥ rewards; PIN path: `login_family` RPC → same three) → `fetchWeekAndTodayCompletions` (one paged query; today derived locally) → `setMounted(true)` unblocks the UI. Until then a "◈ Loading…" screen shows (native splash auto-hides at first paint). Analytics history is **not** fetched at boot — lazily on first Insights visit, 5-minute cache, invalidated on complete/undo/backfill/date-change.
+`index.js` (Capgo `notifyAppReady`, error boundary) → render → mount effect, which now has two paths (July 2026, `src/utils/bootCache.js`):
+
+- **Warm boot** (same-Melbourne-day cache in `localStorage.ritual_bootCache_v1`): the last session's full state (family/members/habits/rewards + week/today completions) hydrates **synchronously before any network await** — the first paint is immediate and already shows true, complete progress. The server is then revalidated in the background and **merged, never blindly applied**: on-screen progress (checkmarks, points, streaks, tree) may silently increase but is never lowered mid-session; genuine local actions during the window (tap/undo/redeem) register "touched" keys that beat the in-flight fetch. Reconciled state is written back through (debounced) for the next launch. Cache is cleared on logout/sign-out/invalid credentials; a network failure keeps the cached state on screen (offline launch).
+- **Cold boot** (no usable cache — first run, new day, or post-logout): unchanged and deliberately so — `supabase.auth.getSession()` → (auth path: families → members ∥ habits ∥ rewards; PIN path: `login_family` RPC → same three) → completions (started **as soon as the family id is known**, overlapping the three selects) → `setMounted(true)` unblocks the UI. Until then the "◈ Loading…" screen shows (native splash auto-hides at first paint). Waiting is safe; painting partial progress is not — **no state that represents a child's progress ever renders before its true value is known.**
+
+Merge rules and cache validity are pure and unit-tested in `src/utils/bootCache.test.js`. Analytics history is **not** fetched at boot — lazily on first Insights visit, 5-minute cache, invalidated on complete/undo/backfill/date-change.
 
 ## Insights & streaks
 

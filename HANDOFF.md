@@ -50,7 +50,7 @@ Deploy web: push to `main` → Vercel auto-deploys. Deploy iOS: bump build numbe
 
 ## Data flow in 30 seconds
 
-Boot: auth session (or saved PIN) → family + members + habits + rewards → one paged week-completions query (today derived from it) → UI unblocks. Completions upsert on (habit_id, member_id, date); optimistic updates go to `todayCompletions` and are overlaid on the week via `mergeLiveToday`. Insights lazily pulls **full completion history** (slim columns, paginated, 5-min cache) and computes streaks/records live; DB `streak` columns are just caches maintained by `handleComplete`/undo/backfill + the 1am streak-reset cron.
+Boot: if a same-day boot cache exists (`src/utils/bootCache.js`), the UI paints the last session's full state instantly and the server revalidates in the background — merged so on-screen progress can rise but never visibly drop (inviolable rule: a child's progress must never render as less than it truly is, not even for a frame). Cold boot: auth session (or saved PIN) → family + members + habits + rewards ∥ one paged week-completions query (today derived from it) → UI unblocks. Completions upsert on (habit_id, member_id, date); optimistic updates go to `todayCompletions` and are overlaid on the week via `mergeLiveToday`. Insights lazily pulls **full completion history** (slim columns, paginated, 5-min cache) and computes streaks/records live; DB `streak` columns are just caches maintained by `handleComplete`/undo/backfill + the 1am streak-reset cron.
 
 ## Working conventions for this repo
 
