@@ -9,6 +9,10 @@ import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
 import { todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay, memberDayDoneCount, mergeLiveToday } from './utils/stats';
 import { fetchAllPages } from './utils/fetchPaged';
+import {
+  loadBootCache, saveBootCache, clearBootCache, buildBootCache, isCacheUsable, completionKey,
+  mergeCompletionsPreservingProgress, mergeMembersPreservingProgress, mergeMemberPreservingProgress, mergeHabitsPreservingProgress,
+} from './utils/bootCache';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
 const C = {
@@ -140,16 +144,24 @@ function normalizeCompletion(c) {
 }
 
 // ─── SUPABASE FETCH HELPERS ───────────────────────────────────────
+// Returns null ONLY when the credentials are genuinely rejected (family
+// name + PIN don't match). Transport/query failures THROW, so callers can
+// tell "wrong PIN" apart from "network blip" — a boot that hydrated from
+// the cache must keep showing it through a blip, not log the family out.
 async function fetchFamilyData(pin, familyName) {
   if (!supabase) return null;
   const { data: famRows, error: famErr } = await supabase.rpc('login_family', { family_name: familyName, family_pin: pin });
-  if (famErr || !famRows?.[0]) { console.error("❌ fetchFamilyData error:", famErr); return null; }
+  if (famErr) { console.error("❌ fetchFamilyData error:", famErr); throw famErr; }
+  if (!famRows?.[0]) return null;
   const fam = famRows[0];
-  const [{ data: members }, { data: habits }, { data: rewards }] = await Promise.all([
+  const [membersRes, habitsRes, rewardsRes] = await Promise.all([
     supabase.from("members").select("*").eq("family_id", fam.id),
     supabase.from("habits").select("*").eq("family_id", fam.id),
     supabase.from("rewards").select("*").eq("family_id", fam.id),
   ]);
+  const selectErr = membersRes.error || habitsRes.error || rewardsRes.error;
+  if (selectErr) { console.error("❌ fetchFamilyData select error:", selectErr); throw selectErr; }
+  const { data: members } = membersRes, { data: habits } = habitsRes, { data: rewards } = rewardsRes;
   return {
     id: fam.id, name: fam.name, pin,
     members: (members || []).map(normalizeMember),
@@ -4633,6 +4645,11 @@ export default function RitualApp() {
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebratedDate, setCelebratedDate] = useState(null);
   const [mounted, setMounted] = useState(false);
+  // Boot-cache hydration window: `active` from a cache hydrate until the
+  // background revalidation lands (or is abandoned). While active, server
+  // fetches MERGE into displayed state instead of overwriting it, and local
+  // mutations register their keys here so they beat the in-flight fetch.
+  const bootHydrationRef = useRef({ active: false, familyId: null, touchedCompletionKeys: new Set(), touchedMemberIds: new Set() });
   const tileHandled = useRef(null);
   const [unassignedTileUID, setUnassignedTileUID] = useState(null);
   const [inactiveDayHabit, setInactiveDayHabit] = useState(null);
@@ -4974,36 +4991,88 @@ export default function RitualApp() {
       }).catch(() => {});
   }, [tab, family]);
 
+  // Drop cache-hydrated state and fall back to the logged-out screen. Called
+  // ONLY on genuine auth invalidation (bad PIN, cleared credentials, wrong
+  // account) — never on transient network failure, which keeps the cached
+  // same-day state on screen instead (an honest frame beats an error screen).
+  const abandonBootHydration = () => {
+    if (!bootHydrationRef.current.active) return;
+    bootHydrationRef.current = { active: false, familyId: null, touchedCompletionKeys: new Set(), touchedMemberIds: new Set() };
+    clearBootCache(window.localStorage);
+    setFamily(null); setHabits([]); setTodayCompletions([]); setWeekCompletions([]);
+    setCurrentMember(null);
+  };
+
   // ─── Load family data after login ───────────────────────────────
+  // Two modes: a fresh login blind-sets everything (nothing is on screen
+  // yet, so nothing can be yanked). A background revalidation of a
+  // cache-hydrated session MERGES — on-screen progress may only ever go up
+  // (rules and tests live in src/utils/bootCache.js).
   const loadDataForFamily = async (familyData) => {
-    setFamily(familyData);
-    setHabits(familyData.habits || []);
-    const savedMemberId = localStorage.getItem("ritual_currentMemberId");
-    const savedMember = familyData.members?.find(m => m.id === savedMemberId);
-    const activeMember = savedMember || familyData.members?.[0] || null;
-    setCurrentMember(activeMember);
-    if (activeMember && !activeMember.onboardingComplete) {
-      const isReturning = activeMember.createdAt &&
-        (Date.now() - new Date(activeMember.createdAt).getTime()) > 24 * 60 * 60 * 1000;
-      const activeMemberIsAdmin = familyData.members?.[0]?.id === activeMember.id;
-      if (isReturning || (activeMember.isKid && !activeMemberIsAdmin)) {
-        supabase?.from("members").update({ onboarding_complete: true }).eq("id", activeMember.id).then(null, () => {});
-      } else {
-        setShowOnboarding(true);
+    const hyd = bootHydrationRef.current;
+    const merging = hyd.active && hyd.familyId === familyData.id;
+    if (hyd.active && !merging) {
+      // The authenticated account owns a DIFFERENT family than the cached
+      // one — the cached frame was wrong identity, not wrong progress.
+      // Blind-replace everything and discard the cache.
+      bootHydrationRef.current = { active: false, familyId: null, touchedCompletionKeys: new Set(), touchedMemberIds: new Set() };
+      clearBootCache(window.localStorage);
+    }
+    if (merging) {
+      // An empty server member list here means a failed/odd select, not a
+      // real family with no one in it — keep what's on screen.
+      const serverMembers = familyData.members?.length ? familyData.members : null;
+      setFamily(prev => prev ? {
+        ...familyData,
+        members: serverMembers ? mergeMembersPreservingProgress(prev.members, serverMembers, hyd.touchedMemberIds) : prev.members,
+      } : familyData);
+      setHabits(prev => mergeHabitsPreservingProgress(prev, familyData.habits || []));
+      setCurrentMember(prev => {
+        if (!prev || !serverMembers) return prev || familyData.members?.[0] || null;
+        const serverSelf = serverMembers.find(m => m.id === prev.id);
+        if (!serverSelf) return serverMembers[0] || null; // removed on another device
+        return mergeMemberPreservingProgress(prev, serverSelf, hyd.touchedMemberIds.has(prev.id));
+      });
+      // No onboarding re-check while merging — the member is already mid-session.
+    } else {
+      setFamily(familyData);
+      setHabits(familyData.habits || []);
+      const savedMemberId = localStorage.getItem("ritual_currentMemberId");
+      const savedMember = familyData.members?.find(m => m.id === savedMemberId);
+      const activeMember = savedMember || familyData.members?.[0] || null;
+      setCurrentMember(activeMember);
+      if (activeMember && !activeMember.onboardingComplete) {
+        const isReturning = activeMember.createdAt &&
+          (Date.now() - new Date(activeMember.createdAt).getTime()) > 24 * 60 * 60 * 1000;
+        const activeMemberIsAdmin = familyData.members?.[0]?.id === activeMember.id;
+        if (isReturning || (activeMember.isKid && !activeMemberIsAdmin)) {
+          supabase?.from("members").update({ onboarding_complete: true }).eq("id", activeMember.id).then(null, () => {});
+        } else {
+          setShowOnboarding(true);
+        }
       }
     }
     if (supabase) {
+      const applyCompletions = ({ week, today }) => {
+        const h = bootHydrationRef.current;
+        if (h.active && h.familyId === familyData.id) {
+          setWeekCompletions(prev => mergeCompletionsPreservingProgress(prev, week, h.touchedCompletionKeys));
+          setTodayCompletions(prev => mergeCompletionsPreservingProgress(prev, today, h.touchedCompletionKeys));
+          // Revalidation complete — normal fetch semantics from here on, and
+          // the write-through effect may persist reconciled state again.
+          bootHydrationRef.current = { active: false, familyId: null, touchedCompletionKeys: new Set(), touchedMemberIds: new Set() };
+        } else {
+          setTodayCompletions(today);
+          setWeekCompletions(week);
+        }
+      };
       try {
-        const { week, today } = await fetchWeekAndTodayCompletions(familyData.id);
-        setTodayCompletions(today);
-        setWeekCompletions(week);
+        applyCompletions(await fetchWeekAndTodayCompletions(familyData.id));
       } catch (e) {
         console.error("❌ Completions fetch failed, retrying:", e);
         setTimeout(async () => {
           try {
-            const { week, today } = await fetchWeekAndTodayCompletions(familyData.id);
-            setTodayCompletions(today);
-            setWeekCompletions(week);
+            applyCompletions(await fetchWeekAndTodayCompletions(familyData.id));
           } catch (e2) {
             console.error("❌ Completions retry also failed:", e2);
           }
@@ -5023,16 +5092,24 @@ export default function RitualApp() {
         .eq('account_holder_id', authUserId).limit(1);
       if (famErr) { console.error('❌ loadFamilyForAuthUser families select failed:', famErr); return; }
       if (!famRows || famRows.length === 0) {
+        // Genuinely no family for this account — a cache-hydrated frame
+        // (if any) belongs to no one; drop it before the creation screen.
+        abandonBootHydration();
         setAuthedUserEmail(authUserEmail || null);
         setNeedsFamilyCreation(true);
         return;
       }
       const fam = famRows[0];
-      const [{ data: members }, { data: habits }, { data: rewards }] = await Promise.all([
+      const [membersRes, habitsRes, rewardsRes] = await Promise.all([
         supabase.from('members').select('*').eq('family_id', fam.id),
         supabase.from('habits').select('*').eq('family_id', fam.id),
         supabase.from('rewards').select('*').eq('family_id', fam.id),
       ]);
+      const selectErr = membersRes.error || habitsRes.error || rewardsRes.error;
+      // Treat a failed select as transient (keeps cached state on screen)
+      // rather than hydrating a half-empty family.
+      if (selectErr) { console.error('❌ loadFamilyForAuthUser select failed:', selectErr); return; }
+      const { data: members } = membersRes, { data: habits } = habitsRes, { data: rewards } = rewardsRes;
       const familyData = {
         id: fam.id, name: fam.name, pin: fam.pin || null,
         members: (members || []).map(normalizeMember),
@@ -5049,9 +5126,31 @@ export default function RitualApp() {
   };
 
   // ─── Auto-login on mount ─────────────────────────────────────────
+  // Warm path: synchronously hydrate the last session's full state from the
+  // boot cache so the FIRST paint is the child's real, complete progress —
+  // every earned checkmark checked, points and tree at their true values.
+  // The server is then revalidated in the background and merged gently
+  // (progress on screen can only go up — see src/utils/bootCache.js).
+  // Cold path (no same-day cache): unchanged — wait behind the loading
+  // screen until true state is known. Waiting is safe; a wrong frame isn't.
   // Order: Supabase session first, PIN fallback only if no session.
   useEffect(() => {
+    const hydrateFromBootCache = () => {
+      const cache = loadBootCache(window.localStorage);
+      if (!isCacheUsable(cache, todayKey())) return false;
+      bootHydrationRef.current = { active: true, familyId: cache.family.id, touchedCompletionKeys: new Set(), touchedMemberIds: new Set() };
+      setFamily(cache.family);
+      setHabits(cache.habits);
+      setWeekCompletions(cache.weekCompletions);
+      setTodayCompletions(cache.todayCompletions);
+      const savedMemberId = localStorage.getItem("ritual_currentMemberId");
+      setCurrentMember(cache.family.members.find(m => m.id === savedMemberId) || cache.family.members[0]);
+      setMounted(true); // paint now — this frame is already true and complete
+      return true;
+    };
+
     const init = async () => {
+      hydrateFromBootCache();
       try {
         if (supabase) {
           const { data: { session } } = await supabase.auth.getSession();
@@ -5066,14 +5165,24 @@ export default function RitualApp() {
         if (savedPin && savedFamilyName && supabase) {
           const familyData = await fetchFamilyData(savedPin, savedFamilyName);
           if (familyData) { await loadDataForFamily(familyData); return; }
+          // null = credentials genuinely rejected (transport errors throw)
           console.warn("⚠️ Saved credentials invalid, clearing");
           localStorage.removeItem("ritual_savedPin");
           localStorage.removeItem("ritual_savedFamilyName");
+          abandonBootHydration();
         } else if (savedPin) {
           // Migration: old session without family name — force re-login
           localStorage.removeItem("ritual_savedPin");
+          abandonBootHydration();
+        } else {
+          // No session and no saved credentials: a hydrated frame (shouldn't
+          // exist — logout clears the cache; defensive) can't be verified.
+          abandonBootHydration();
         }
       } catch (e) {
+        // Transient/network failure. A cache-hydrated session keeps showing
+        // its same-day state (offline launch); a cold boot falls through to
+        // the login screen as before.
         console.error("❌ Auto-login error:", e);
       } finally {
         setMounted(true);
@@ -5097,6 +5206,8 @@ export default function RitualApp() {
         setRecoveryNewPw(""); setRecoveryConfirmPw(""); setRecoveryError("");
         setPasswordRecoveryActive(true);
       } else if (event === 'SIGNED_OUT') {
+        clearBootCache(window.localStorage); // next launch must not paint a signed-out family
+        bootHydrationRef.current = { active: false, familyId: null, touchedCompletionKeys: new Set(), touchedMemberIds: new Set() };
         setFamily(null); setHabits([]); setTodayCompletions([]); setWeekCompletions([]);
         setCurrentMember(null); setFlashData(null); setWhoDidThis(null);
         setNeedsFamilyCreation(false); setAuthedUserEmail(null);
@@ -5110,6 +5221,24 @@ export default function RitualApp() {
   useEffect(() => {
     if (currentMember?.id) localStorage.setItem("ritual_currentMemberId", currentMember.id);
   }, [currentMember]);
+
+  // ─── Boot-cache write-through ────────────────────────────────────
+  // Persist on-screen state (debounced) so the NEXT launch paints it
+  // instantly. Skipped while a hydrate is still revalidating: the cache must
+  // only ever hold server-reconciled state. dateKey is lastFetchDate — the
+  // Melbourne day todayCompletions actually belong to — not the wall clock,
+  // so a session straddling midnight can't stamp yesterday's checkmarks as
+  // today (isCacheUsable would then rightly reject them tomorrow).
+  useEffect(() => {
+    if (!family?.id || !currentMember) return;
+    if (bootHydrationRef.current.active) return;
+    const t = setTimeout(() => {
+      saveBootCache(window.localStorage, buildBootCache({
+        family, habits, weekCompletions, todayCompletions, dateKey: lastFetchDate,
+      }));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [family, habits, weekCompletions, todayCompletions, currentMember, lastFetchDate]);
 
   // ─── Handlers ───────────────────────────────────────────────────
   const handleLogin = async (familyData) => {
@@ -5137,6 +5266,8 @@ export default function RitualApp() {
     // The onAuthStateChange listener catches SIGNED_OUT and clears React state,
     // but we also clear here so the PIN-only path works without an auth event.
     try { await supabase?.auth.signOut(); } catch (e) { console.warn('[auth] signOut failed:', e); }
+    clearBootCache(window.localStorage); // next launch must not paint a logged-out family
+    bootHydrationRef.current = { active: false, familyId: null, touchedCompletionKeys: new Set(), touchedMemberIds: new Set() };
     setFamily(null); setHabits([]); setTodayCompletions([]); setWeekCompletions([]);
     setCurrentMember(null); setFlashData(null); setWhoDidThis(null);
     setSoloMode(false);
@@ -5368,6 +5499,19 @@ export default function RitualApp() {
     // Display taps = aggregate + 1, used for flash animation and UI "done" check
     const displayTaps = (habit.taps || 0) + 1;
 
+    // If a boot-cache revalidation is still in flight, register what this tap
+    // touches — these local values are newer than the in-flight fetch snapshot
+    // and must win the merge (bootCache.js), or the fetch could stomp the tap.
+    if (bootHydrationRef.current.active && resolvedMember) {
+      const touchedIds = isSharedHabit && habit.assignedMemberIds?.length
+        ? new Set([resolvedMember.id, ...habit.assignedMemberIds])
+        : new Set([resolvedMember.id]);
+      for (const mid of touchedIds) {
+        bootHydrationRef.current.touchedCompletionKeys.add(completionKey({ habitId, memberId: mid, date: today }));
+      }
+      bootHydrationRef.current.touchedMemberIds.add(resolvedMember.id);
+    }
+
     // Optimistic update first (instant UI feedback)
     setTodayCompletions(prev => {
       const existing = prev.find(c => c.habitId === habitId && c.memberId === resolvedMember?.id);
@@ -5506,6 +5650,18 @@ export default function RitualApp() {
     const memberToDeduct = completedById ? family?.members?.find(m => m.id === completedById) : currentMember;
     const newTaps = Math.max((habit.taps || 0) - 1, 0);
     const isSharedHabit = habit.completionType === 'shared' && habit.assignedMemberIds && habit.assignedMemberIds.length > 0;
+
+    // An undo made while a boot-cache revalidation is in flight is newer than
+    // the fetch snapshot — register its keys so the merge doesn't re-check
+    // the card the child just deliberately un-did (bootCache.js).
+    if (bootHydrationRef.current.active) {
+      const undoDate = todayKey();
+      const touchedIds = new Set([completedById, memberToDeduct?.id, ...(isSharedHabit ? habit.assignedMemberIds : [])].filter(Boolean));
+      for (const mid of touchedIds) {
+        bootHydrationRef.current.touchedCompletionKeys.add(completionKey({ habitId, memberId: mid, date: undoDate }));
+      }
+      if (memberToDeduct) bootHydrationRef.current.touchedMemberIds.add(memberToDeduct.id);
+    }
 
     // Optimistic local update: decrement trigger member
     setTodayCompletions(prev => prev.map(c =>
@@ -5737,6 +5893,10 @@ export default function RitualApp() {
     const member = family.members.find(m => m.id === memberId);
     if (!reward || !member || (member.points || 0) < reward.points) return;
     const cost = reward.points;
+    // A redemption during the boot-revalidation window is a legitimate,
+    // user-chosen points decrease — mark the member touched so the merge
+    // doesn't "restore" the spent points from the stale fetch snapshot.
+    if (bootHydrationRef.current.active) bootHydrationRef.current.touchedMemberIds.add(memberId);
     // Deduct points optimistically for everyone
     setFamily(f => ({ ...f, members: f.members.map(m => m.id === memberId ? { ...m, points: Math.max((m.points || 0) - cost, 0) } : m) }));
     if (!supabase) return;
