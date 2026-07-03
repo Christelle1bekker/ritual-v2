@@ -7,6 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
+import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, calcStreakFromDates } from './utils/stats';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
 const C = {
@@ -56,65 +57,8 @@ function getMotivation(done, total) {
   return `${total - done} ritual${total - done > 1 ? "s" : ""} left — you've got this`;
 }
 
-const MELB_TZ = 'Australia/Melbourne';
-
-function todayKey() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: MELB_TZ });
-}
-
-function getYesterdayKey() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toLocaleDateString('en-CA', { timeZone: MELB_TZ });
-}
-
-function getTodayIndex() {
-  const todayStr = todayKey();
-  const [y, m, d] = todayStr.split('-').map(Number);
-  return (new Date(y, m - 1, d).getDay() + 6) % 7;
-}
-
-function getWeekDates() {
-  const todayStr = todayKey();
-  const [y, m, d] = todayStr.split('-').map(Number);
-  const today = new Date(y, m - 1, d);
-  const day = today.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  return Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(y, m - 1, d + mondayOffset + i);
-    return date.toLocaleDateString('en-CA');
-  });
-}
-
-// Safe date arithmetic on YYYY-MM-DD strings — avoids UTC parsing issues (#11)
-function isoAddDays(dateStr, days) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(y, m - 1, d + days);
-  return [dt.getFullYear(), String(dt.getMonth() + 1).padStart(2, '0'), String(dt.getDate()).padStart(2, '0')].join('-');
-}
-
-// Compute current consecutive-day streak from an array of completion date strings.
-// Today is treated as "in progress" — not completing today does NOT break the streak.
-// Streak breaks only if yesterday AND today are both absent.
-function calcStreakFromDates(dates) {
-  const today = todayKey();
-  const yesterday = isoAddDays(today, -1);
-  const unique = [...new Set(dates)].sort().reverse(); // newest first
-  if (unique.length === 0) return 0;
-  const most = unique[0];
-  // Most recent completion is 2+ days ago — streak is definitively broken
-  if (most < yesterday) return 0;
-  // Count consecutive days backward from the most recent completion date
-  let streak = 1;
-  for (let i = 1; i < unique.length; i++) {
-    if (unique[i] === isoAddDays(unique[i - 1], -1)) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-  return streak;
-}
+// Date/streak helpers (todayKey, calcStreakFromDates, …) live in src/utils/stats.js
+// so they can be unit-tested. See src/utils/stats.test.js.
 
 // Parse a tile URL into a normalised tile UID, or null if the URL doesn't
 // carry one. Handles both /t/{id} path-style and ?tile={id} query-string
