@@ -9,3 +9,6 @@ build/
 .vercel
 
 .claude/
+
+# Playwright output
+test-results/
