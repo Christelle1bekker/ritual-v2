@@ -1,5 +1,6 @@
 import {
-  todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates,
+  todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf,
+  calcStreakFromDates, lastScheduledDayBefore,
 } from './stats';
 
 // 2026-07-03 is a Friday; 2026-06-29 is the Monday of that week.
@@ -112,5 +113,61 @@ describe('calcStreakFromDates', () => {
   });
   it('counts across month boundaries', () => {
     expect(calcStreakFromDates(['2026-06-29', '2026-06-30', '2026-07-01', '2026-07-02', '2026-07-03'], TODAY)).toBe(5);
+  });
+
+  describe('with a daysActive schedule', () => {
+    const MWF = [0, 2, 4]; // Mon/Wed/Fri
+    // 2026-06-29 Mon, 06-30 Tue, 07-01 Wed, 07-02 Thu, 07-03 Fri
+
+    it('does not break over unscheduled days', () => {
+      // Completed Mon + Wed; today is Thu (unscheduled) — streak alive at 2
+      expect(calcStreakFromDates(['2026-06-29', '2026-07-01'], '2026-07-02', MWF)).toBe(2);
+    });
+    it('treats today-as-in-progress on a scheduled day', () => {
+      // Completed Mon + Wed; today is Fri, not yet completed — still 2
+      expect(calcStreakFromDates(['2026-06-29', '2026-07-01'], '2026-07-03', MWF)).toBe(2);
+    });
+    it('breaks when a scheduled day was missed', () => {
+      // Completed Mon, missed Wed; today is Fri
+      expect(calcStreakFromDates(['2026-06-29'], '2026-07-03', MWF)).toBe(0);
+    });
+    it('counts off-day completions as bonus days', () => {
+      // Completed Mon, Tue (off-day) and Wed
+      expect(calcStreakFromDates(['2026-06-29', '2026-06-30', '2026-07-01'], '2026-07-02', MWF)).toBe(3);
+    });
+    it('spans a weekend for a weekday-only habit', () => {
+      const weekdays = [0, 1, 2, 3, 4];
+      // Completed Thu 06-25, Fri 06-26, Mon 06-29; today Tue 06-30
+      expect(calcStreakFromDates(['2026-06-25', '2026-06-26', '2026-06-29'], '2026-06-30', weekdays)).toBe(3);
+    });
+    it('treats null and [] as every-day (unchanged semantics)', () => {
+      const dates = ['2026-07-01', '2026-07-02', '2026-07-03'];
+      expect(calcStreakFromDates(dates, TODAY, null)).toBe(3);
+      expect(calcStreakFromDates(dates, TODAY, [])).toBe(3);
+    });
+    it('terminates even with an invalid schedule (no day is ever required)', () => {
+      // With no valid weekday in the schedule, no day can break the streak, so
+      // the old completion is still reachable — the point is it terminates.
+      expect(calcStreakFromDates(['2026-06-01'], TODAY, [9])).toBe(1);
+    });
+  });
+});
+
+describe('lastScheduledDayBefore', () => {
+  it('returns yesterday for every-day habits', () => {
+    expect(lastScheduledDayBefore('2026-07-03')).toBe('2026-07-02');
+    expect(lastScheduledDayBefore('2026-07-03', [])).toBe('2026-07-02');
+  });
+  it('skips back to the previous scheduled day', () => {
+    // Mon/Wed/Fri habit, today Fri → previous scheduled day is Wed
+    expect(lastScheduledDayBefore('2026-07-03', [0, 2, 4])).toBe('2026-07-01');
+    // today Mon → previous scheduled day is last Fri
+    expect(lastScheduledDayBefore('2026-06-29', [0, 2, 4])).toBe('2026-06-26');
+  });
+  it('handles a once-a-week schedule (full week back)', () => {
+    expect(lastScheduledDayBefore('2026-07-03', [4])).toBe('2026-06-26'); // Fri → last Fri
+  });
+  it('falls back to yesterday on an invalid schedule', () => {
+    expect(lastScheduledDayBefore('2026-07-03', [9])).toBe('2026-07-02');
   });
 });

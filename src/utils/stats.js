@@ -50,22 +50,34 @@ export function mondayKeyOf(dateStr) {
 
 // Compute current consecutive-day streak from an array of completion date strings.
 // Today is treated as "in progress" — not completing today does NOT break the streak.
-// Streak breaks only if yesterday AND today are both absent.
-export function calcStreakFromDates(dates, todayStr = todayKey()) {
-  const yesterday = isoAddDays(todayStr, -1);
-  const unique = [...new Set(dates)].sort().reverse(); // newest first
-  if (unique.length === 0) return 0;
-  const most = unique[0];
-  // Most recent completion is 2+ days ago — streak is definitively broken
-  if (most < yesterday) return 0;
-  // Count consecutive days backward from the most recent completion date
-  let streak = 1;
-  for (let i = 1; i < unique.length; i++) {
-    if (unique[i] === isoAddDays(unique[i - 1], -1)) {
-      streak++;
-    } else {
-      break;
-    }
+//
+// activeDays (optional, Mon=0..Sun=6, null/[] = every day) makes the streak
+// schedule-aware: a day the habit isn't scheduled neither breaks nor is
+// required, but a completion on an off-day still extends the streak.
+export function calcStreakFromDates(dates, todayStr = todayKey(), activeDays = null) {
+  const dateSet = new Set(dates);
+  if (dateSet.size === 0) return 0;
+  const earliest = [...dateSet].sort()[0];
+  const isActive = (s) => !activeDays || activeDays.length === 0 || activeDays.includes(getTodayIndex(s));
+  let streak = dateSet.has(todayStr) ? 1 : 0;
+  for (let d = isoAddDays(todayStr, -1); ; d = isoAddDays(d, -1)) {
+    if (d < earliest) break;                 // nothing older can extend the streak
+    if (dateSet.has(d)) { streak++; continue; }
+    if (!isActive(d)) continue;              // not scheduled — skip without breaking
+    break;                                   // scheduled day with no completion
   }
   return streak;
+}
+
+// Most recent day strictly before todayStr on which the habit was scheduled.
+// Every-day habits (null/[] activeDays) → yesterday. Falls back to yesterday
+// if activeDays contains no valid weekday.
+export function lastScheduledDayBefore(todayStr, activeDays = null) {
+  const yesterday = isoAddDays(todayStr, -1);
+  if (!activeDays || activeDays.length === 0) return yesterday;
+  for (let i = 1; i <= 7; i++) {
+    const d = isoAddDays(todayStr, -i);
+    if (activeDays.includes(getTodayIndex(d))) return d;
+  }
+  return yesterday;
 }

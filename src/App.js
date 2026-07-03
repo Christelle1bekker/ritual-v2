@@ -7,7 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
-import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates } from './utils/stats';
+import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore } from './utils/stats';
 import { fetchAllPages } from './utils/fetchPaged';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
@@ -3330,7 +3330,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       const dates = filteredAnalytics
         ? filteredAnalytics.filter(c => c.habitId === h.id && c.taps > 0).map(c => c.date)
         : [];
-      const streak = dates.length > 0 ? calcStreakFromDates(dates) : (h.streak || 0);
+      const streak = dates.length > 0 ? calcStreakFromDates(dates, undefined, h.daysActive) : (h.streak || 0);
       return { habit: h, streak };
     }).filter(x => x.streak >= 3).sort((a, b) => b.streak - a.streak).slice(0, 2);
 
@@ -5328,7 +5328,7 @@ export default function RitualApp() {
     // Recompute habit streak cache from all completions on this habit (any member, taps > 0)
     const { data: habitDates } = await supabase
       .from('completions').select('date').eq('habit_id', habit.id).gt('taps', 0);
-    const habitStreak = calcStreakFromDates((habitDates || []).map(c => c.date));
+    const habitStreak = calcStreakFromDates((habitDates || []).map(c => c.date), undefined, habit.daysActive);
     await supabase.from('habits').update({ streak: habitStreak }).eq('id', habit.id);
     setHabits(prev => prev.map(h => h.id === habit.id ? { ...h, streak: habitStreak } : h));
 
@@ -5501,10 +5501,13 @@ export default function RitualApp() {
 
       // Streak logic: only on first tap of this habit by this member today
       if (memberCurrentTaps === 0) {
+        // Schedule-aware continuation: for a Mon/Wed/Fri habit completed on Friday,
+        // the streak continues from Wednesday, not from (empty) Thursday.
         // .gt(taps,0): an undone completion row (taps=0) must not continue a streak.
         // .limit(1): shared habits have one row per member for the same date — an
         // unlimited maybeSingle() errors on >1 row and silently reset the streak to 1.
-        const { data: yComp } = await supabase.from("completions").select("id").eq("habit_id", habitId).eq("date", getYesterdayKey()).gt("taps", 0).limit(1).maybeSingle();
+        const prevScheduled = lastScheduledDayBefore(todayKey(), habit.daysActive);
+        const { data: yComp } = await supabase.from("completions").select("id").eq("habit_id", habitId).eq("date", prevScheduled).gt("taps", 0).limit(1).maybeSingle();
         const newHabitStreak = yComp ? (habit.streak || 0) + 1 : 1;
         await supabase.from("habits").update({ streak: newHabitStreak }).eq("id", habitId);
         setHabits(prev => prev.map(h => h.id === habitId ? { ...h, streak: newHabitStreak } : h));
