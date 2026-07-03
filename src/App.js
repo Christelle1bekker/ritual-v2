@@ -5504,15 +5504,20 @@ export default function RitualApp() {
 
       // Streak logic: only on first tap of this habit by this member today
       if (memberCurrentTaps === 0) {
-        const { data: yComp } = await supabase.from("completions").select("id").eq("habit_id", habitId).eq("date", getYesterdayKey()).maybeSingle();
+        // .gt(taps,0): an undone completion row (taps=0) must not continue a streak.
+        // .limit(1): shared habits have one row per member for the same date — an
+        // unlimited maybeSingle() errors on >1 row and silently reset the streak to 1.
+        const { data: yComp } = await supabase.from("completions").select("id").eq("habit_id", habitId).eq("date", getYesterdayKey()).gt("taps", 0).limit(1).maybeSingle();
         const newHabitStreak = yComp ? (habit.streak || 0) + 1 : 1;
         await supabase.from("habits").update({ streak: newHabitStreak }).eq("id", habitId);
         setHabits(prev => prev.map(h => h.id === habitId ? { ...h, streak: newHabitStreak } : h));
 
         // Member streak: only on their very first completion of ANY habit today (#3 fix: === 0 not <= 1)
-        const memberTodayCount = todayCompletions.filter(c => c.memberId === resolvedMember.id).length;
+        // taps > 0: an earlier completed-then-undone habit today (taps=0 row) must not
+        // suppress the member-streak update for their first real completion of the day.
+        const memberTodayCount = todayCompletions.filter(c => c.memberId === resolvedMember.id && c.taps > 0).length;
         if (memberTodayCount === 0) {
-          const { data: mYest } = await supabase.from("completions").select("id").eq("member_id", resolvedMember.id).eq("date", getYesterdayKey()).limit(1).maybeSingle();
+          const { data: mYest } = await supabase.from("completions").select("id").eq("member_id", resolvedMember.id).eq("date", getYesterdayKey()).gt("taps", 0).limit(1).maybeSingle();
           const newMemberStreak = mYest ? (resolvedMember.streak || 0) + 1 : 1;
           await supabase.from("members").update({ streak: newMemberStreak }).eq("id", resolvedMember.id);
           setFamily(f => ({ ...f, members: f.members.map(m => m.id === resolvedMember.id ? { ...m, streak: newMemberStreak } : m) }));
