@@ -1,6 +1,6 @@
 import {
   todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf,
-  calcStreakFromDates, lastScheduledDayBefore,
+  calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays,
 } from './stats';
 
 // 2026-07-03 is a Friday; 2026-06-29 is the Monday of that week.
@@ -150,6 +150,26 @@ describe('calcStreakFromDates', () => {
       // the old completion is still reachable — the point is it terminates.
       expect(calcStreakFromDates(['2026-06-01'], TODAY, [9])).toBe(1);
     });
+  });
+});
+
+describe('uniqueCompletionDays', () => {
+  const rows = [
+    { habitId: 'h1', memberId: 'a', date: '2026-06-29', taps: 1 },
+    { habitId: 'h1', memberId: 'b', date: '2026-06-29', taps: 1 }, // same day, 2nd member
+    { habitId: 'h1', memberId: 'a', date: '2026-06-30', taps: 2 },
+    { habitId: 'h1', memberId: 'a', date: '2026-07-01', taps: 0 }, // undone
+    { habitId: 'h2', memberId: 'a', date: '2026-06-30', taps: 1 }, // other habit
+    { habitId: 'h1', memberId: 'a', date: '2026-06-28', taps: 1 }, // before range
+  ];
+  it('counts distinct days, not rows (multi-member family mode)', () => {
+    expect(uniqueCompletionDays(rows, 'h1', '2026-06-29', '2026-07-05')).toBe(2);
+  });
+  it('ignores taps=0 (undone) rows and other habits', () => {
+    expect(uniqueCompletionDays(rows, 'h2', '2026-06-29', '2026-07-05')).toBe(1);
+  });
+  it('range bounds are inclusive', () => {
+    expect(uniqueCompletionDays(rows, 'h1', '2026-06-28', '2026-06-29')).toBe(2);
   });
 });
 

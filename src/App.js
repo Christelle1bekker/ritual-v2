@@ -7,7 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
-import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore } from './utils/stats';
+import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays } from './utils/stats';
 import { fetchAllPages } from './utils/fetchPaged';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
@@ -3269,8 +3269,10 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       ? habits.filter(h => !h.assignedMemberIds || h.assignedMemberIds.length === 0 || h.assignedMemberIds.includes(currentMember.id))
       : habits;
     return visibleHabits.map(h => {
-      const thisWeek = filteredAnalytics.filter(c => c.habitId === h.id && c.date >= thisWeekStart && c.taps > 0);
-      const lastWeek = filteredAnalytics.filter(c => c.habitId === h.id && c.date >= lwStartStr && c.date <= lwEndStr && c.taps > 0);
+      // Count unique completion DAYS, not rows — in Family mode the analytics
+      // rows include one per member per day, which inflated rates past 100%.
+      const thisWeekDays = uniqueCompletionDays(filteredAnalytics, h.id, thisWeekStart, weekDates[6]);
+      const lastWeekDays = uniqueCompletionDays(filteredAnalytics, h.id, lwStartStr, lwEndStr);
       // Active days this week (elapsed) and last week (full 7)
       const activeDays = h.daysActive;
       const twActiveDays = (!activeDays || activeDays.length === 0)
@@ -3279,12 +3281,14 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
       const lwActiveDays = (!activeDays || activeDays.length === 0)
         ? 7
         : activeDays.length; // full week = all active days
-      const twRate = twActiveDays > 0 ? thisWeek.length / twActiveDays : 0;
-      const lwRate = lwActiveDays > 0 ? lastWeek.length / lwActiveDays : 0;
+      // Cap at 1: off-day completions can exceed the scheduled count, but the
+      // health rate reads as "did the scheduled days", max 100%.
+      const twRate = twActiveDays > 0 ? Math.min(thisWeekDays / twActiveDays, 1) : 0;
+      const lwRate = lwActiveDays > 0 ? Math.min(lastWeekDays / lwActiveDays, 1) : 0;
       // Relative % change: how much better/worse is this week's pace vs last week?
       const delta = lwRate > 0 ? Math.round(((twRate - lwRate) / lwRate) * 100) : null;
       const twPct = Math.round(twRate * 100);
-      return { habit: h, thisWeekDays: thisWeek.length, lastWeekDays: lastWeek.length, delta, twPct, daysElapsed };
+      return { habit: h, thisWeekDays, lastWeekDays, delta, twPct, daysElapsed };
     }).filter(x => x.thisWeekDays > 0 || x.lastWeekDays > 0).slice(0, 6);
   }, [filteredAnalytics, habits, showingFamily, currentMember]);
 

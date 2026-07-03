@@ -69,6 +69,18 @@ export function calcStreakFromDates(dates, todayStr = todayKey(), activeDays = n
   return streak;
 }
 
+// Unique days within [startStr, endStr] (inclusive) on which a habit was
+// completed. Family mode passes rows from several members — a habit
+// "happened" on a day if ANY member completed it, so distinct dates must be
+// counted, not rows, or rates exceed 100%.
+export function uniqueCompletionDays(completions, habitId, startStr, endStr) {
+  const days = new Set();
+  completions.forEach(c => {
+    if (c.habitId === habitId && c.taps > 0 && c.date >= startStr && c.date <= endStr) days.add(c.date);
+  });
+  return days.size;
+}
+
 // Most recent day strictly before todayStr on which the habit was scheduled.
 // Every-day habits (null/[] activeDays) → yesterday. Falls back to yesterday
 // if activeDays contains no valid weekday.
