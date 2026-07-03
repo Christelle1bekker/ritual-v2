@@ -7,7 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
-import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay, memberDayDoneCount, mergeLiveToday } from './utils/stats';
+import { todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay, memberDayDoneCount, mergeLiveToday } from './utils/stats';
 import { fetchAllPages } from './utils/fetchPaged';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
@@ -36,7 +36,6 @@ const D = {
 };
 
 // ─── NAMED CONSTANTS ──────────────────────────────────────────────
-const ANALYTICS_WINDOW_DAYS = 120;     // days of history for analytics/streaks
 const FLASH_COUNTDOWN_SECONDS = 5;     // seconds before completion flash auto-dismisses
 const REDEMPTION_CACHE_MS = 60_000;    // 1 min: how long redemptions are cached before re-fetch
 const ANALYTICS_CACHE_MS = 5 * 60_000; // 5 min: how long analytics are cached before re-fetch
@@ -180,17 +179,19 @@ async function fetchWeekAndTodayCompletions(familyId) {
   return { week, today: week.filter(c => c.date === tKey) };
 }
 
+// Full completion history for Insights, slimmed to the four columns the
+// analytics memos read — so streaks longer than any fixed window compute
+// correctly and "all-time" records are genuinely all-time. taps>0 is filtered
+// server-side (every consumer ignores undone rows).
 // Returns null (not []) on failure so callers can tell "failed to load" apart
 // from "no completions" and fall back to cached DB streak values.
 async function fetchAnalyticsData(familyId) {
   if (!supabase) return null;
-  const windowStart = new Date(Date.now() - ANALYTICS_WINDOW_DAYS * 86400000)
-    .toLocaleDateString('en-CA', { timeZone: MELB_TZ });
   try {
     const rows = await fetchAllPages(() => supabase
-      .from("completions").select("*")
+      .from("completions").select("habit_id, member_id, date, taps")
       .eq("family_id", familyId)
-      .gte("date", windowStart)
+      .gt("taps", 0)
       .order("date", { ascending: true }).order("id", { ascending: true }));
     return rows.map(normalizeCompletion);
   } catch (e) {
@@ -3602,7 +3603,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           <div>
             {personalBests.isNewRecord && (
               <div style={{ background: `${C.accent}12`, borderRadius: 12, padding: "10px 14px", marginBottom: 10, border: `1px solid ${C.accent}30` }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>🎊 Best week in months!</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>🎊 New all-time best week!</div>
                 <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{personalBests.thisWeekCount} habits completed</div>
               </div>
             )}
@@ -3610,7 +3611,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, color: C.slate }}>This week: <span style={{ fontWeight: 700 }}>{personalBests.thisWeekCount} habits</span></div>
                 {personalBests.allTimeRecord > personalBests.thisWeekCount && (
-                  <div style={{ fontSize: 11, color: C.slateLight }}>Best (recent): {personalBests.allTimeRecord} in a week</div>
+                  <div style={{ fontSize: 11, color: C.slateLight }}>All-time best: {personalBests.allTimeRecord} in a week</div>
                 )}
               </div>
             )}
