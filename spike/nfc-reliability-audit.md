@@ -202,3 +202,19 @@ unchanged, and (b) active scanning is robust and never wedges. Use a real iPhone
 
 Log capture for any anomaly: Xcode console filtered on `[TILE TAP]`,
 `[nfcScanLifecycle]`, `[useNfcScanner]`.
+
+---
+
+## 7. Console baseline — 03 Jul 2026
+
+Captured from the device console during a clean passive tap:
+
+- Tag-discovery → NDEF-readable in **under 80ms**.
+- `NFReaderRestrictor` logged **"Cooloff not needed"**.
+- The entire trace is `nfcd` / `biomed` / `runningboardd` — **zero Ritual sessions
+  involved**, confirming §2's verdict: the passive path is entirely iOS's background
+  daemon, and the only reliability ceiling on rapid repeat taps is iOS's own cooloff
+  throttle, which is not code-addressable.
+
+If a slow tap ever recurs, the screenshot to capture is either a `Cooloff` line showing
+throttling engaged, or a missing discovery callback.
