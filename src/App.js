@@ -7,7 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
-import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay } from './utils/stats';
+import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay, memberDayDoneCount } from './utils/stats';
 import { fetchAllPages } from './utils/fetchPaged';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
@@ -1598,7 +1598,6 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
   const myHabits = habits.filter(h =>
     !h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember?.id)
   );
-  const myHabitIds = new Set(myHabits.map(h => h.id));
   const done = myHabits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
   const total = myHabits.length;
   const allDone = total > 0 && done === total;
@@ -1614,13 +1613,9 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
   let weekCount = done; // today's completions (live)
   if (weekCompletions && currentMember && total > 0) {
     for (let i = 0; i < todayIdx; i++) {
-      const dateStr = weekDates[i];
-      const dayDone = weekCompletions.filter(c =>
-        c.date === dateStr &&
-        c.memberId === currentMember.id &&
-        c.taps > 0 &&
-        myHabitIds.has(c.habitId)
-      ).length;
+      // Same completed-day definition as today's `done`: taps must reach the
+      // habit's target, not just be > 0 (a 3/8 day must not flip to "done" at midnight).
+      const dayDone = memberDayDoneCount(weekCompletions, weekDates[i], currentMember.id, myHabits);
       weekCount += Math.min(dayDone, total); // cap at total habits per day
     }
   }

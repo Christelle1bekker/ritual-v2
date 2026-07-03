@@ -1,6 +1,7 @@
 import {
   todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf,
   calcStreakFromDates, lastScheduledDayBefore, uniqueCompletionDays, dedupeByHabitDay,
+  memberDayDoneCount,
 } from './stats';
 
 // 2026-07-03 is a Friday; 2026-06-29 is the Monday of that week.
@@ -198,6 +199,34 @@ describe('uniqueCompletionDays', () => {
   });
   it('range bounds are inclusive', () => {
     expect(uniqueCompletionDays(rows, 'h1', '2026-06-28', '2026-06-29')).toBe(2);
+  });
+});
+
+describe('memberDayDoneCount', () => {
+  const habits = [
+    { id: 'water', target: 8 },
+    { id: 'bed', target: 1 },
+  ];
+  const rows = [
+    { habitId: 'water', memberId: 'a', date: '2026-07-01', taps: 3 }, // partial
+    { habitId: 'bed', memberId: 'a', date: '2026-07-01', taps: 1 },  // done
+    { habitId: 'water', memberId: 'a', date: '2026-07-02', taps: 8 }, // done
+    { habitId: 'bed', memberId: 'b', date: '2026-07-01', taps: 1 },  // other member
+    { habitId: 'ghost', memberId: 'a', date: '2026-07-01', taps: 5 }, // habit not in list
+  ];
+  it('requires taps to reach the habit target (partial days do not count)', () => {
+    expect(memberDayDoneCount(rows, '2026-07-01', 'a', habits)).toBe(1);
+    expect(memberDayDoneCount(rows, '2026-07-02', 'a', habits)).toBe(1);
+  });
+  it("only counts the member's own rows and known habits", () => {
+    expect(memberDayDoneCount(rows, '2026-07-01', 'b', habits)).toBe(1);
+    expect(memberDayDoneCount(rows, '2026-07-03', 'a', habits)).toBe(0);
+  });
+  it('defaults a missing target to 1', () => {
+    expect(memberDayDoneCount(
+      [{ habitId: 'x', memberId: 'a', date: '2026-07-01', taps: 1 }],
+      '2026-07-01', 'a', [{ id: 'x' }]
+    )).toBe(1);
   });
 });
 

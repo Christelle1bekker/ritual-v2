@@ -94,6 +94,17 @@ export function uniqueCompletionDays(completions, habitId, startStr, endStr) {
   return days.size;
 }
 
+// Habits a member completed TO TARGET on a given day. Rows are unique per
+// (habit, member, date), so counting rows is safe once taps >= target is
+// required — the same completed-day definition the live "today" view uses.
+export function memberDayDoneCount(completions, dateStr, memberId, habits) {
+  const targetById = new Map(habits.map(h => [h.id, h.target || 1]));
+  return completions.filter(c =>
+    c.date === dateStr && c.memberId === memberId &&
+    targetById.has(c.habitId) && (c.taps || 0) >= targetById.get(c.habitId)
+  ).length;
+}
+
 // Most recent day strictly before todayStr on which the habit was scheduled.
 // Every-day habits (null/[] activeDays) → yesterday. Falls back to yesterday
 // if activeDays contains no valid weekday.
