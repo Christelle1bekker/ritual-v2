@@ -1,5 +1,5 @@
 import {
-  todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, calcStreakFromDates,
+  todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates,
 } from './stats';
 
 // 2026-07-03 is a Friday; 2026-06-29 is the Monday of that week.
@@ -68,6 +68,20 @@ describe('getWeekDates', () => {
       '2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30',
       '2026-07-31', '2026-08-01', '2026-08-02',
     ]);
+  });
+});
+
+describe('mondayKeyOf', () => {
+  it('returns the Monday of the containing week', () => {
+    expect(mondayKeyOf('2026-07-03')).toBe('2026-06-29'); // Friday
+    expect(mondayKeyOf('2026-07-05')).toBe('2026-06-29'); // Sunday belongs to prior Monday
+    expect(mondayKeyOf('2026-06-29')).toBe('2026-06-29'); // Monday maps to itself
+  });
+  it('crosses month boundaries', () => {
+    expect(mondayKeyOf('2026-07-01')).toBe('2026-06-29');
+  });
+  it('agrees with getWeekDates for the current week', () => {
+    expect(mondayKeyOf('2026-07-03')).toBe(getWeekDates('2026-07-03')[0]);
   });
 });
 

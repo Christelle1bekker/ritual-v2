@@ -7,7 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Browser } from '@capacitor/browser';
 import { useNfcScanner } from './hooks/useNfcScanner';
-import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, calcStreakFromDates } from './utils/stats';
+import { MELB_TZ, todayKey, getYesterdayKey, getTodayIndex, getWeekDates, isoAddDays, mondayKeyOf, calcStreakFromDates } from './utils/stats';
 import { fetchAllPages } from './utils/fetchPaged';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
@@ -3316,10 +3316,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
     const byWeek = {};
     myComps.forEach(c => {
       if (c.taps <= 0) return;
-      const d = new Date(c.date);
-      const monday = new Date(d);
-      monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-      const wk = monday.toISOString().split("T")[0];
+      const wk = mondayKeyOf(c.date);
       byWeek[wk] = (byWeek[wk] || 0) + 1;
     });
     const weekTotals = Object.values(byWeek).sort((a, b) => b - a);

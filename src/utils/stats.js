@@ -39,6 +39,15 @@ export function isoAddDays(dateStr, days) {
   return [dt.getFullYear(), String(dt.getMonth() + 1).padStart(2, '0'), String(dt.getDate()).padStart(2, '0')].join('-');
 }
 
+// Monday (YYYY-MM-DD) of the week containing dateStr. Component/string math
+// only — parsing 'YYYY-MM-DD' with new Date() reads it as UTC midnight, which
+// shifts the weekday (and the derived Monday) on devices west of UTC.
+export function mondayKeyOf(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dow = (new Date(y, m - 1, d).getDay() + 6) % 7; // Mon=0
+  return isoAddDays(dateStr, -dow);
+}
+
 // Compute current consecutive-day streak from an array of completion date strings.
 // Today is treated as "in progress" — not completing today does NOT break the streak.
 // Streak breaks only if yesterday AND today are both absent.
