@@ -5551,6 +5551,38 @@ export default function RitualApp() {
         const { error: pe } = await supabase.from("members").update({ points: Math.max(freshPoints - habitPointValue, 0) }).eq("id", memberToDeduct.id);
         if (pe) console.error("❌ Points undo failed:", pe);
       }
+
+      // Revert the streak increments if this undo removed the habit's last
+      // taps for today. Recompute from history (same approach as
+      // handleBackfill) instead of decrementing — the increment may have
+      // happened on another device or not at all.
+      if (newTaps === 0) {
+        try {
+          const habitDates = await fetchAllPages(() => supabase
+            .from("completions").select("date").eq("habit_id", habitId).gt("taps", 0)
+            .order("date", { ascending: true }).order("id", { ascending: true }));
+          const habitStreak = calcStreakFromDates(habitDates.map(c => c.date), undefined, habit.daysActive);
+          await supabase.from("habits").update({ streak: habitStreak }).eq("id", habitId);
+          setHabits(prev => prev.map(h => h.id === habitId ? { ...h, streak: habitStreak } : h));
+
+          // Member streak: only revert if this was the member's last completion today
+          const memberStillActiveToday = todayCompletions.some(c =>
+            c.memberId === undoMemberId && c.habitId !== habitId && c.taps > 0);
+          if (!memberStillActiveToday) {
+            const memberDates = await fetchAllPages(() => supabase
+              .from("completions").select("date").eq("member_id", undoMemberId).gt("taps", 0)
+              .order("date", { ascending: true }).order("id", { ascending: true }));
+            const memberStreak = calcStreakFromDates(memberDates.map(c => c.date));
+            await supabase.from("members").update({ streak: memberStreak }).eq("id", undoMemberId);
+            setFamily(f => f && ({ ...f, members: f.members.map(m => m.id === undoMemberId ? { ...m, streak: memberStreak } : m) }));
+            if (currentMember?.id === undoMemberId) {
+              setCurrentMember(m => m ? { ...m, streak: memberStreak } : m);
+            }
+          }
+        } catch (e) {
+          console.error("❌ Undo streak revert failed:", e);
+        }
+      }
     }
   };
 
