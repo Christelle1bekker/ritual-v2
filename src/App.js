@@ -1767,7 +1767,7 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
 }
 
 // ─── TODAY SCREEN ─────────────────────────────────────────────────
-function TodayScreen({ habits, weekData, weekCompletions, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward, onEditHabit, onDeleteHabit }) {
+function TodayScreen({ habits, weekCompletions, currentMember, allMembers, onComplete, onUndo, flashData, onFlashDone, onFlashUndo, whoDidThis, onWhoCancel, soundEnabled, soloMode, onClaimReward, onEditHabit, onDeleteHabit }) {
   if (getProgressVisual(currentMember) === 'tree') {
     return <KidsTreeView habits={habits} weekCompletions={weekCompletions} currentMember={currentMember} allMembers={allMembers} onComplete={onComplete} onUndo={onUndo} onClaimReward={onClaimReward} flashData={flashData} onFlashDone={onFlashDone} onFlashUndo={onFlashUndo} whoDidThis={whoDidThis} onWhoCancel={onWhoCancel} soundEnabled={soundEnabled} onEditHabit={onEditHabit} onDeleteHabit={onDeleteHabit} />;
   }
@@ -4924,44 +4924,6 @@ export default function RitualApp() {
       });
   }, [habits, todayCompletions, currentMember, family?.members, soloMode, todayIndex, habitsWithTaps]);
 
-  // ─── weekData: compute from completions, soloMode-aware (#4) ────
-  const weekData = useMemo(() => {
-    if (habits.length === 0) return [null, null, null, null, null, null, null];
-    const weekDates = getWeekDates();
-    const result = Array(7).fill(null);
-    if (soloMode && currentMember) {
-      // Solo mode: show only this member's personal completions
-      const myHabitIds = new Set(habits
-        .filter(h => !h.assignedMemberIds?.length || h.assignedMemberIds.includes(currentMember.id))
-        .map(h => h.id));
-      const denominator = Math.max(myHabitIds.size, 1);
-      // Today: count from myHabitsWithTaps (already filtered to member)
-      const todayDone = myHabitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
-      result[todayIndex] = Math.round((todayDone / denominator) * 100);
-      // Past days: filter completions to this member's habits only
-      // Shared habits count completions from ANY member (household-wide)
-      const sharedHabitIds = new Set(habits.filter(h => h.completionType === 'shared').map(h => h.id));
-      for (let i = 0; i < todayIndex; i++) {
-        const dateStr = weekDates[i];
-        const dayCompletions = weekCompletions.filter(c => c.date === dateStr && c.taps > 0 && myHabitIds.has(c.habitId)
-          && (sharedHabitIds.has(c.habitId) || c.memberId === currentMember.id));
-        const completedIds = new Set(dayCompletions.map(c => c.habitId));
-        result[i] = Math.round((completedIds.size / denominator) * 100);
-      }
-    } else {
-      // Family mode: household aggregate (any habit done by anyone)
-      const todayDone = habitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
-      result[todayIndex] = Math.round((todayDone / habits.length) * 100);
-      for (let i = 0; i < todayIndex; i++) {
-        const dateStr = weekDates[i];
-        const dayCompletions = weekCompletions.filter(c => c.date === dateStr);
-        const completedIds = new Set(dayCompletions.filter(c => c.taps > 0).map(c => c.habitId));
-        result[i] = Math.round((completedIds.size / habits.length) * 100);
-      }
-    }
-    return result;
-  }, [habitsWithTaps, myHabitsWithTaps, habits, weekCompletions, todayIndex, soloMode, currentMember]);
-
   // ─── Daily reset detection ───────────────────────────────────────
   const checkDateBoundary = useCallback(() => {
     const today = todayKey();
@@ -6224,7 +6186,7 @@ export default function RitualApp() {
         <div key={tab} style={{ animation: "slideUp 0.3s ease" }}>
           {tab === "today" && (
             <TodayScreen
-              habits={myHabitsWithTaps} weekData={weekData}
+              habits={myHabitsWithTaps}
               weekCompletions={weekCompletions}
               currentMember={currentMember} allMembers={family.members || []}
               onComplete={handleComplete} onUndo={handleUndo}
