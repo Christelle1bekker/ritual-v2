@@ -1,6 +1,6 @@
 {
   "name": "ritual-v2",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "private": true,
   "dependencies": {
     "@capacitor/app": "^8.1.0",
@@ -14,7 +14,7 @@
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.2",
     "@capgo/capacitor-nfc": "^8.0.25",
-    "@capgo/capacitor-updater": "^8.45.0",
+    "@capgo/capacitor-updater": "^8.50.2",
     "@supabase/supabase-js": "^2.99.1",
     "jsonwebtoken": "^9.0.3",
     "react": "^18.2.0",

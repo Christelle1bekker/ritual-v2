@@ -16,7 +16,10 @@ const config: CapacitorConfig = {
   },
   plugins: {
     CapacitorUpdater: {
-      autoUpdate: false
+      // Safe only while the anti-downgrade guardrails hold: bundle versions
+      // ≥ MARKETING_VERSION, --no-downgrade on the production channel, and a
+      // Capgo publish alongside every native build. See CAPGO_OTA_RESTORE.md.
+      autoUpdate: true
     },
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert']
