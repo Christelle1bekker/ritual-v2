@@ -304,3 +304,9 @@ npx @capgo/cli bundle upload com.ritualhabits.app --channel production --apikey 
 npx @capgo/cli bundle delete 1.0.46 com.ritualhabits.app --apikey "$(cat ~/.capgo)"
 ```
 Devices pick up 1.0.47 on the next open/background cycle, exactly as in F.
+
+---
+
+## ✅ CONFIRMED RESTORED — 2026-07-05
+
+Live proof complete. Native build 35 (v1.0.45, `autoUpdate: true`) shipped via TestFlight; verification bundle **1.0.46 published to the `production` channel** and **pulled by a real device** — Settings footer flipped from `Ritual v1.0.45` to `Ritual v1.0.46 (OTA)` after a background/reopen cycle, no Xcode/App Store involved. OTA is working. Guardrails live: `MARKETING_VERSION`↔`package.json` lockstep, `--no-downgrade` on `production`, publish-with-every-native-build. From here, JS-only changes ship via `bundle upload` (see "Standing bump rules").
