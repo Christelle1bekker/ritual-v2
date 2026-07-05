@@ -160,7 +160,7 @@ When the Android app lands, the same rules apply unchanged — the `production` 
 
 Every step is labelled **CC** (Claude Code runs it in a terminal — these are not requests to a human) or **Willem (Xcode GUI)** (physically impossible from a terminal: Xcode archive/upload/signing UI only). Almost everything is CC.
 
-The `ritual-v2` checkout on the Mac Mini is **`/Users/willem/Developer/ritual-v2`** (confirmed 2026-07-05). Every path and command below is exact.
+**There is only one machine** (established 2026-07-05): the Mac Mini runs on Christelle's account, and the canonical checkout — the same one steps A/E use — is **`/Users/christellebekker/Developer/ritual-v2`** (see `MACHINES.md`). "Build machine" and "this Mac" are the same working copy, which means CC can run step B in the same session as step A, and Willem opens Xcode right here.
 
 ### A. Merge & push the build point — **CC** (this Mac)
 
@@ -174,10 +174,10 @@ git push origin ota-build-point ops/restore-capgo-ota
 ```
 The default merge-commit message is fine; if editing it, write it to a temp file and use `git commit -F <tempfile>` (house convention). **Merge order is deliberate:** the build point merges to main *before* the native build; the verification commit merges *after* the build is verified on-device (step E1). Never let the verification commit into a native build — it would make the OTA test unfalsifiable.
 
-### B. Prepare the build machine — **CC** (terminal on the Mac Mini)
+### B. Prepare the build — **CC** (same machine, same checkout as step A)
 
 ```sh
-cd /Users/willem/Developer/ritual-v2
+cd /Users/christellebekker/Developer/ritual-v2
 git fetch origin
 git switch main
 git pull --ff-only origin main
@@ -222,7 +222,7 @@ rm -rf ~/Library/Developer/Xcode/DerivedData/App-*
 
 ### C. Archive & upload — **Willem (Xcode GUI)** — the only human-required steps
 
-1. Open **`/Users/willem/Developer/ritual-v2/ios/App/App.xcodeproj`** — the `.xcodeproj` itself. Known gotcha: this project uses **Swift Package Manager** (`ios/App/CapApp-SPM`), *not* CocoaPods — there is no `.xcworkspace` to look for.
+1. Open **`/Users/christellebekker/Developer/ritual-v2/ios/App/App.xcodeproj`** — the `.xcodeproj` itself. Known gotcha: this project uses **Swift Package Manager** (`ios/App/CapApp-SPM`), *not* CocoaPods — there is no `.xcworkspace` to look for.
 2. Wait for **"Resolving Package Graph"** (status bar) to finish before doing anything.
 3. Top bar: scheme **App**, destination **Any iOS Device (arm64)**.
 4. Sanity check: App target → **General** tab → Version **1.0.45**, Build = the number CC set in step B.
