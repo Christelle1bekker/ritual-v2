@@ -28,36 +28,54 @@ export default async function handler(req, res) {
     .from('members')
     .select('push_token')
     .eq('id', memberId)
+    .eq('family_id', familyId)
     .single();
 
-  if (error || !member?.push_token) {
+  // Kid profiles never hold a device token — nudges for them are delivered
+  // to every adult device in the family (the parent's phone is the device).
+  let tokens = member?.push_token ? [member.push_token] : [];
+  if (!error && !tokens.length) {
+    const { data: adults } = await supabase
+      .from('members')
+      .select('push_token')
+      .eq('family_id', familyId)
+      .eq('is_kid', false)
+      .not('push_token', 'is', null);
+    tokens = [...new Set((adults || []).map(a => a.push_token))];
+  }
+
+  if (error || !tokens.length) {
     return res.status(200).json({ ok: false, reason: 'No push token for member' });
   }
 
   const token = makeApnsJwt();
   const bundleId = 'com.ritualhabits.app';
-  const apnsUrl = `https://api.push.apple.com/3/device/${member.push_token}`;
-
   const payload = JSON.stringify({
     aps: { alert: { title, body }, sound: 'default', badge: 1 },
   });
 
-  const apnsRes = await fetch(apnsUrl, {
-    method: 'POST',
-    headers: {
-      authorization: `bearer ${token}`,
-      'apns-topic': bundleId,
-      'apns-push-type': 'alert',
-      'content-type': 'application/json',
-    },
-    body: payload,
-  });
-
-  if (!apnsRes.ok) {
-    const errBody = await apnsRes.text();
-    console.error('❌ APNs error:', apnsRes.status, errBody);
-    return res.status(502).json({ error: 'APNs delivery failed', detail: errBody });
+  let delivered = 0;
+  for (const deviceToken of tokens) {
+    const apnsRes = await fetch(`https://api.push.apple.com/3/device/${deviceToken}`, {
+      method: 'POST',
+      headers: {
+        authorization: `bearer ${token}`,
+        'apns-topic': bundleId,
+        'apns-push-type': 'alert',
+        'content-type': 'application/json',
+      },
+      body: payload,
+    });
+    if (apnsRes.ok) {
+      delivered++;
+    } else {
+      console.error('❌ APNs error:', apnsRes.status, await apnsRes.text());
+    }
   }
 
-  return res.status(200).json({ ok: true });
+  if (!delivered) {
+    return res.status(502).json({ error: 'APNs delivery failed' });
+  }
+
+  return res.status(200).json({ ok: true, delivered });
 }

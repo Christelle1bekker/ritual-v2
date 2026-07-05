@@ -153,21 +153,33 @@ export default async function handler(req, res) {
     const pendingIds = memberIds.filter(id => !completedIds.has(id));
     if (!pendingIds.length) continue;
 
-    // Get push tokens for any pending member with a registered device.
-    const { data: members } = await supabase
+    // Kid profiles never hold a device token — their reminders are delivered
+    // to every adult device in the family (the parent's phone is the device).
+    const { data: pendingMembers } = await supabase
       .from('members')
       .select('id, name, push_token')
-      .in('id', pendingIds)
-      .not('push_token', 'is', null);
+      .in('id', pendingIds);
 
-    for (const member of (members || [])) {
-      if (!member.push_token) continue;
-      const ok = await sendPush(
-        member.push_token,
-        `Time for: ${habit.name}`,
-        `${member.name}, don't forget your ritual!`
-      );
-      if (ok) sent++;
+    const { data: adults } = await supabase
+      .from('members')
+      .select('push_token')
+      .eq('family_id', habit.family_id)
+      .eq('is_kid', false)
+      .not('push_token', 'is', null);
+    const adultTokens = [...new Set((adults || []).map(a => a.push_token))];
+
+    for (const member of (pendingMembers || [])) {
+      // Adults with their own registered device get their own reminder;
+      // everyone else's goes to the family's adult devices.
+      const targets = member.push_token ? [member.push_token] : adultTokens;
+      for (const target of targets) {
+        const ok = await sendPush(
+          target,
+          `Time for: ${habit.name}`,
+          `${member.name}, don't forget your ritual!`
+        );
+        if (ok) sent++;
+      }
     }
   }
 

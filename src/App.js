@@ -4833,7 +4833,11 @@ export default function RitualApp() {
           console.log('Push registration success, token:', token.value);
         }
         if (token.value) cachedPushTokenRef.current = token.value;
-        const memberId = currentMemberRef.current?.id;
+        // Tokens are stored on adult profiles only — the device belongs to the
+        // parent. If a kid profile is active, the cached token is written by
+        // the reconcile effect once an adult profile is selected.
+        const member = currentMemberRef.current;
+        const memberId = member && !member.isKid ? member.id : null;
         if (memberId && supabase && token.value) {
           supabase.from('members').update({ push_token: token.value }).eq('id', memberId)
             .then(({ error }) => {
@@ -4867,6 +4871,8 @@ export default function RitualApp() {
     const memberId = currentMember?.id;
     const token = cachedPushTokenRef.current;
     if (!memberId || !token || !supabase) return;
+    // Adult profiles only — kid rows never hold a device token.
+    if (currentMember.isKid) return;
     if (pushTokenWrittenForMemberRef.current === memberId) return;
     supabase.from('members').update({ push_token: token }).eq('id', memberId)
       .then(({ error }) => {
@@ -5998,7 +6004,12 @@ export default function RitualApp() {
     if (supabase) {
       const dbUp = {};
       if (updates.name !== undefined) { dbUp.name = updates.name; dbUp.avatar = updates.avatar; }
-      if (updates.isKid !== undefined) dbUp.is_kid = updates.isKid;
+      if (updates.isKid !== undefined) {
+        dbUp.is_kid = updates.isKid;
+        // Kid rows never hold a device token — clear it when an adult
+        // profile is switched to a kid profile.
+        if (updates.isKid) dbUp.push_token = null;
+      }
       if (updates.progressVisual !== undefined) dbUp.progress_visual = updates.progressVisual;
       if (updates.color !== undefined) dbUp.color = updates.color;
       await supabase.from("members").update(dbUp).eq("id", memberId);
