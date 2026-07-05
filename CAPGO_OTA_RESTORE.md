@@ -222,7 +222,7 @@ rm -rf ~/Library/Developer/Xcode/DerivedData/App-*
 
 ### C. Archive & upload — **Willem (Xcode GUI)** — the only human-required steps
 
-1. Open **`<MAC_MINI_REPO>/ios/App/App.xcodeproj`** — the `.xcodeproj` itself. Known gotcha: this project uses **Swift Package Manager** (`ios/App/CapApp-SPM`), *not* CocoaPods — there is no `.xcworkspace` to look for.
+1. Open **`/Users/willem/Developer/ritual-v2/ios/App/App.xcodeproj`** — the `.xcodeproj` itself. Known gotcha: this project uses **Swift Package Manager** (`ios/App/CapApp-SPM`), *not* CocoaPods — there is no `.xcworkspace` to look for.
 2. Wait for **"Resolving Package Graph"** (status bar) to finish before doing anything.
 3. Top bar: scheme **App**, destination **Any iOS Device (arm64)**.
 4. Sanity check: App target → **General** tab → Version **1.0.45**, Build = the number CC set in step B.
