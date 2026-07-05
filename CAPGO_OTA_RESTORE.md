@@ -107,4 +107,200 @@ Staying dark only addresses #3 by abandoning OTA entirely. The guardrails staged
 4. Verification bundle: a small visible version marker change (the Settings screen already renders `Ritual v1.0.44` at `src/App.js:4332` — it will read `v1.0.45` plus a distinct marker), own commit, easy to revert.
 5. Ship-day runbook (Willem's one Xcode build → publish 1.0.45 → verify on device → rollback procedure) appended to this file.
 
-**Nothing merges, nothing uploads to Capgo, until sign-off. "Configured" ≠ "working" — OTA is only proven when the 1.0.45 marker appears on a real device after the native build.**
+**Nothing merges, nothing uploads to Capgo, until sign-off. "Configured" ≠ "working" — OTA is only proven when the verification marker appears on a real device after the native build.**
+
+---
+---
+
+# Part 2 — Staged changes & ship-day runbook
+
+**Staged:** 2026-07-05, on `ops/restore-capgo-ota`. Nothing merged, nothing published.
+
+## What is staged on the branch
+
+| Commit | What it does |
+|---|---|
+| `6ec0aa1` | Phase 1 investigation report (Part 1 above) |
+| `cf2a185` | `autoUpdate: true` in `capacitor.config.ts` + `ios/App/App/capacitor.config.json` |
+| `cb7f55a` | `@capgo/capacitor-updater` 8.45.0 → 8.50.2 (same major, no migration) |
+| `246ead9` | Version alignment 1.0.45: `package.json`, `MARKETING_VERSION` (was flat `1.0`), UI marker |
+| runbook commit — **tagged `ota-build-point`** | This runbook. **The native build is cut from this tag.** |
+| branch tip (after the tag) | **VERIFICATION BUNDLE** — 1.0.46 + `Ritual v1.0.46 (OTA)` marker. Deliberately *excluded* from the native build so the OTA delivery is visibly distinguishable from the natively-bundled JS. Merged and published only in step E, after the build is on a device. |
+
+---
+
+## ⚠️ THE THREE GUARDRAILS — load-bearing, permanent, not optional
+
+These three rules — not the `autoUpdate` flag — are what prevent a repeat of May 2026 (stale cloud bundle silently downgrading newer shipped JS, `cc0ca11`). OTA sat dead for two months because "establish publishing discipline later" was never written anywhere enforceable. This section is that enforceable place. If any of these lapses, turn `autoUpdate` off again.
+
+### Guardrail 1 — `MARKETING_VERSION` ↔ `package.json` lockstep
+Every native build sets `MARKETING_VERSION` (both occurrences in `ios/App/App.xcodeproj/project.pbxproj`) equal to the `package.json` version at that moment. Between native builds, JS-only releases bump `package.json` **upward only**. Result: every bundle version is ≥ the native version it lands on, so Capgo's built-in "never install a bundle older than the native app" check has a real number to compare. (It was inert for the whole May incident because native said flat `1.0` and every `1.0.x` bundle passed.)
+
+### Guardrail 2 — `--no-downgrade` on the `production` channel
+Server-side backstop: even if versions are ever mishandled, Capgo refuses to serve a bundle whose version is below the requesting device's native version. Applied in step E3; **idempotent — safe to re-run any time you're unsure:**
+```sh
+npx @capgo/cli channel set production com.ritualhabits.app --no-downgrade --apikey "$(cat ~/.capgo)"
+```
+
+### Guardrail 3 — publish with every native build
+The `production` channel must never fall behind what's shipped through TestFlight/App Store. **Same day as any native build upload**, publish the identical JS to the channel (steps B/E give the exact commands). A device that already has newer native JS won't take the equal-version bundle (no-op), but a device on an older native build gets brought current — the channel never again serves something older than the newest shipped JS.
+
+### Standing bump rules after ship day
+
+| You changed… | Then… |
+|---|---|
+| JS only | Bump `package.json` patch version → `npm run build` → `bundle upload` to `production`. Two commands, no Xcode. |
+| Anything native (plugin add/update, config, entitlements) | Bump `package.json` AND set `MARKETING_VERSION` to match → native build via Xcode → TestFlight → **and** upload the same JS to the channel (Guardrail 3). |
+
+When the Android app lands, the same rules apply unchanged — the `production` channel already has Android enabled.
+
+---
+
+## Ship-day runbook
+
+Every step is labelled **CC** (Claude Code runs it in a terminal — these are not requests to a human) or **Willem (Xcode GUI)** (physically impossible from a terminal: Xcode archive/upload/signing UI only). Almost everything is CC.
+
+The only value not known in advance: **`<MAC_MINI_REPO>`** = absolute path of the `ritual-v2` checkout on the Mac Mini (e.g. `/Users/willem/Developer/ritual-v2` — confirm before starting). Every other path and command below is exact.
+
+### A. Merge & push the build point — **CC** (this Mac)
+
+```sh
+cd /Users/christellebekker/Developer/ritual-v2
+git switch main
+git pull --ff-only origin main
+git merge --no-ff ota-build-point      # everything EXCEPT the verification bundle
+git push origin main
+git push origin ota-build-point ops/restore-capgo-ota
+```
+The default merge-commit message is fine; if editing it, write it to a temp file and use `git commit -F <tempfile>` (house convention). **Merge order is deliberate:** the build point merges to main *before* the native build; the verification commit merges *after* the build is verified on-device (step E1). Never let the verification commit into a native build — it would make the OTA test unfalsifiable.
+
+### B. Prepare the build machine — **CC** (terminal on the Mac Mini)
+
+```sh
+cd <MAC_MINI_REPO>
+git fetch origin
+git switch main
+git pull --ff-only origin main
+npm ci
+npm run build
+npx cap sync ios
+```
+`npx cap sync ios` copies `build/` into the native shell, regenerates `ios/App/App/capacitor.config.json` from `capacitor.config.ts`, and refreshes the SPM plugin sources (the SPM package points at `node_modules`, so the 8.50.2 updater arrives via `npm ci`).
+
+**Verify the build will carry the right config — all four must pass (CC):**
+```sh
+grep -A 2 '"CapacitorUpdater"' ios/App/App/capacitor.config.json
+#   → must show   "autoUpdate": true
+grep -o 'Ritual v1\.0\.[0-9]*' build/static/js/main.*.js
+#   → must print  Ritual v1.0.45        (NOT 1.0.46 — that would mean the
+#                                        verification commit leaked into the build)
+grep MARKETING_VERSION ios/App/App.xcodeproj/project.pbxproj
+#   → must print  MARKETING_VERSION = 1.0.45;   (twice)
+node -e "console.log(require('./package-lock.json').packages['node_modules/@capgo/capacitor-updater'].version)"
+#   → must print  8.50.2
+```
+
+**Bump the TestFlight build number (CC).** Check the current value, then set both occurrences to the next integer (example: 34 → 35):
+```sh
+grep -n 'CURRENT_PROJECT_VERSION' ios/App/App.xcodeproj/project.pbxproj
+sed -i '' 's/CURRENT_PROJECT_VERSION = 34;/CURRENT_PROJECT_VERSION = 35;/g' ios/App/App.xcodeproj/project.pbxproj
+```
+
+**Commit whatever the prep changed (CC — explicit paths, never `git add .`):**
+```sh
+git add ios/App/App/capacitor.config.json ios/App/App.xcodeproj/project.pbxproj
+git status --short   # confirm nothing else is staged
+printf 'chore(ios): sync native shell and bump build for OTA restore build\n' > /tmp/ritual-msg.txt
+git commit -F /tmp/ritual-msg.txt
+git push origin main
+```
+
+**Clear stale DerivedData so the archive can't carry an old config (CC):**
+```sh
+rm -rf ~/Library/Developer/Xcode/DerivedData/App-*
+```
+
+### C. Archive & upload — **Willem (Xcode GUI)** — the only human-required steps
+
+1. Open **`<MAC_MINI_REPO>/ios/App/App.xcodeproj`** — the `.xcodeproj` itself. Known gotcha: this project uses **Swift Package Manager** (`ios/App/CapApp-SPM`), *not* CocoaPods — there is no `.xcworkspace` to look for.
+2. Wait for **"Resolving Package Graph"** (status bar) to finish before doing anything.
+3. Top bar: scheme **App**, destination **Any iOS Device (arm64)**.
+4. Sanity check: App target → **General** tab → Version **1.0.45**, Build = the number CC set in step B.
+5. **Product → Clean Build Folder** (belt-and-suspenders on top of the DerivedData wipe).
+6. **Product → Archive**. When the Organizer opens: **Distribute App → App Store Connect → Upload**, accept the automatic-signing prompts (team `UDB2JG9XK6`).
+7. Done when the upload succeeds. Landed = App Store Connect "build has completed processing" email (typically 5–30 min), after which the build appears in TestFlight.
+
+### D. Install & pre-OTA sanity check — phone in hand (either of you), CC has nothing to run
+
+1. Install the new build from **TestFlight** on the test iPhone.
+2. Open the app → Settings screen → footer must read **`Ritual v1.0.45`**. That's the natively-bundled JS — OTA has not acted yet.
+3. Optional deeper check: phone plugged in → Console.app, filter `Capgo` → expect `[Capgo] notifyAppReady() called at index.js startup` and `[Capgo] active bundle on startup: BUILTIN`.
+
+**STOP. Explicit go/no-go before anything is published to Capgo (per standing rule: no bundle upload without sign-off).**
+
+### E. Publish the verification bundle — **CC** (this Mac; the Capgo key already lives in `~/.capgo` here)
+
+```sh
+cd /Users/christellebekker/Developer/ritual-v2
+git switch main
+git pull --ff-only origin main
+git merge --no-ff ops/restore-capgo-ota     # brings in ONLY the verification commit now
+git push origin main
+npm ci
+npm run build
+grep -o 'Ritual v1\.0\.[0-9]* (OTA)' build/static/js/main.*.js
+#   → must print  Ritual v1.0.46 (OTA)
+```
+Apply Guardrail 2 (idempotent), then upload:
+```sh
+npx @capgo/cli channel set production com.ritualhabits.app --no-downgrade --apikey "$(cat ~/.capgo)"
+npx @capgo/cli bundle upload com.ritualhabits.app --channel production --apikey "$(cat ~/.capgo)"
+#   version is auto-read from package.json → 1.0.46
+#   path is auto-read from capacitor.config webDir → build/
+```
+Confirm server-side (CC):
+```sh
+npx @capgo/cli bundle list com.ritualhabits.app --apikey "$(cat ~/.capgo)"    # 1.0.46 listed
+npx @capgo/cli channel list com.ritualhabits.app --apikey "$(cat ~/.capgo)"   # production → 1.0.46
+```
+
+### F. Watch the device pull it — the live proof
+
+How the update triggers with `autoUpdate: true` (no `directUpdate`): the plugin **downloads in the background while the app is open, and applies the new bundle when the app is backgrounded** — it never yanks the bundle mid-foreground-use (which is also why there's no NFC-scan hazard).
+
+Phone actions, spelled out:
+1. Open the app. Leave it in the foreground **~30 seconds** (download window).
+2. Swipe up to home (background it — this is what applies the update). Wait **~10 seconds**.
+3. Reopen the app.
+4. **Success = Settings footer reads `Ritual v1.0.46 (OTA)`.**
+5. If unchanged: repeat the background/reopen cycle once more; then force-quit and relaunch. Allow up to **5 minutes** total before calling it a failure.
+
+Corroboration:
+- Console.app (filter `Capgo`): `Update available` → `Download complete` → `App reloaded with new bundle`, and on the next cold launch `active bundle on startup: 1.0.46`.
+- Capgo dashboard: **https://web.capgo.app** → app **Ritual** (`com.ritualhabits.app`) → `production` channel → stats/devices shows the device on **1.0.46**.
+
+**Only now is OTA actually restored. Config alone proved nothing; this does.**
+
+### G. Rollback — **CC** (only if F fails or the bundle misbehaves)
+
+Two distinct failure shapes:
+
+**1. The bundle crashes the app on launch** → Capgo handles it automatically: `notifyAppReady()` never fires ([src/index.js:10](src/index.js)), so the plugin restores the previous bundle on the next launch. Then remove the bad bundle so nothing else pulls it:
+```sh
+npx @capgo/cli bundle delete 1.0.46 com.ritualhabits.app --apikey "$(cat ~/.capgo)"
+```
+(Deleted version numbers can't be reused — the next attempt is 1.0.47.)
+
+**2. The bundle runs but misbehaves** → do **not** try to push an older bundle: downgrading below/at native is blocked by our own guardrails, *by design*. Roll **forward**:
+```sh
+cd /Users/christellebekker/Developer/ritual-v2
+git revert <bad-commit-sha>                     # or fix properly
+npm version 1.0.47 --no-git-tag-version
+git add package.json package-lock.json
+printf 'fix(ota): roll forward past bad 1.0.46 bundle\n' > /tmp/ritual-msg.txt
+git commit -F /tmp/ritual-msg.txt && git push origin main
+npm run build
+npx @capgo/cli bundle upload com.ritualhabits.app --channel production --apikey "$(cat ~/.capgo)"
+npx @capgo/cli bundle delete 1.0.46 com.ritualhabits.app --apikey "$(cat ~/.capgo)"
+```
+Devices pick up 1.0.47 on the next open/background cycle, exactly as in F.
