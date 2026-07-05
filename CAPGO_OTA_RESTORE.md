@@ -160,7 +160,7 @@ When the Android app lands, the same rules apply unchanged — the `production` 
 
 Every step is labelled **CC** (Claude Code runs it in a terminal — these are not requests to a human) or **Willem (Xcode GUI)** (physically impossible from a terminal: Xcode archive/upload/signing UI only). Almost everything is CC.
 
-The only value not known in advance: **`<MAC_MINI_REPO>`** = absolute path of the `ritual-v2` checkout on the Mac Mini (e.g. `/Users/willem/Developer/ritual-v2` — confirm before starting). Every other path and command below is exact.
+The `ritual-v2` checkout on the Mac Mini is **`/Users/willem/Developer/ritual-v2`** (confirmed 2026-07-05). Every path and command below is exact.
 
 ### A. Merge & push the build point — **CC** (this Mac)
 
@@ -177,7 +177,7 @@ The default merge-commit message is fine; if editing it, write it to a temp file
 ### B. Prepare the build machine — **CC** (terminal on the Mac Mini)
 
 ```sh
-cd <MAC_MINI_REPO>
+cd /Users/willem/Developer/ritual-v2
 git fetch origin
 git switch main
 git pull --ff-only origin main
