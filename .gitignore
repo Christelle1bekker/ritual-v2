@@ -8,7 +8,8 @@ build/
 
 .vercel
 
-.claude/
+.claude/*
+!.claude/skills/
 
 # Playwright output
 test-results/
