@@ -15,6 +15,8 @@ The most expensive failure mode in this workspace has never been a wrong answer 
 
 A claim costs nothing to make and everything to unwind. An observation costs one command.
 
+One fresh observation per claim is sufficient. Once a state is verified and nothing has changed it, do not re-verify it — and do not narrate additional self-checks of reasoning. This skill requires observations of the system, not repeated review of your own conclusions.
+
 ## The core rule
 
 > A claim about system state is only valid if it is backed by an observation made **after the most recent change** to that system.

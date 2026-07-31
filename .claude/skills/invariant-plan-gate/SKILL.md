@@ -13,9 +13,13 @@ The near-miss that motivates this: decommissioning Dashy required a `delete_fami
 
 Writing the plan is not bureaucracy — it is the act of loading the invariants into working memory *before* the first edit, when they can still shape the approach.
 
-## The gate
+## The gate — two tiers
 
-No edits until a plan exists containing these four parts. Keep it short — five to fifteen lines total. The value is in the thinking, not the document.
+Full plan (mandatory) when the change touches any database schema, any auth/RLS boundary, any compliance-relevant code path, or when the task is worded "refactor", "restructure", "migrate", "rebuild", or "clean up" — however casually.
+
+Registry scan (lightweight) for ordinary multi-file edits outside those categories: scan the invariant registry below and state inline either "invariants at risk: none" or the specific invariants touched (which escalates the task to a full plan). No four-part document required. The scan is the load-bearing behaviour; the document is only warranted when risk is.
+
+For the full-plan tier: no edits until a plan exists containing these four parts. Keep it short — five to fifteen lines total. The value is in the thinking, not the document.
 
 1. **Goal** — one sentence, the outcome (not the steps).
 2. **Invariants at risk** — which items from the registry below (plus any task-specific ones) could this change touch? If the honest answer is "none", say so explicitly — writing "none touched" forces the scan.

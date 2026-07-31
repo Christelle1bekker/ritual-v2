@@ -19,6 +19,8 @@ The temptation is always virtuous: while fixing the requested bug, you notice a 
 
 "What was asked" means the stated outcome, interpreted honestly — not the narrowest literal reading. If the requested fix *requires* touching an adjacent line to work at all, that is in scope. If it merely *invites* touching one, it is not.
 
+If the request seems mistaken or a better approach exists, say so in one sentence and continue with the task as asked — never quietly narrow, widen, or transform it. Redirection is the human's call, made on a stated finding, not discovered in the diff.
+
 ## The findings log
 
 Adjacent problems are valuable — the fence preserves them instead of smuggling them:
