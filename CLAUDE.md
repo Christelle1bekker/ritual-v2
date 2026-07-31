@@ -12,3 +12,5 @@
   tracks (e.g. a wide multi-file investigation). Never delegate work
   finishable in a handful of tool calls, and never use subagents to
   verify your own work.
+- Commit directly to main; never create working branches unless
+  explicitly asked.

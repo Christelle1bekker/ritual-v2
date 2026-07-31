@@ -15,9 +15,9 @@ Writing the plan is not bureaucracy — it is the act of loading the invariants 
 
 ## The gate — two tiers
 
-Full plan (mandatory) when the change touches any database schema, any auth/RLS boundary, any compliance-relevant code path, or when the task is worded "refactor", "restructure", "migrate", "rebuild", or "clean up" — however casually.
+**Full plan (mandatory)** when the change touches any database schema, any auth/RLS boundary, any compliance-relevant code path, or when the task is worded "refactor", "restructure", "migrate", "rebuild", or "clean up" — however casually.
 
-Registry scan (lightweight) for ordinary multi-file edits outside those categories: scan the invariant registry below and state inline either "invariants at risk: none" or the specific invariants touched (which escalates the task to a full plan). No four-part document required. The scan is the load-bearing behaviour; the document is only warranted when risk is.
+**Registry scan (lightweight)** for ordinary multi-file edits outside those categories: scan the invariant registry below and state inline either "invariants at risk: none" or the specific invariants touched (which escalates the task to a full plan). No four-part document required. The scan is the load-bearing behaviour; the document is only warranted when risk is.
 
 For the full-plan tier: no edits until a plan exists containing these four parts. Keep it short — five to fifteen lines total. The value is in the thinking, not the document.
 
@@ -38,6 +38,7 @@ These are the standing invariants in this workspace. Scan this list at plan time
 - `family_entitlements` is the single source of truth for monetisation; `monetisation_enabled` stays dormant at launch.
 - Family data isolation (the property proven by isolation tests T1–T7) must survive any change to invites, joins, or RLS.
 - Magic-link / Universal Links auth flow (Rev 3) — deep-link handling is fragile under refactor.
+- Android scaffold (parked branch `android-scaffold`, 2026-07-07): Android `versionCode`/`versionName` mirror the iOS build/marketing numbers — bump together (Capgo-lockstep lesson). Tooling quirk: `npx capacitor-assets generate --android` re-serialises `ios/App/App.xcodeproj/project.pbxproj` (formatting-only churn) — restore it, never commit it.
 
 **Ritual**
 - Capgo version lockstep and `--no-downgrade` — version fields must move together or OTA silently stops.
