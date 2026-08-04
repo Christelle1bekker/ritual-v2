@@ -38,7 +38,8 @@ These are the standing invariants in this workspace. Scan this list at plan time
 - `family_entitlements` is the single source of truth for monetisation; `monetisation_enabled` stays dormant at launch.
 - Family data isolation (the property proven by isolation tests T1–T7) must survive any change to invites, joins, or RLS.
 - Magic-link / Universal Links auth flow (Rev 3) — deep-link handling is fragile under refactor.
-- Android scaffold (parked branch `android-scaffold`, 2026-07-07): Android `versionCode`/`versionName` mirror the iOS build/marketing numbers — bump together (Capgo-lockstep lesson). Tooling quirk: `npx capacitor-assets generate --android` re-serialises `ios/App/App.xcodeproj/project.pbxproj` (formatting-only churn) — restore it, never commit it.
+- Android scaffold (parked branch `android-scaffold`, 2026-07-07): Android `versionCode`/`versionName` mirror the iOS build/marketing numbers — bump together (Capgo-lockstep lesson). Build 69 extended the same lockstep to `package.json`/`package-lock.json` (the web/footer leg): all three stores move in one `npm run ios:bump`, and the Settings footer reads the binary via App.getInfo() — never package.json on native. Tooling quirk: `npx capacitor-assets generate --android` re-serialises `ios/App/App.xcodeproj/project.pbxproj` (formatting-only churn) — restore it, never commit it.
+- App Store train closure: once ANY build of a marketing version is approved, that pre-release train is CLOSED — the next iOS cut must bump `MARKETING_VERSION` (CFBundleShortVersionString, all four configs, BekaShare matched) and verify the target train is open BEFORE archiving. Missed twice (1.0 → 1.0.1 on 2026-07-23; 1.0.1 → 1.0.2 on 2026-08-02, a full re-archive) — it is a ship gate now, not tribal knowledge.
 
 **Ritual**
 - Capgo version lockstep and `--no-downgrade` — version fields must move together or OTA silently stops.
