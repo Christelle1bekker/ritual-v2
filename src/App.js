@@ -1215,6 +1215,59 @@ function InactiveDayModal({ habit, onEdit, onClose }) {
   );
 }
 
+// ─── ANDROID SCAN OVERLAY ─────────────────────────────────────────
+// Android-only stand-in for the iOS NFC system sheet.
+//
+// iOS shows an OS-drawn sheet with our alertMessage and a Cancel button for
+// the life of the reader session. Android's enableReaderMode arms the radio
+// with NO system UI at all: nothing tells the user the phone is listening,
+// and nothing but a tag read or our own watchdog ever ends the session. This
+// overlay supplies both halves — the "we're listening" signal and the way out
+// — so the Android flow reads like the iOS one instead of like a dead FAB.
+//
+// onCancel calls the lifecycle's cancel(), which stops the session and
+// resolves the in-flight scan with null; the overlay is then unmounted by the
+// scan handler's finally block, not from in here. Single owner of the flag.
+function AndroidScanOverlay({ onCancel }) {
+  useEffect(() => {
+    const handle = (e) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", handle);
+    return () => document.removeEventListener("keydown", handle);
+  }, [onCancel]);
+
+  // Three concentric rings on the shared `ripple` keyframe, staggered, so the
+  // pulse reads as a radio wave rather than a spinner. Same accent terracotta
+  // as the FAB the user just pressed.
+  const rings = [0, 0.6, 1.2];
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", zIndex: 995, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease" }}>
+      <div style={{ width: "100%", maxWidth: 340, background: `linear-gradient(135deg, ${C.accent}22, ${C.accent}10)`, borderLeft: `4px solid ${C.accent}`, borderRadius: 24, padding: "34px 26px 26px", boxShadow: "0 20px 50px rgba(0,0,0,0.35)" }}>
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div style={{ position: "relative", width: 96, height: 96, margin: "0 auto 20px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {rings.map((delay, i) => (
+              <div key={i} style={{ position: "absolute", width: 76, height: 76, borderRadius: "50%", border: `2px solid ${C.accentLight}`, animation: `ripple 1.8s ${delay}s ease-out infinite` }} />
+            ))}
+            <div style={{ position: "relative", width: 76, height: 76, borderRadius: "50%", background: `linear-gradient(135deg, ${C.accent}, ${C.accent}CC)`, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 8px 24px ${C.accent}66` }}>
+              {/* Same wave glyph as the scan FAB, so the overlay is visibly the FAB's result */}
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={C.white} strokeWidth="1.8" strokeLinecap="round" style={{ display: "block" }}>
+                <circle cx="12" cy="17" r="1.5" fill={C.white} stroke="none" />
+                <path d="M8.5 13.5 A 5 5 0 0 1 15.5 13.5" />
+                <path d="M5 11 A 9 9 0 0 1 19 11" />
+              </svg>
+            </div>
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", marginBottom: 10, lineHeight: 1.25 }}>Hold your phone against a tile</div>
+          <div style={{ fontSize: 15, color: "rgba(255,255,255,0.85)", lineHeight: 1.55, fontFamily: "'DM Sans', sans-serif" }}>
+            Keep the back of your phone on the tile until it reads.
+          </div>
+        </div>
+        <button onClick={onCancel} style={{ width: "100%", padding: "13px 20px", borderRadius: 18, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.75)", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── COMPLETION FLASH ─────────────────────────────────────────────
 function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
   const [countdown, setCountdown] = useState(FLASH_COUNTDOWN_SECONDS);
@@ -4681,12 +4734,34 @@ export default function RitualApp() {
   // ─── Active tile scanning ───────────────────────────────────────
   // FAB on the Today tab opens an iOS reader session; reads route through
   // the same deep-link path as passive taps (setDeepLinkTileUID).
-  const { scan, isAvailable, showSettings: showNfcSettings } = useNfcScanner();
+  const { scan, cancel: cancelNfcScan, isAvailable, showSettings: showNfcSettings, getStatus: getNfcStatus } = useNfcScanner();
   const [nfcAvailable, setNfcAvailable] = useState(false);
+  // Drives the Android-only in-app scan overlay (see AndroidScanOverlay).
+  // Never set on iOS, where the OS draws its own sheet with its own Cancel.
+  const [androidScanActive, setAndroidScanActive] = useState(false);
   useEffect(() => {
     setNfcAvailable(isAvailable());
   }, [isAvailable]);
   const handleScanTile = async () => {
+    // Android has neither of the two things iOS gets for free: a system scan
+    // sheet (so the user can see the radio is armed and cancel it) and a
+    // permission model that guarantees the radio is on when isSupported() is
+    // true. Both are supplied here; the iOS path below is untouched.
+    const isAndroid = Capacitor.getPlatform() === 'android';
+    if (isAndroid) {
+      // isSupported() — which gates the FAB — only means "this phone has an
+      // NfcAdapter". With NFC switched off, startScanning() rejects with
+      // NFC_DISABLED, so check first and send the user to NFC settings rather
+      // than arming a session that can never read a tile. null = status
+      // unknown; proceed and let the scan itself report the failure.
+      const status = await getNfcStatus();
+      if (status === 'NFC_DISABLED') {
+        console.log('[TILE TAP] activeScan: NFC is off — nudging to settings');
+        addToast('Turn on NFC to scan tiles', 'error', () => { showNfcSettings(); });
+        return;
+      }
+      setAndroidScanActive(true);
+    }
     let urlStr;
     try {
       urlStr = await scan();
@@ -4699,6 +4774,11 @@ export default function RitualApp() {
         addToast('Allow tile scanning in Settings', 'error', () => { showNfcSettings(); });
       }
       return;
+    } finally {
+      // One exit point for the overlay: every way a scan can end (tag read,
+      // Cancel via cancelNfcScan(), the 30s watchdog, a start rejection)
+      // settles the promise, so the overlay can never outlive the session.
+      if (isAndroid) setAndroidScanActive(false);
     }
     if (!urlStr) return; // session ended without a read (cancel/timeout/error)
     console.log('[TILE TAP] activeScan: received URL =', urlStr);
@@ -4771,10 +4851,15 @@ export default function RitualApp() {
 
     // Deep links: handle auth callback URLs FIRST (Supabase email confirmation,
     // password reset, etc.), then fall through to tile URLs.
-    try { CapApp.addListener('appUrlOpen', async (event) => {
+    //
+    // Extracted from the appUrlOpen listener so the Android cold-launch path
+    // below runs the IDENTICAL logic (auth-first, then tile) instead of a
+    // second copy that drifts. `source` only labels the diagnostics, so the
+    // iOS log lines stay exactly as they were.
+    const handleDeepLinkUrl = async (rawUrl, source = 'appUrlOpen') => {
       try {
-        const urlStr = event.url || '';
-        console.log('[appUrlOpen] received URL =', urlStr);
+        const urlStr = rawUrl || '';
+        console.log(`[${source}] received URL =`, urlStr);
 
         // Auth callback detection: PKCE flow uses ?code=, hash flow uses
         // #access_token=, and our auth redirect path is /auth/callback.
@@ -4810,15 +4895,51 @@ export default function RitualApp() {
         // Tile URL fallback (existing behaviour)
         const tileUID = parseTileUrl(urlStr);
         if (tileUID) {
-          console.log('[TILE TAP] appUrlOpen: extracted tile_uid =', tileUID);
+          console.log(`[TILE TAP] ${source}: extracted tile_uid =`, tileUID);
           setDeepLinkTileUID(tileUID);
         } else {
-          console.log('[TILE TAP] appUrlOpen: no tile UID in URL');
+          console.log(`[TILE TAP] ${source}: no tile UID in URL`);
         }
       } catch (e) {
-        console.warn('[appUrlOpen] malformed URL', e);
+        console.warn(`[${source}] malformed URL`, e);
       }
+    };
+
+    try { CapApp.addListener('appUrlOpen', async (event) => {
+      await handleDeepLinkUrl(event.url);
     }); } catch (e) { console.warn('[Capgo] appUrlOpen listener failed:', e); }
+
+    // ANDROID COLD LAUNCH — the tile-tap gap appUrlOpen cannot cover.
+    //
+    // @capacitor/app fires appUrlOpen from handleOnNewIntent ONLY, i.e. for
+    // WARM intents. When an ACTION_VIEW intent starts the process from cold,
+    // the activity is created with that intent and onNewIntent never runs, so
+    // no appUrlOpen is ever emitted and a tile tap that launches the app is a
+    // silent no-op. The URL is only reachable via App.getLaunchUrl(), which
+    // returns Bridge.getIntentUri() — the launching intent.
+    //
+    // ANDROID-ONLY BY NECESSITY: on iOS a cold-launch universal link IS
+    // delivered as a retained appUrlOpen, so calling getLaunchUrl() there too
+    // would hand the same URL to the handler twice (double auth exchange, or a
+    // tile completion counted twice). The platform check is the de-duplication.
+    //
+    // Stale-intent safety lives in MainActivity.onCreate: a recents relaunch
+    // redelivers the last ACTION_VIEW intent with FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY,
+    // and its data URI is stripped there before the Bridge can see it — so
+    // getLaunchUrl() returns nothing for those and cannot replay an old tap.
+    if (Capacitor.getPlatform() === 'android') {
+      // try/catch as well as .catch(): same rule as every other native call in
+      // this effect — a deep-link lookup failing must never take the app down.
+      try {
+        CapApp.getLaunchUrl()
+          .then((result) => {
+            const launchUrl = result?.url;
+            if (!launchUrl) return; // ordinary launcher-icon start
+            handleDeepLinkUrl(launchUrl, 'getLaunchUrl');
+          })
+          .catch((e) => console.warn('[getLaunchUrl] cold-launch URL lookup failed:', e));
+      } catch (e) { console.warn('[getLaunchUrl] cold-launch URL lookup threw:', e); }
+    }
 
     // Push Notifications: request permission and register (wrapped in try/catch — must not crash app)
     // ANDROID v1 RULING (2026-08-29, docs/android/ASSESSMENT.md §10a): push is
@@ -6456,6 +6577,10 @@ export default function RitualApp() {
 
       {/* Celebration overlay — shown on 100% daily completion (once per day) */}
       {showCelebration && <CelebrationOverlay member={currentMemberRef.current} onDone={() => setShowCelebration(false)} soundEnabled={soundEnabled} />}
+
+      {/* Android scan overlay — stands in for the iOS NFC system sheet.
+          androidScanActive is only ever set on Android, so iOS renders nothing here. */}
+      {androidScanActive && <AndroidScanOverlay onCancel={cancelNfcScan} />}
 
       {/* Assign Tile Modal — shown whenever an unassigned tile is tapped */}
       {unassignedTileUID && (

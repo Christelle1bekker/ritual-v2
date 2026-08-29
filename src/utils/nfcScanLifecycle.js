@@ -24,12 +24,26 @@
 //        cc0ca11) → resolve(url)
 //     └─ onStateChange (cancel / 60s iOS timeout / system error — the
 //        plugin collapses all of these into one opaque event) → resolve(null)
-//     └─ watchdog (WATCHDOG_MS, past iOS's 60s session ceiling) → the
-//        terminal event was swallowed; stopScanning() + resolve(null) so
-//        the single-flight guard can never wedge permanently
+//     └─ watchdog (default WATCHDOG_MS, past iOS's 60s session ceiling) →
+//        the terminal event was swallowed; stopScanning() + resolve(null)
+//        so the single-flight guard can never wedge permanently
+//     └─ cancel() (ANDROID ONLY today) → the user dismissed our in-app scan
+//        overlay; stopScanning() + resolve(null)
 //   either way lastSessionEndedAt is stamped so the next scan settles —
 //   including when startScanning() itself rejects (no back-to-back retry
 //   against a radio that just reported a start failure).
+//
+// ANDROID (added 2026-08-29): the same machine drives Android, but the
+// native semantics differ and the differences are handled by the CALLER,
+// not here:
+//   - startScanning() = NfcAdapter.enableReaderMode: it resolves immediately,
+//     shows NO system sheet, offers NO cancel, and never times out. Nothing
+//     ends an Android session except a tag read, our cancel(), or the
+//     watchdog — hence cancel() and the per-scan watchdogMs below.
+//   - nfcStateChange on Android is an ADAPTER on/off broadcast, not a
+//     "session ended" signal. Treating it as a terminal event is still the
+//     right call (NFC switched off mid-scan = the session is dead) so the
+//     existing onStateChange path is deliberately left as-is.
 //
 // Constructor injection (now/schedule/cancel/warn) exists purely for tests.
 import { extractUrlFromTag } from './nfcNdef';
@@ -41,6 +55,11 @@ export const SETTLE_MS = 750;
 // plugin's TAG path suppresses user-cancel entirely), the scan resolves
 // null instead of wedging the single-flight guard until app restart —
 // which would read exactly like "scanning worked, then stopped working".
+//
+// This is the DEFAULT only. Callers may pass a per-scan watchdogMs (see
+// scan()) because Android has no 60s ceiling to sit behind — there the
+// watchdog IS the visible session length, not a backstop. iOS passes
+// nothing and therefore keeps exactly this value.
 export const WATCHDOG_MS = 65000;
 
 export function createScanLifecycle(nfc, opts = {}) {
@@ -75,7 +94,7 @@ export function createScanLifecycle(nfc, opts = {}) {
   async function onWatchdog(entry) {
     if (currentScan !== entry) return; // resolved normally — nothing to do
     currentScan = null;
-    warn('[nfcScanLifecycle] no terminal event within', WATCHDOG_MS, 'ms of session start — force-resolving scan');
+    warn('[nfcScanLifecycle] no terminal event within', entry.watchdogMs, 'ms of session start — force-resolving scan');
     // If the session were somehow still armed, stop it before releasing the
     // slot so the next scan doesn't begin() over a live session.
     try { await nfc.stopScanning(); } catch {}
@@ -106,11 +125,42 @@ export function createScanLifecycle(nfc, opts = {}) {
     entry.resolve(null);
   }
 
+  // Ends the in-flight session on demand and resolves its promise with null.
+  //
+  // ANDROID: this is the ONLY user-driven way out of a scan. enableReaderMode
+  // arms the radio silently — there is no system sheet and no Cancel button —
+  // so the app renders its own overlay and wires its Cancel button here.
+  // (On iOS the OS sheet's own Cancel produces an nfcStateChange instead, so
+  // nothing calls this; leaving it unused there keeps iOS byte-identical.)
+  //
+  // Deliberately mirrors the onNfcEvent/onStateChange shape: claim() first so
+  // a tag read landing in the same tick can't also resolve the scan (and so
+  // the watchdog is cancelled), stop the session, stamp the settle clock, then
+  // resolve. When nothing is in flight claim() returns null and this is a
+  // no-op — a double-tap on Cancel, or a Cancel racing the read that already
+  // resolved the scan, must not stop a session the NEXT scan just started.
+  async function cancelScan() {
+    const entry = claim();
+    if (!entry) return;
+    // Best-effort: if disableReaderMode fails the promise must still settle,
+    // otherwise the overlay stays up over a scan nobody can end.
+    try { await nfc.stopScanning(); } catch {}
+    lastSessionEndedAt = now();
+    entry.resolve(null);
+  }
+
   // Resolves with the raw URL string on a successful read, or null on any
   // non-success outcome (user cancel, 60s session timeout, system error).
   // Rejects only when nfc.startScanning() itself rejects — i.e. no NFC
-  // hardware (NO_NFC) or some other hard failure before the session begins.
-  async function scan(startOptions) {
+  // hardware (NO_NFC), NFC switched off (NFC_DISABLED, Android), or some
+  // other hard failure before the session begins.
+  //
+  // startOptions is passed straight to the plugin. sessionOptions is ours:
+  //   watchdogMs — override the force-resolve deadline for THIS scan only.
+  //     Android passes a shorter value because the watchdog doubles as the
+  //     visible scan window there. Omitted (iOS) ⇒ WATCHDOG_MS, unchanged.
+  async function scan(startOptions, sessionOptions = {}) {
+    const { watchdogMs = WATCHDOG_MS } = sessionOptions;
     if (scanning) {
       warn('[nfcScanLifecycle] scan() called while another scan is in progress — ignoring concurrent call');
       return null;
@@ -125,10 +175,10 @@ export function createScanLifecycle(nfc, opts = {}) {
     try {
       let entry;
       const scanPromise = new Promise((resolve) => {
-        entry = { resolve, watchdogId: null };
+        entry = { resolve, watchdogId: null, watchdogMs };
       });
       currentScan = entry;
-      entry.watchdogId = schedule(() => { onWatchdog(entry); }, WATCHDOG_MS);
+      entry.watchdogId = schedule(() => { onWatchdog(entry); }, watchdogMs);
 
       try {
         await nfc.startScanning(startOptions);
@@ -154,5 +204,7 @@ export function createScanLifecycle(nfc, opts = {}) {
     }
   }
 
-  return { scan, onNfcEvent, onStateChange };
+  // cancelScan is exposed as `cancel` — the local name differs only because
+  // `cancel` is already the injected timer-cancel dependency in this closure.
+  return { scan, cancel: cancelScan, onNfcEvent, onStateChange };
 }
