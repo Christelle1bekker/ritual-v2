@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Android App Links: tile taps and auth callbacks on the associated
+                 domain open the app directly (mirrors iOS applinks: entitlement).
+                 Tiles encode https://app.ritualhabits.com.au?tile={UID} — note the
+                 EMPTY path (no trailing slash), so there is deliberately NO
+                 android:path* attribute here: any path element (even path="/")
+                 would fail to match the empty-path tile URL.
+                 autoVerify stays "unverified" until the REAL Play App Signing
+                 SHA-256 is live in /.well-known/assetlinks.json — see
+                 docs/android/RELEASE.md. Until then Android shows the
+                 open-with disambiguation instead of deep-linking. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="app.ritualhabits.com.au" />
+            </intent-filter>
+
+            <!-- Passive NFC: an NDEF tag whose first record is a URI on our host
+                 dispatches straight to the app (background tap-to-open), no App
+                 Links verification required. Same empty-path rule as above. -->
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="https" android:host="app.ritualhabits.com.au" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.NFC" />
+
+    <!-- required="false": unlike iPhone, a meaningful share of Android devices
+         have no NFC hardware. The app must stay installable there — passive
+         tap-to-open simply never occurs, and the in-app scan UI hides itself
+         via CapacitorNfc.isSupported()/getStatus(). -->
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
+</manifest>
