@@ -477,7 +477,11 @@ function PinInput({ value, onChange }) {
 
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────
 function LoginScreen({ onLogin, initialAuthFamily, onAuthFamilyReady }) {
-  const [view, setView] = useState("welcome");
+  // DEV ONLY: ?loginview=<view> jumps straight to a login sub-view so the
+  // design gallery can screenshot each one without live auth calls.
+  const devLoginView = process.env.NODE_ENV === 'development'
+    ? new URLSearchParams(window.location.search).get('loginview') : null;
+  const [view, setView] = useState(devLoginView || "welcome");
   const [useMode, setUseMode] = useState("solo"); // "solo" | "family"
   const [joinContext, setJoinContext] = useState("family"); // "solo" | "family" — adjusts join screen copy
   const [familyName, setFamilyName] = useState("");
@@ -485,7 +489,10 @@ function LoginScreen({ onLogin, initialAuthFamily, onAuthFamilyReady }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [createdFamilyId, setCreatedFamilyId] = useState(null);
-  const [members, setMembers] = useState([]);
+  const [members, setMembers] = useState(() => devLoginView === 'addMembers' ? [
+    { id: 'local_dev_1', name: 'Willem', avatar: 'W', isKid: false, color: SETUP_MEMBER_COLORS[0], points: 0, streak: 0 },
+    { id: 'local_dev_2', name: 'Sofia', avatar: 'S', isKid: true, color: SETUP_MEMBER_COLORS[2], points: 0, streak: 0 },
+  ] : []);
   const [expandedMemberId, setExpandedMemberId] = useState(null);
   const [addingNew, setAddingNew] = useState(false);
   const [memberName, setMemberName] = useState("");
@@ -5275,6 +5282,33 @@ export default function RitualApp() {
     };
 
     const init = async () => {
+      // DEV ONLY: fixture boot for the design gallery (?fixture=adult|kid|solo|empty).
+      // Renders the real app with mock data; ids are non-UUID strings so any
+      // stray write is rejected by Postgres before touching real rows.
+      if (process.env.NODE_ENV === 'development') {
+        const devParams = new URLSearchParams(window.location.search);
+        const fixtureMode = devParams.get('fixture');
+        if (fixtureMode) {
+          const { buildFixtures } = require('./devFixtures');
+          const fx = buildFixtures(fixtureMode);
+          const devTab = devParams.get('tab');
+          if (devTab) setTab(devTab);
+          const devManage = devParams.get('manage');
+          if (devManage) { setManageInitialView(devManage); setTab('manage'); }
+          setFamily(fx.family);
+          setHabits(fx.family.habits);
+          setWeekCompletions(fx.weekCompletions);
+          setTodayCompletions(fx.todayCompletions);
+          setCurrentMember(fx.currentMember);
+          setAnalyticsData(fx.analyticsData);
+          analyticsLastFetched.current = Date.now();
+          setRedemptions(fx.redemptions);
+          redemptionsLastFetched.current = Date.now();
+          if (fx.soloMode) setSoloMode(true);
+          setMounted(true);
+          return;
+        }
+      }
       hydrateFromBootCache();
       try {
         if (supabase) {
