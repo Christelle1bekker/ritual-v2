@@ -1,7 +1,8 @@
 # Ritual Android — Release Runbook (Internal Testing, v1)
 
 **Written:** 2026-08-29, the session that scaffolded `android/`.
-**State when written:** signed AAB built, emulator-verified (API 36 AVD), delivered to `~/Desktop/Ritual Android Release/ritual-1.0.46-35.aab` (md5 `502cfda07d8abd62b6506124d33ee6c4`); **nothing uploaded to Play yet.**
+**State when written:** signed AAB built, emulator-verified (API 36 AVD), delivered to `~/Desktop/Ritual Android Release/ritual-1.0.46-35.aab` (md5 `502cfda07d8abd62b6506124d33ee6c4`).
+**Updated 2026-08-29 (later session):** Play app record live (app ID **4975841049767227291**, package `com.ritualhabits.app`), **AAB 35 (1.0.46) on the internal-testing track**, Play App Signing enrolled, and **assetlinks.json deployed and verified** — steps 1–5 of §2 are DONE; see the log at the end of §2.
 **Companion doc:** [ASSESSMENT.md](ASSESSMENT.md) — the inventory and the four rulings this build implements.
 
 Rulings in force: push **OFF** on Android (a); active-scan FAB **shipped** with the Android in-app scan modal (b); tiles encode `https://app.ritualhabits.com.au?tile={UID}` (c); versions `versionName 1.0.46` / `versionCode 35` (d).
@@ -67,6 +68,19 @@ The ordering exists because of one trap: **`assetlinks.json` needs the *App Sign
    **Why this order is load-bearing:** the template is deliberately NOT in `public/` today. `/.well-known/assetlinks.json` currently returns **HTTP 200 with index.html** (the SPA rewrite catches it), which already *looks* live to any casual check. A deployed placeholder or upload-key fingerprint would upgrade that to valid-JSON-wrong-key — even more convincingly broken. Nothing goes to `public/.well-known/` until the real App Signing fingerprint is in hand.
 6. **Re-verify on a device** after assetlinks is live: `adb shell pm verify-app-links --re-verify com.ritualhabits.app`, then `adb shell pm get-app-links com.ritualhabits.app` → `verified`. Until step 5, this reports `legacy_failure`/unverified — expected, not a bug; taps fall back to the open-with chooser.
 7. **Merge nothing before that** — no other Android work lands on `main` between the AAB upload (2) and assetlinks deploy (5), so the tree that testers install matches the tree that verification points at.
+
+### ✅ Completion log (2026-08-29)
+
+Steps 1–5 executed. Fresh verification output:
+
+- `curl -sI https://app.ritualhabits.com.au/.well-known/assetlinks.json` → `HTTP/2 200`, `content-type: application/json; charset=utf-8` (no vercel.json header was needed — the `.json` extension types correctly; the index.html-200 trap is dead). Body is byte-identical to the committed `public/.well-known/assetlinks.json` (md5-matched).
+- Google's checker (`digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://app.ritualhabits.com.au&relation=delegate_permission/common.handle_all_urls`) returns the statement: package `com.ritualhabits.app`, fingerprint `4C:DD:27:4C:AF:9D:F0:CF:BE:12:DA:F2:20:C0:6F:72:50:19:A7:9E:C6:01:83:2A:2A:36:CC:E7:F5:74:EC:7E`.
+- Emulator (API 36 AVD, **locally-signed** release install): `pm verify-app-links --re-verify` then `pm get-app-links` → `app.ritualhabits.com.au: 1024` (unverified). **Expected and correct**: the local build is signed with the upload key (`36:36:77:56:…`), assetlinks serves the Play App Signing cert — these can never match. The real verification test is the Play internal-testing install on a physical phone, which IS signed with the App Signing key.
+- Step 6 (`pm get-app-links` → `verified` on a Play-delivered install) remains **open — run it on a physical phone from the internal-testing track**.
+
+### ⚠️ Next build note
+
+Play warned on AAB 35: **upload native debug symbols with the next AAB** (`android.buildTypes.release.ndk.debugSymbolLevel = 'SYMBOL_TABLE'` in `app/build.gradle`, or attach the symbols zip in Play Console when uploading).
 
 ---
 
