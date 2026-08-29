@@ -4821,7 +4821,15 @@ export default function RitualApp() {
     }); } catch (e) { console.warn('[Capgo] appUrlOpen listener failed:', e); }
 
     // Push Notifications: request permission and register (wrapped in try/catch — must not crash app)
-    try {
+    // ANDROID v1 RULING (2026-08-29, docs/android/ASSESSMENT.md §10a): push is
+    // iOS-only. No FCM is wired (no google-services.json), so registering on
+    // Android would fail at runtime and log an error every cold start for zero
+    // value — and api/cron/reminders.js sends via APNs only (and is paused), so
+    // an FCM token would be collected but never used. Deliberate platform
+    // literal, unlike the Beka reminders bug: this gate turns a feature OFF on
+    // Android by ruling, with this paper trail. Revisit when FCM lands on both
+    // the client and the reminders cron.
+    if (Capacitor.getPlatform() === 'ios') try {
       PushNotifications.requestPermissions().then(result => {
         if (result.receive === 'granted') {
           PushNotifications.register();
