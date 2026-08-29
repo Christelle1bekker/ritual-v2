@@ -8,7 +8,7 @@ const config: CapacitorConfig = {
   // Capgo handles OTA updates to keep the bundle current.
   ios: {
     contentInset: 'automatic',
-    backgroundColor: '#F2EDE7',
+    backgroundColor: '#F1F4EC',
     scheme: 'Ritual'
   },
   server: {
@@ -26,7 +26,7 @@ const config: CapacitorConfig = {
     },
     SplashScreen: {
       launchAutoHide: true,
-      backgroundColor: '#F2EDE7',
+      backgroundColor: '#F1F4EC',
       showSpinner: false
     }
   }

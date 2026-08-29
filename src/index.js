@@ -56,7 +56,7 @@ class ErrorBoundary extends React.Component {
           padding: '40px',
           textAlign: 'center',
           fontFamily: 'DM Sans, sans-serif',
-          backgroundColor: '#FAF8F5',
+          backgroundColor: '#F1F4EC',
           minHeight: '100vh',
           display: 'flex',
           flexDirection: 'column',
@@ -64,22 +64,22 @@ class ErrorBoundary extends React.Component {
           alignItems: 'center',
         }}>
           <div style={{ fontSize: 48, marginBottom: 20 }}>✦</div>
-          <h1 style={{ color: '#3D4A4F', marginBottom: 16, fontSize: 24, fontWeight: 700 }}>
+          <h1 style={{ color: '#1C3A2E', marginBottom: 16, fontSize: 24, fontWeight: 700 }}>
             Something went wrong
           </h1>
-          <p style={{ color: '#5A6B72', marginBottom: 16, maxWidth: 360, lineHeight: 1.6 }}>
+          <p style={{ color: '#54685B', marginBottom: 16, maxWidth: 360, lineHeight: 1.6 }}>
             The app encountered an unexpected error. Your data is safe — try refreshing to continue.
           </p>
           {this.state.errorMessage ? (
-            <p style={{ color: '#C0504D', fontSize: 12, fontFamily: 'monospace', marginBottom: 24, maxWidth: 360, wordBreak: 'break-word', background: '#FFF0EE', padding: '8px 12px', borderRadius: 8 }}>
+            <p style={{ color: '#C0504D', fontSize: 12, fontFamily: 'monospace', marginBottom: 24, maxWidth: 360, wordBreak: 'break-word', background: '#FBE3EB', padding: '8px 12px', borderRadius: 8 }}>
               {this.state.errorMessage}
             </p>
           ) : null}
           <button
             onClick={() => window.location.reload()}
             style={{
-              backgroundColor: '#C17B4E',
-              color: '#FAF8F5',
+              backgroundColor: '#D9467A',
+              color: '#FFFFFF',
               border: 'none',
               padding: '12px 28px',
               borderRadius: 12,

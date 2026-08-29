@@ -2,6 +2,7 @@
 // Ids are deliberately NOT valid UUIDs so any accidental write that reaches
 // Supabase is rejected by Postgres before touching real rows.
 import { todayKey, getWeekDates, getTodayIndex, isoAddDays } from './utils/stats';
+import { mapLegacyColor } from './styles/tokens';
 
 const FAMILY_ID = 'fx-family';
 
@@ -81,13 +82,13 @@ export function buildFixtures(mode = 'adult') {
   const family = {
     id: FAMILY_ID, name: 'bekker', pin: '1234',
     members: MEMBERS.map(m => ({
-      id: m.id, familyId: m.family_id, name: m.name, avatar: m.avatar, color: m.color,
+      id: m.id, familyId: m.family_id, name: m.name, avatar: m.avatar, color: mapLegacyColor(m.color),
       isKid: m.is_kid, points: m.points, streak: m.streak,
       progressVisual: m.progress_visual, onboardingComplete: m.onboarding_complete, createdAt: null,
     })),
     habits: HABITS.map(h => ({
       id: h.id, familyId: h.family_id, name: h.name, icon: h.icon,
-      category: h.category, categoryId: h.category_id, color: h.color, location: h.location,
+      category: h.category, categoryId: h.category_id, color: mapLegacyColor(h.color), location: h.location,
       target: h.target || 1, streak: h.streak || 0, isKid: h.is_kid || false, isCustom: false,
       tileUid: h.tile_uid || null, isShared: true,
       assignedMemberIds: h.assigned_member_ids || null, daysActive: h.days_active || null,
@@ -95,7 +96,7 @@ export function buildFixtures(mode = 'adult') {
     })),
     rewards: REWARDS.map(r => ({
       id: r.id, familyId: r.family_id, name: r.name, points: r.points, icon: r.icon,
-      who: r.who, color: r.color, assignedTo: null, status: 'active',
+      who: r.who, color: mapLegacyColor(r.color), assignedTo: null, status: 'active',
     })),
   };
 

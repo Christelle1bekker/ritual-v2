@@ -14,30 +14,34 @@ import {
   mergeCompletionsPreservingProgress, mergeMembersPreservingProgress, mergeMemberPreservingProgress, mergeHabitsPreservingProgress,
 } from './utils/bootCache';
 import { parseTileUrl } from './utils/parseTileUrl';
+import { T, TREE, FONTS, MEMBER_COLORS, SETUP_MEMBER_COLORS, mapLegacyColor } from './styles/tokens';
+import GrowingTree, { stageForProgress } from './GrowingTree';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
+// Sage & Berry palette. src/styles/tokens.js is the single source of truth;
+// C and D below are legacy-name adapters so the (hundreds of) existing call
+// sites resolve to the new tokens without a rename churn. Colour rules live
+// in the tokens file: berry only on tappables, points/streak always sun
+// orange, done always green, dark card forest ink.
 const C = {
-  sand: "#E8E0D5", sandLight: "#F2EDE7", sandDark: "#C9BFB3",
-  slate: "#3D4A4F", slateLight: "#5A6B72", slateDark: "#2A3438",
-  warm: "#8B7355", warmLight: "#A08C6E",
-  accent: "#C17B4E", accentLight: "#D4956A",
-  green: "#5C7A5E", greenLight: "#7A9E7C",
-  white: "#FAF8F5", offwhite: "#F5F0EB",
-  kids: "#E8854A", kidsLight: "#F0A070",
-  kidsBlue: "#5B8DB8", kidsPurple: "#9B7EC8",
-  error: "#C0504D",
+  sand: T.line, sandLight: T.bg, sandDark: T.mute,
+  slate: T.ink, slateLight: T.ink2, slateDark: T.ink,
+  warm: T.ptsDeep, warmLight: T.ptsDeep,
+  accent: T.act, accentLight: T.act,
+  green: T.done, greenLight: T.done,
+  white: T.card, offwhite: T.card2,
+  kids: T.pts, kidsLight: T.pts,
+  kidsBlue: T.ink2, kidsPurple: T.ink2,
+  error: T.error,
 };
 
-const MEMBER_COLORS = [C.accent, C.green, C.warm, C.kids, C.kidsBlue, C.slateLight, C.kidsPurple, C.warmLight];
-
 // ─── SETUP / ONBOARDING DESIGN TOKENS ────────────────────────────
-const SETUP_MEMBER_COLORS = ['#C47B4A', '#D4956A', '#7A9E87', '#8B9EC4', '#B07DB8', '#C4AA70'];
 const D = {
-  bgCream: "#F0EDE6", bgWhite: "#FFFFFF", bgInput: "#F7F4EF",
-  border: "#E5DED4", borderDashed: "#D5CECC",
-  terracotta: "#C47B4A", terracottaLt: "#D4956A",
-  textDark: "#1E1C18", textMid: "#7A7060", textMuted: "#9A8E80", textFaint: "#B0A498",
-  fontHeading: "'DM Serif Display', serif", fontBody: "'DM Sans', sans-serif",
+  bgCream: T.bg, bgWhite: T.card, bgInput: T.card2,
+  border: T.line, borderDashed: T.line,
+  terracotta: T.act, terracottaLt: T.act,
+  textDark: T.ink, textMid: T.ink2, textMuted: T.mute, textFaint: T.mute,
+  fontHeading: FONTS.heading, fontBody: FONTS.body,
 };
 
 // ─── NAMED CONSTANTS ──────────────────────────────────────────────
@@ -56,7 +60,7 @@ function getGreeting() {
 function getMotivation(done, total) {
   if (total === 0) return "Add your first ritual below";
   if (done === 0) return "Ready when you are — let's build something good";
-  if (done === total) return "Every ritual complete. You showed up today. ✦";
+  if (done === total) return "Every ritual complete. You showed up today.";
   if (done / total >= 0.6) return "You're on a roll — keep the momentum going";
   if (done === 1) return "One down. The hardest one is always the first";
   return `${total - done} ritual${total - done > 1 ? "s" : ""} left — you've got this`;
@@ -75,7 +79,8 @@ function normalizeMember(m) {
     name,
     // If avatar was never saved to DB (legacy rows), derive it from the first letter of the name
     avatar: m.avatar || name[0]?.toUpperCase() || '?',
-    color: m.color,
+    // Stored colours predate the Sage & Berry palette — remap at read time.
+    color: mapLegacyColor(m.color),
     isKid: m.is_kid || false, points: m.points || 0, streak: m.streak || 0,
     progressVisual: m.progress_visual || null,
     onboardingComplete: m.onboarding_complete || false,
@@ -93,7 +98,7 @@ function normalizeHabit(h) {
     id: h.id, familyId: h.family_id,
     name: h.name, icon: h.icon,
     category: h.category, categoryId: h.category_id,
-    color: h.color, location: h.location,
+    color: mapLegacyColor(h.color), location: h.location,
     target: h.target || 1, streak: h.streak || 0,
     isKid: h.is_kid || false, isCustom: h.is_custom || false,
     tileUid: h.tile_uid || null,
@@ -111,7 +116,7 @@ function normalizeReward(r) {
     id: r.id, familyId: r.family_id,
     name: r.name, points: r.points,
     icon: r.icon, who: r.who || 'Everyone',
-    color: r.color || C.accent,
+    color: mapLegacyColor(r.color) || C.accent,
     assignedTo: r.assigned_to || null,
     status: r.status || 'active',
   };
@@ -136,7 +141,7 @@ function normalizeCompletion(c) {
 async function fetchFamilyData(pin, familyName, onFamilyId) {
   if (!supabase) return null;
   const { data: famRows, error: famErr } = await supabase.rpc('login_family', { family_name: familyName, family_pin: pin });
-  if (famErr) { console.error("❌ fetchFamilyData error:", famErr); throw famErr; }
+  if (famErr) { console.error("fetchFamilyData error:", famErr); throw famErr; }
   if (!famRows?.[0]) return null;
   const fam = famRows[0];
   if (onFamilyId) { try { onFamilyId(fam.id); } catch (_) {} }
@@ -146,7 +151,7 @@ async function fetchFamilyData(pin, familyName, onFamilyId) {
     supabase.from("rewards").select("*").eq("family_id", fam.id),
   ]);
   const selectErr = membersRes.error || habitsRes.error || rewardsRes.error;
-  if (selectErr) { console.error("❌ fetchFamilyData select error:", selectErr); throw selectErr; }
+  if (selectErr) { console.error("fetchFamilyData select error:", selectErr); throw selectErr; }
   const { data: members } = membersRes, { data: habits } = habitsRes, { data: rewards } = rewardsRes;
   return {
     id: fam.id, name: fam.name, pin,
@@ -193,7 +198,7 @@ async function fetchAnalyticsData(familyId) {
       .order("date", { ascending: true }).order("id", { ascending: true }));
     return rows.map(normalizeCompletion);
   } catch (e) {
-    console.error("❌ fetchAnalyticsData exception:", e);
+    console.error("fetchAnalyticsData exception:", e);
     return null;
   }
 }
@@ -348,7 +353,7 @@ const CATEGORIES = [
     ]
   },
   {
-    id: "morning", name: "Morning Routine", icon: "☀️", color: C.accent,
+    id: "morning", name: "Morning Routine", icon: "☀️", color: T.pts,
     description: "Own your morning",
     habits: [
       { name: "Wake up on time", icon: "⏰", location: "Bedside table", target: 1, science: { claim: "Consistent wake times align your circadian rhythm. A study found early morning light exposure before 10am significantly improved sleep quality.", source: "PMC / Scientific Reports, 2025" } },
@@ -464,10 +469,10 @@ function PinInput({ value, onChange }) {
           value={value[i] || ''} onChange={e => handleChange(i, e)} onKeyDown={e => handleKeyDown(i, e)}
           style={{
             flex: 1, maxWidth: 60, height: 52, borderRadius: 10,
-            border: `1.5px solid ${value[i] ? '#C47B4A' : '#E5DED4'}`,
-            background: '#F7F4EF', textAlign: 'center',
-            fontSize: 20, fontWeight: 500, color: '#1E1C18',
-            outline: 'none', fontFamily: "'DM Sans', sans-serif", caretColor: '#C47B4A',
+            border: `1.5px solid ${value[i] ? T.act : T.line}`,
+            background: T.card2, textAlign: 'center',
+            fontSize: 20, fontWeight: 500, color: T.ink,
+            outline: 'none', fontFamily: "'DM Sans', sans-serif", caretColor: T.act,
           }}
         />
       ))}
@@ -547,7 +552,7 @@ function LoginScreen({ onLogin, initialAuthFamily, onAuthFamilyReady }) {
     marginBottom: 6, display: "block",
   };
   const btnSetup = {
-    background: D.terracotta, color: "#F5EFE6", border: "none",
+    background: D.terracotta, color: T.white, border: "none",
     borderRadius: 50, padding: "14px 20px", fontFamily: D.fontBody,
     fontWeight: 500, fontSize: 15, width: "100%",
     display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -814,7 +819,7 @@ function LoginScreen({ onLogin, initialAuthFamily, onAuthFamilyReady }) {
                     fontSize: 14, fontFamily: D.fontBody, fontWeight: 500,
                     borderRadius: 50,
                     background: useMode === opt.val ? D.terracotta : D.bgInput,
-                    color: useMode === opt.val ? "#F5EFE6" : D.textMuted,
+                    color: useMode === opt.val ? T.white : D.textMuted,
                     transition: "all 0.2s",
                   }}>{opt.label}</div>
                 ))}
@@ -890,7 +895,7 @@ function LoginScreen({ onLogin, initialAuthFamily, onAuthFamilyReady }) {
                 <div key={m.id} style={{ background: D.bgWhite, border: `1.5px solid ${D.border}`, borderRadius: 11, overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", cursor: "pointer" }}
                     onClick={() => setExpandedMemberId(isExpanded ? null : m.id)}>
-                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#FFF", flexShrink: 0 }}>{m.avatar}</div>
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.white, flexShrink: 0 }}>{m.avatar}</div>
                     <span style={{ flex: 1, fontSize: 13, fontWeight: 500, fontFamily: D.fontBody, color: D.textDark }}>{m.name}</span>
                     <span style={{ fontSize: 10, fontFamily: D.fontBody, color: D.textMuted, marginRight: 8 }}>{roleLabel}</span>
                     <div style={{ display: "flex", gap: 4 }}>
@@ -1145,7 +1150,7 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
     return () => document.removeEventListener("keydown", handle);
   }, [onCancel]);
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", zIndex: 990, background: "rgba(20,42,33,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
       <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div style={{ fontSize: 44, marginBottom: 12 }}>{habit.icon}</div>
         <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Who completed this?</div>
@@ -1158,9 +1163,9 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
             <div style={{ textAlign: "left", flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
                 <span style={{ fontSize: 17, fontWeight: 700, color: C.white }}>{m.name}</span>
-                {m.isKid && <span style={{ fontSize: 10, color: C.kids, background: `${C.kids}30`, padding: "2px 7px", borderRadius: 8, fontWeight: 700 }}>Kid ⭐</span>}
+                {m.isKid && <span style={{ fontSize: 10, color: C.kids, background: `${C.kids}30`, padding: "2px 7px", borderRadius: 8, fontWeight: 700 }}>Kid</span>}
               </div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>🔥 {m.streak || 0} streak · {m.points || 0} pts</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>{m.streak || 0} streak · {m.points || 0} pts</div>
             </div>
             <div style={{ fontSize: 22, color: "rgba(255,255,255,0.4)" }}>›</div>
           </button>
@@ -1206,7 +1211,7 @@ function InactiveDayModal({ habit, onEdit, onClose }) {
   const dayList = formatDays(habit?.daysActive);
 
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", zIndex: 990, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", zIndex: 990, background: "rgba(20,42,33,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
       <div style={{ width: "100%", maxWidth: 340, background: `linear-gradient(135deg, ${habitColor}22, ${habitColor}10)`, borderLeft: `4px solid ${habitColor}`, borderRadius: 24, padding: "32px 26px 26px", boxShadow: "0 20px 50px rgba(0,0,0,0.35)" }}>
         <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ width: 76, height: 76, borderRadius: "50%", background: `linear-gradient(135deg, ${habitColor}, ${habitColor}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 38, margin: "0 auto 16px", boxShadow: `0 8px 24px ${habitColor}66` }}>{habit?.icon || "◈"}</div>
@@ -1248,7 +1253,7 @@ function AndroidScanOverlay({ onCancel }) {
   const rings = [0, 0.6, 1.2];
 
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", zIndex: 995, background: "rgba(42,52,56,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", zIndex: 995, background: "rgba(20,42,33,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease" }}>
       <div style={{ width: "100%", maxWidth: 340, background: `linear-gradient(135deg, ${C.accent}22, ${C.accent}10)`, borderLeft: `4px solid ${C.accent}`, borderRadius: 24, padding: "34px 26px 26px", boxShadow: "0 20px 50px rgba(0,0,0,0.35)" }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <div style={{ position: "relative", width: 96, height: 96, margin: "0 auto 20px", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1303,26 +1308,26 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
   const target = habit?.target || 1;
   const justCompleted = taps >= target;
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", overflow: "hidden", zIndex: 999, background: isKid ? 'linear-gradient(165deg, #E6DFD4 0%, #EDE8DF 40%, #F5F2EB 100%)' : `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, animation: "flashIn 0.3s ease" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", overflow: "hidden", zIndex: 999, background: isKid ? `linear-gradient(165deg, ${T.doneSoft} 0%, ${T.bg} 40%, ${T.card2} 100%)` : `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, animation: "flashIn 0.3s ease" }}>
       {isKid && <>
-        <div style={{ position: "absolute", top: -30, right: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(183,175,160,0.15)", pointerEvents: "none" }} />
-        <div style={{ position: "absolute", bottom: 90, left: -25, width: 110, height: 110, borderRadius: "50%", background: "rgba(166,191,159,0.12)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", top: -30, right: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(139,156,144,0.15)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: 90, left: -25, width: 110, height: 110, borderRadius: "50%", background: "rgba(63,154,92,0.10)", pointerEvents: "none" }} />
       </>}
       <div style={{ fontSize: 72, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>{isKid ? "✦" : justCompleted ? "✦" : "◈"}</div>
       {member && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.15)" }}>
           <div style={{ width: 28, height: 28, borderRadius: "50%", background: member.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white }}>{member.avatar}</div>
-          <span style={{ fontSize: 14, color: isKid ? "#4A3F35" : C.white, fontWeight: 600 }}>{member.name}</span>
+          <span style={{ fontSize: 14, color: isKid ? T.ink : C.white, fontWeight: 600 }}>{member.name}</span>
         </div>
       )}
-      <div style={{ fontSize: isKid ? 24 : 26, fontWeight: 700, color: isKid ? "#4A3F35" : C.white, fontFamily: "'DM Serif Display', serif", textAlign: "center", padding: "0 40px", lineHeight: 1.2 }}>
+      <div style={{ fontSize: isKid ? 24 : 26, fontWeight: 700, color: isKid ? T.ink : C.white, fontFamily: "'DM Serif Display', serif", textAlign: "center", padding: "0 40px", lineHeight: 1.2 }}>
         {isKid ? "Beautiful work!" : justCompleted ? "Ritual complete" : "Tap logged"}
       </div>
-      <div style={{ fontSize: 14, color: isKid ? "#7A7060" : "rgba(255,255,255,0.7)", textAlign: "center" }}>{habit?.name}</div>
-      {habit?.target > 1 && <div style={{ padding: "8px 20px", borderRadius: 20, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 14, color: isKid ? "#5A6B55" : C.white, fontWeight: 600 }}>{taps} / {target} today</div>}
-      {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 13, color: isKid ? "#7A9066" : C.white, fontWeight: 600 }}>{isKid ? "🌿" : "🔥"} {(habit?.streak || 0) + 1} day streak</div>}
-      <div style={{ fontSize: 12, color: isKid ? "#A09480" : "rgba(255,255,255,0.4)" }}>+{habit?.points || 10} points</div>
-      <button onClick={() => { if (soundEnabled) playCompletionSound("undo"); triggerHaptic("undo"); onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: isKid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)", border: isKid ? "1px solid rgba(183,175,160,0.3)" : "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: isKid ? "#8A7E70" : "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ fontSize: 14, color: isKid ? T.ink2 : "rgba(255,255,255,0.7)", textAlign: "center" }}>{habit?.name}</div>
+      {habit?.target > 1 && <div style={{ padding: "8px 20px", borderRadius: 20, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 14, color: isKid ? T.done : C.white, fontWeight: 600 }}>{taps} / {target} today</div>}
+      {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 13, color: isKid ? T.done : C.white, fontWeight: 600 }}>{isKid ? "🌿" : "🔥"} {(habit?.streak || 0) + 1} day streak</div>}
+      <div style={{ fontSize: 12, color: isKid ? T.mute : "rgba(255,255,255,0.4)" }}>+{habit?.points || 10} points</div>
+      <button onClick={() => { if (soundEnabled) playCompletionSound("undo"); triggerHaptic("undo"); onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: isKid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)", border: isKid ? "1px solid rgba(139,156,144,0.3)" : "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: isKid ? T.ink2 : "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
         <span>↩</span> Undo tap · {countdown}s
       </button>
     </div>
@@ -1457,13 +1462,13 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
         onTouchMove={handleSwipeMove}
         onMouseDown={startLongPress} onMouseUp={endLongPress}
         onContextMenu={(e) => e.preventDefault()}
-        style={{ width: "100%", background: C.white, borderRadius: 20, padding: 18, boxShadow: `0 4px 20px ${habit.color}18`, border: `1px solid ${habit.color}30`, position: "relative", overflow: "hidden", cursor: "pointer", userSelect: "none", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
-        {longPressProgress > 0 && <div style={{ position: "absolute", inset: 0, background: `${habit.color}12`, width: `${longPressProgress}%`, zIndex: 0 }} />}
+        style={{ width: "100%", background: C.white, borderRadius: 20, padding: 18, boxShadow: `0 4px 20px ${T.done}18`, border: `1px solid ${T.done}30`, position: "relative", overflow: "hidden", cursor: "pointer", userSelect: "none", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
+        {longPressProgress > 0 && <div style={{ position: "absolute", inset: 0, background: `${T.done}12`, width: `${longPressProgress}%`, zIndex: 0 }} />}
         <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 1 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `linear-gradient(135deg, ${habit.color}, ${habit.color}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: C.white, boxShadow: `0 4px 10px ${habit.color}35` }}>✓</div>
+          <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: T.done, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: C.white, boxShadow: `0 4px 10px ${T.done}35` }}>✓</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
-            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>Done · 🔥 {(habit.streak || 0) + 1} day streak · +{habit.points || 10} pts{habit.completedBy ? ` · ${habit.completedBy}` : ""}</div>
+            <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>Done · {(habit.streak || 0) + 1} day streak · +{habit.points || 10} pts{habit.completedBy ? ` · ${habit.completedBy}` : ""}</div>
           </div>
           <div style={{ fontSize: 9, color: `${C.slateLight}60`, textAlign: "right", lineHeight: 1.4 }}>{longPressProgress > 0 ? "Undoing…" : "Hold to\nundo"}</div>
         </div>
@@ -1492,15 +1497,15 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>
-              {habit.location ? `${habit.tileUid ? "Tile at" : "At"}: ${habit.location}` : habit.category}{habit.streak > 0 ? ` · 🔥 ${habit.streak}` : ""}
+              {habit.location ? `${habit.tileUid ? "Tile at" : "At"}: ${habit.location}` : habit.category}{habit.streak > 0 ? ` · ${habit.streak} day streak` : ""}
               {habit.tileUid && <span style={{ color: C.accent, marginLeft: 6 }}>· <TileIcon size="11px" /></span>}
             </div>
             {isMulti && taps > 0 && (
               <div style={{ marginTop: 6 }}>
-                <div style={{ height: 3, background: C.sandLight, borderRadius: 2, marginBottom: 2 }}>
-                  <div style={{ height: "100%", borderRadius: 2, background: `linear-gradient(90deg, ${habit.color}, ${habit.color}CC)`, width: `${(taps / target) * 100}%`, transition: "width 0.4s ease" }} />
+                <div style={{ height: 3, background: C.sand, borderRadius: 2, marginBottom: 2 }}>
+                  <div style={{ height: "100%", borderRadius: 2, background: T.pts, width: `${(taps / target) * 100}%`, transition: "width 0.4s ease" }} />
                 </div>
-                <div style={{ fontSize: 10, color: habit.color, fontWeight: 600 }}>{taps} of {target} today</div>
+                <div style={{ fontSize: 10, color: T.ptsDeep, fontWeight: 600 }}>{taps} of {target} today</div>
               </div>
             )}
           </div>
@@ -1586,20 +1591,22 @@ function CelebrationOverlay({ member, onDone, soundEnabled }) {
         {/* Central content */}
         <div style={{ textAlign: "center", animation: "celebFadeIn 0.5s ease forwards",
           position: "relative", zIndex: 1, padding: "0 40px" }}>
-          <div style={{ fontSize: 64, marginBottom: 8, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>🌳</div>
+          <div style={{ width: 110, margin: "0 auto 8px", animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>
+            <GrowingTree stage={4} fruit={6} size={110} animate={false} />
+          </div>
           {member?.name && (
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#7A7060",
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.ink2,
               fontFamily: "'DM Sans', sans-serif", marginBottom: 16 }}>
               {member.name}
             </div>
           )}
           <div style={{ background: "rgba(255,255,255,0.85)", borderRadius: 20,
             padding: "24px 28px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
-            <div style={{ fontSize: 28, fontWeight: 700, color: "#4A3F35",
+            <div style={{ fontSize: 28, fontWeight: 700, color: T.ink,
               fontFamily: "'DM Serif Display', serif", lineHeight: 1.3, marginBottom: 8 }}>
               You did it!
             </div>
-            <div style={{ fontSize: 14, fontWeight: 400, color: "#7A7060",
+            <div style={{ fontSize: 14, fontWeight: 400, color: T.ink2,
               fontFamily: "'DM Sans', sans-serif", lineHeight: 1.5 }}>
               Every ritual complete — your tree is in full bloom!
             </div>
@@ -1609,7 +1616,9 @@ function CelebrationOverlay({ member, onDone, soundEnabled }) {
     );
   }
   // ── ADULT / STREAK celebration (unchanged) ──
-  const COLORS = ["#C4956A", "#7BA05B", "#F4B8A8", "#E8A090", "#9BC07A", "#C47B4A"];
+  // Confetti in palette colours — greens and sun orange only (berry is
+  // reserved for tappables, never decoration).
+  const COLORS = [T.done, TREE.g2, TREE.g3, T.pts, T.ptsSoft, T.doneSoft];
   const particles = Array.from({ length: 20 }, (_, i) => ({
     id: i,
     left: `${5 + (i * 4.75) % 90}%`,
@@ -1630,12 +1639,12 @@ function CelebrationOverlay({ member, onDone, soundEnabled }) {
       <div style={{ textAlign: "center", animation: "celebFadeIn 0.5s ease forwards",
         width: "78%", position: "relative", zIndex: 1 }}>
         <div style={{ fontSize: 52, marginBottom: 12, lineHeight: 1 }}>🌸</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: "#1E1C18",
+        <div style={{ fontSize: 22, fontWeight: 700, color: T.ink,
           fontFamily: "'DM Serif Display', serif", lineHeight: 1.3,
           background: "rgba(255,255,255,0.93)", borderRadius: 20, padding: "18px 24px",
           boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }}>
           All done!<br />
-          <span style={{ fontSize: 15, fontWeight: 500, color: "#7A7060" }}>Your tree is in full bloom!</span>
+          <span style={{ fontSize: 15, fontWeight: 500, color: T.ink2 }}>Your tree is in full bloom!</span>
         </div>
       </div>
     </div>
@@ -1671,9 +1680,10 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
   }
   const maxCount = total * 7; // perfect week
   const fillPct = maxCount > 0 ? Math.min(weekCount / maxCount, 1) : 0;
-  const pct = total > 0 ? (done / total) * 100 : 0;
-  const stage = pct === 0 ? 1 : pct <= 25 ? 2 : pct <= 50 ? 3 : pct <= 75 ? 4 : 5;
-  const stageLabels = ["", "Plant your first habit today", "Growing — keep going!", "Halfway there!", "Almost in full bloom!", "In full bloom! 🌸"];
+  // Tree stage follows TODAY's completion: 0 done → seed, then sprout /
+  // sapling / young tree by thirds, fruiting tree at 100%.
+  const stage = stageForProgress(done, total);
+  const stageLabels = ["Plant your first habit today", "Growing — keep going!", "Halfway there!", "Almost in full bloom!", "In full bloom!"];
 
   return (
     <>
@@ -1683,105 +1693,47 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
 
         {/* Celebration banners */}
         {fillPct >= 1 && (
-          <div style={{ background: "linear-gradient(135deg, #C47B4A, #D4956A)", borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(196,123,74,0.3)" }}>
+          <div style={{ background: T.pts, borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(245,166,35,0.3)" }}>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: "'DM Serif Display', serif" }}>In full bloom! 🌸</div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>Amazing week — claim your reward!</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.white, fontFamily: "'DM Serif Display', serif" }}>In full bloom!</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.9)", marginTop: 2 }}>Amazing week — claim your reward!</div>
             </div>
-            <button onClick={onClaimReward} style={{ background: "#fff", border: "none", borderRadius: 50, padding: "9px 16px", fontSize: 13, fontWeight: 700, color: "#C47B4A", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
+            <button onClick={onClaimReward} style={{ background: T.white, border: "none", borderRadius: 50, padding: "9px 16px", fontSize: 13, fontWeight: 700, color: T.ptsDeep, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
               Claim →
             </button>
           </div>
         )}
         {allDone && fillPct < 1 && (
-          <div style={{ background: "linear-gradient(135deg, #5C7A5E, #7A9E7C)", borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(92,122,94,0.3)" }}>
+          <div style={{ background: T.done, borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 16px rgba(63,154,92,0.3)" }}>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: "'DM Serif Display', serif" }}>All done today! ⭐</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.white, fontFamily: "'DM Serif Display', serif" }}>All done today!</div>
               <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>Keep it up — your tree keeps growing all week!</div>
             </div>
           </div>
         )}
 
         {/* Tree + stats */}
-        <div style={{ background: "#fff", borderRadius: 24, padding: 24, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 24 }}>
-          {/* SVG Tree — 5 stages */}
-          <div style={{ flexShrink: 0 }}>
-            <svg width="90" height="120" viewBox="0 0 90 120" xmlns="http://www.w3.org/2000/svg">
-              {/* Ground */}
-              <ellipse cx="45" cy="112" rx="34" ry="7" fill="#D4C9A8" />
-              <ellipse cx="45" cy="112" rx="26" ry="5" fill="#C4B896" />
-              {stage === 1 && <>
-                {/* Seed */}
-                <ellipse cx="45" cy="104" rx="7" ry="5" fill="#8B7355" />
-                <ellipse cx="45" cy="103" rx="5" ry="3" fill="#6B5740" />
-              </>}
-              {stage === 2 && <>
-                {/* Stem */}
-                <rect x="43" y="84" width="4" height="22" rx="2" fill="#8B7355" />
-                {/* Two small leaves */}
-                <ellipse cx="36" cy="88" rx="9" ry="5" fill="#9BC07A" transform="rotate(-35 36 88)" />
-                <ellipse cx="54" cy="88" rx="9" ry="5" fill="#9BC07A" transform="rotate(35 54 88)" />
-              </>}
-              {stage === 3 && <>
-                {/* Trunk */}
-                <rect x="41" y="78" width="8" height="28" rx="3" fill="#8B7355" />
-                <rect x="42" y="80" width="3" height="24" rx="1.5" fill="#A0896B" opacity="0.5" />
-                {/* Canopy */}
-                <circle cx="45" cy="62" r="20" fill="#9BC07A" />
-                <circle cx="30" cy="70" r="13" fill="#8BB06A" />
-                <circle cx="60" cy="70" r="13" fill="#8BB06A" />
-                <circle cx="45" cy="50" r="13" fill="#7BA05B" />
-              </>}
-              {stage === 4 && <>
-                {/* Trunk */}
-                <rect x="40" y="70" width="10" height="36" rx="4" fill="#8B7355" />
-                <rect x="41" y="72" width="4" height="30" rx="2" fill="#A0896B" opacity="0.5" />
-                {/* Canopy */}
-                <circle cx="45" cy="52" r="24" fill="#9BC07A" />
-                <circle cx="27" cy="62" r="17" fill="#8BB06A" />
-                <circle cx="63" cy="62" r="17" fill="#8BB06A" />
-                <circle cx="45" cy="36" r="17" fill="#7BA05B" />
-                {/* A few blossom hints */}
-                <circle cx="38" cy="46" r="4" fill="#F4B8A8" opacity="0.7" />
-                <circle cx="54" cy="42" r="4" fill="#F4B8A8" opacity="0.7" />
-              </>}
-              {stage === 5 && <>
-                {/* Trunk */}
-                <rect x="40" y="66" width="10" height="40" rx="4" fill="#8B7355" />
-                <rect x="41" y="68" width="4" height="34" rx="2" fill="#A0896B" opacity="0.5" />
-                {/* Canopy */}
-                <circle cx="45" cy="46" r="28" fill="#9BC07A" />
-                <circle cx="24" cy="58" r="20" fill="#8BB06A" />
-                <circle cx="66" cy="58" r="20" fill="#8BB06A" />
-                <circle cx="45" cy="28" r="20" fill="#7BA05B" />
-                {/* Blossoms */}
-                <circle cx="35" cy="40" r="5" fill="#F4B8A8" opacity="0.9" />
-                <circle cx="56" cy="36" r="5" fill="#F4B8A8" opacity="0.9" />
-                <circle cx="45" cy="53" r="4" fill="#E8A090" opacity="0.9" />
-                <circle cx="26" cy="54" r="4" fill="#F4B8A8" opacity="0.85" />
-                <circle cx="64" cy="50" r="4" fill="#E8A090" opacity="0.85" />
-                <circle cx="39" cy="25" r="4" fill="#F4B8A8" opacity="0.9" />
-                <circle cx="53" cy="22" r="3" fill="#C4956A" opacity="0.85" />
-                <circle cx="45" cy="18" r="3" fill="#F4B8A8" opacity="0.8" />
-              </>}
-            </svg>
+        <div style={{ background: T.card, borderRadius: 24, padding: "24px 24px 24px 14px", marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 12 }}>
+          {/* Illustrated tree — grows with today's completions, fruits at 100% */}
+          <div style={{ flexShrink: 0, width: 150 }}>
+            <GrowingTree stage={stage} fruit={done} size={150} />
           </div>
 
           {/* Stats */}
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, color: "#9A8E80", marginBottom: 4 }}>Today</div>
-            <div style={{ fontSize: 36, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>
-              {done}<span style={{ fontSize: 18, color: "#B0A498", fontWeight: 400 }}>/{total}</span>
+            <div style={{ fontSize: 13, color: T.mute, marginBottom: 4 }}>Today</div>
+            <div style={{ fontSize: 36, fontWeight: 700, color: T.ink, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>
+              {done}<span style={{ fontSize: 18, color: T.mute, fontWeight: 400 }}>/{total}</span>
             </div>
-            <div style={{ fontSize: 12, color: "#9A8E80", marginBottom: 4 }}>habits done</div>
-            <div style={{ fontSize: 11, color: "#7BA05B", marginBottom: 8 }}>{stageLabels[stage]}</div>
+            <div style={{ fontSize: 12, color: T.mute, marginBottom: 4 }}>habits done</div>
+            <div style={{ fontSize: 11, color: T.done, marginBottom: 8 }}>{stageLabels[stage]}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {streak > 0 && (
-                <div style={{ padding: "4px 10px", borderRadius: 20, background: "#FFF3EB", border: "1px solid #F5D9C4", fontSize: 12, fontWeight: 600, color: "#C47B4A" }}>
+                <div style={{ padding: "4px 10px", borderRadius: 20, background: T.ptsSoft, fontSize: 12, fontWeight: 600, color: T.ptsDeep }}>
                   🔥 {streak} day streak
                 </div>
               )}
-              <div style={{ padding: "4px 10px", borderRadius: 20, background: "#F0EDE6", border: "1px solid #E5DED4", fontSize: 12, fontWeight: 600, color: "#7A7060" }}>
+              <div style={{ padding: "4px 10px", borderRadius: 20, background: T.ptsSoft, fontSize: 12, fontWeight: 600, color: T.ptsDeep }}>
                 ⭐ {pts} pts
               </div>
             </div>
@@ -1790,10 +1742,10 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
 
         {/* Habits */}
         {total === 0 ? (
-          <div style={{ background: "#fff", borderRadius: 24, padding: 36, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+          <div style={{ background: T.card, borderRadius: 24, padding: 36, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🌱</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#1E1C18", fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Ready to grow</div>
-            <div style={{ fontSize: 13, color: "#9A8E80", lineHeight: 1.6 }}>No habits yet — ask a parent to add some!</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: T.ink, fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Ready to grow</div>
+            <div style={{ fontSize: 13, color: T.mute, lineHeight: 1.6 }}>No habits yet — ask a parent to add some!</div>
           </div>
         ) : (
           <>
@@ -1807,7 +1759,7 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
         )}
 
         {/* Claim reward CTA */}
-        <button onClick={onClaimReward} style={{ marginTop: 20, width: "100%", padding: "14px 20px", borderRadius: 50, background: allDone ? "#C47B4A" : "#F0EDE6", border: `1.5px solid ${allDone ? "#C47B4A" : "#D5CECC"}`, color: allDone ? "#fff" : "#9A8E80", fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", transition: "all 0.2s" }}>
+        <button onClick={onClaimReward} style={{ marginTop: 20, width: "100%", padding: "14px 20px", borderRadius: 50, background: allDone ? T.act : T.line, border: `1.5px solid ${allDone ? T.act : T.line}`, color: allDone ? T.white : T.mute, fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", transition: "all 0.2s" }}>
           <span>Claim a Reward</span>
           <span>→</span>
         </button>
@@ -1824,40 +1776,37 @@ function TodayScreen({ habits, weekCompletions, currentMember, allMembers, onCom
 
   const done = habits.filter(h => (h.taps || 0) >= (h.target || 1)).length;
   const total = habits.length;
-  const todayPct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const todayIndex = getTodayIndex();
-  const maxStreak = habits.length > 0 ? Math.max(...habits.map(h => h.streak || 0), 0) : 0;
-  const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
+  const memberStreak = currentMember?.streak || 0;
+  const memberPts = currentMember?.points || 0;
 
   return (
     <>
       {whoDidThis && <WhoDidThis habit={whoDidThis} members={allMembers} onSelect={(m) => onComplete(whoDidThis.id, m, false)} onCancel={onWhoCancel} />}
       {flashData && <CompletionFlash habit={flashData.habit} member={flashData.member} onDone={onFlashDone} onUndo={onFlashUndo} soundEnabled={soundEnabled} />}
       <div style={{ padding: "0 20px 140px" }}>
-        {/* Hero */}
-        <div style={{ background: `linear-gradient(135deg, ${C.slateDark} 0%, ${C.slate} 100%)`, borderRadius: 24, padding: 24, marginBottom: 16, position: "relative", overflow: "hidden" }}>
-          <div style={{ position: "absolute", top: -30, right: -30, width: 150, height: 150, borderRadius: "50%", background: "rgba(255,255,255,0.06)", zIndex: 0 }} />
+        {/* Dark progress card — forest ink, sun-orange bar, streak/points chips */}
+        <div style={{ background: T.darkCard, borderRadius: 24, padding: 20, marginBottom: 16, position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: -50, right: -40, width: 170, height: 170, borderRadius: "50%", background: "rgba(255,255,255,0.06)", zIndex: 0 }} />
           <div style={{ position: "relative", zIndex: 1 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", letterSpacing: 2.5, textTransform: "uppercase", marginBottom: 4 }}>Today's Progress</div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                  <span style={{ fontSize: 52, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>{done}</span>
-                  <span style={{ fontSize: 20, color: "rgba(255,255,255,0.4)" }}>/ {total}</span>
-                </div>
-              </div>
-              {maxStreak > 0 && (
-                <div style={{ padding: "8px 14px", borderRadius: 20, background: "rgba(255,255,255,0.12)", textAlign: "center" }}>
-                  <div style={{ fontSize: 20 }}>🔥</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: C.white }}>{maxStreak}</div>
-                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", letterSpacing: 1 }}>BEST</div>
-                </div>
+            <div style={{ fontSize: 10, color: T.darkMuted, letterSpacing: 2.5, textTransform: "uppercase", marginBottom: 4 }}>Today's Progress</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 10 }}>
+              <span style={{ fontSize: 44, fontWeight: 400, color: T.white, fontFamily: "'DM Serif Display', serif", lineHeight: 1.1 }}>{done}</span>
+              <span style={{ fontSize: 18, color: T.darkMuted }}>/ {total}</span>
+            </div>
+            <div style={{ height: 6, background: "rgba(255,255,255,0.14)", borderRadius: 3 }}>
+              <div style={{ height: "100%", borderRadius: 3, background: T.pts, width: `${(done / Math.max(total, 1)) * 100}%`, transition: "width 0.8s cubic-bezier(0.34,1.56,0.64,1)" }} />
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+              {memberStreak > 0 && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, borderRadius: 999, padding: "5px 10px", background: "rgba(255,255,255,0.1)", color: T.white }}>
+                  {memberStreak} day streak
+                </span>
               )}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, borderRadius: 999, padding: "5px 10px", background: "rgba(255,255,255,0.1)", color: T.white }}>
+                {memberPts.toLocaleString()} pts
+              </span>
             </div>
-            <div style={{ height: 5, background: "rgba(255,255,255,0.1)", borderRadius: 3, marginBottom: 10 }}>
-              <div style={{ height: "100%", borderRadius: 3, background: `linear-gradient(90deg, ${C.accent}, ${C.accentLight})`, width: `${(done / Math.max(total, 1)) * 100}%`, transition: "width 0.8s cubic-bezier(0.34,1.56,0.64,1)" }} />
-            </div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontFamily: "'DM Serif Display', serif", fontStyle: "italic" }}>{getMotivation(done, total)}</div>
+            <div style={{ fontSize: 13, color: T.darkQuote, fontFamily: "'DM Serif Display', serif", fontStyle: "italic", marginTop: 12 }}>{getMotivation(done, total)}</div>
           </div>
         </div>
 
@@ -1916,7 +1865,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
         body: JSON.stringify({
           memberId: id,
           familyId: family.id,
-          title: "👋 Nudge!",
+          title: "Nudge!",
           body: `${senderName} nudged you — time to check your rituals!`,
         }),
       });
@@ -1953,7 +1902,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
           </div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          {[{ label: "Adult", val: false }, { label: "Kid ⭐", val: true }].map(opt => (
+          {[{ label: "Adult", val: false }, { label: "Kid", val: true }].map(opt => (
             <div key={String(opt.val)} onClick={() => setForm(f => ({ ...f, isKid: opt.val }))} style={{ flex: 1, padding: "12px", borderRadius: 14, textAlign: "center", cursor: "pointer", fontSize: 14, fontWeight: 600, background: form.isKid === opt.val ? `${MEMBER_COLORS[form.colorIdx]}20` : C.offwhite, border: form.isKid === opt.val ? `2px solid ${MEMBER_COLORS[form.colorIdx]}` : "2px solid transparent", color: form.isKid === opt.val ? C.slate : C.slateLight }}>{opt.label}</div>
           ))}
         </div>
@@ -1961,7 +1910,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
           <div style={{ width: 44, height: 44, borderRadius: "50%", background: `linear-gradient(135deg, ${MEMBER_COLORS[form.colorIdx]}, ${MEMBER_COLORS[form.colorIdx]}CC)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: C.white }}>{form.name ? form.name[0].toUpperCase() : "?"}</div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{form.name || "Preview"}</div>
-            <div style={{ fontSize: 12, color: C.slateLight }}>{form.isKid ? "Kid ⭐" : "Adult"}</div>
+            <div style={{ fontSize: 12, color: C.slateLight }}>{form.isKid ? "Kid" : "Adult"}</div>
           </div>
         </div>
         <button onClick={saveMember} style={btnPrimary}>{editing ? "Save" : "Add Member"}</button>
@@ -1985,10 +1934,11 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
 
   return (
     <div style={{ padding: "0 20px 140px" }}>
-      <div style={{ background: `linear-gradient(135deg, ${C.warm}, ${C.accent})`, borderRadius: 24, padding: 24, marginBottom: 16 }}>
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", letterSpacing: 2.5, textTransform: "uppercase", marginBottom: 6 }}>The {family.name} Family</div>
-        <div style={{ fontSize: 44, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>{totalPoints.toLocaleString()}</div>
-        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginTop: 4 }}>combined points</div>
+      <div style={{ background: T.darkCard, borderRadius: 24, padding: 24, marginBottom: 16, position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", right: -40, top: -50, width: 170, height: 170, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
+        <div style={{ fontSize: 11, color: T.darkMuted, letterSpacing: 2.5, textTransform: "uppercase", marginBottom: 6 }}>The {family.name} Family</div>
+        <div style={{ fontSize: 44, fontWeight: 700, color: T.white, fontFamily: "'DM Serif Display', serif", lineHeight: 1 }}>{totalPoints.toLocaleString()}</div>
+        <div style={{ fontSize: 13, color: T.darkMuted, marginTop: 4 }}>combined points</div>
       </div>
 
       {family.members.map(m => (
@@ -1999,7 +1949,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 15, fontWeight: 600, color: C.slate }}>{m.name}</span>
-                  {m.isKid && <span style={{ fontSize: 10, color: C.kids, background: `${C.kids}18`, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>Kid ⭐</span>}
+                  {m.isKid && <span style={{ fontSize: 10, color: C.kids, background: `${C.kids}18`, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>Kid</span>}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: m.color }}>{m.points || 0} pts</span>
@@ -2008,13 +1958,13 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
                   )}
                 </div>
               </div>
-              <div style={{ marginTop: 6, height: 4, background: C.sandLight, borderRadius: 2 }}>
-                <div style={{ height: "100%", borderRadius: 2, background: `linear-gradient(90deg, ${m.color}, ${m.color}99)`, width: `${totalPoints > 0 ? ((m.points || 0) / Math.max(...family.members.map(x => x.points || 0), 1)) * 100 : 0}%`, transition: "width 0.8s ease" }} />
+              <div style={{ marginTop: 6, height: 4, background: C.sand, borderRadius: 2 }}>
+                <div style={{ height: "100%", borderRadius: 2, background: T.pts, width: `${totalPoints > 0 ? ((m.points || 0) / Math.max(...family.members.map(x => x.points || 0), 1)) * 100 : 0}%`, transition: "width 0.8s ease" }} />
               </div>
               <div style={{ marginTop: 5, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: 11, color: C.slateLight }}>🔥 {m.streak || 0} day streak</div>
+                <div style={{ fontSize: 11, color: C.slateLight }}>{m.streak || 0} day streak</div>
                 <button onClick={() => handleNudge(m.id)} style={{ background: nudged[m.id] ? `${C.green}18` : `${C.accent}12`, border: "none", borderRadius: 12, padding: "4px 10px", fontSize: 11, fontWeight: 600, color: nudged[m.id] ? C.green : C.accent, cursor: "pointer" }}>
-                  {nudged[m.id] ? "✓ Nudged!" : "Nudge 👋"}
+                  {nudged[m.id] ? "Nudged!" : "Nudge"}
                 </button>
               </div>
             </div>
@@ -2026,7 +1976,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
       {pendingRedemptions.length > 0 && (
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 12, letterSpacing: 0.5 }}>
-            {currentMember?.isKid ? "⏳ Your Pending Requests" : "⏳ Pending Requests"}
+            {currentMember?.isKid ? "Your Pending Requests" : "Pending Requests"}
           </div>
           {pendingRedemptions.map(rd => {
             const reward = activeRewards.find(r => r.id === rd.reward_id);
@@ -2042,7 +1992,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
                 </div>
                 {!currentMember?.isKid && (
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => onFulfillRedemption(rd.id)} style={{ padding: "5px 10px", borderRadius: 12, border: "none", background: `${C.green}18`, color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✓ Done</button>
+                    <button onClick={() => onFulfillRedemption(rd.id)} style={{ padding: "5px 10px", borderRadius: 12, border: "none", background: `${C.green}18`, color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Done</button>
                     <button onClick={() => onCancelRedemption(rd.id, rd.member_id, rd.points_spent)} style={{ padding: "5px 10px", borderRadius: 12, border: "none", background: `${C.error}12`, color: C.error, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕</button>
                   </div>
                 )}
@@ -2071,7 +2021,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
               <div style={{ fontSize: 26 }}>{r.icon}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{r.name}</div>
-                <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who === "Kids" ? "⭐ Kids" : "👥 Everyone"} · {r.points} pts</div>
+                <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who === "Kids" ? "Kids" : "Everyone"} · {r.points} pts</div>
               </div>
               <button
                 onClick={() => { if (currentMember && canAfford) setRedeemTarget(r); }}
@@ -2087,7 +2037,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
 
       {/* Redeem confirmation sheet */}
       {redeemTarget && currentMember && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => setRedeemTarget(null)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,42,33,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => setRedeemTarget(null)}>
           <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Redeem Reward?</div>
             <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20 }}>This will use {redeemTarget.points} points from {currentMember.name}'s balance</div>
@@ -2129,7 +2079,7 @@ function AssignTileModal({ tileUID, habits, onAssign, onClose, onCreateHabit }) 
   }, {});
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(20,42,33,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={onClose}>
       <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>New Tile Detected</div>
         <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 6 }}>Tile ID: <span style={{ fontFamily: "monospace", color: C.slate }}>{tileLabel(tileUID)}</span></div>
@@ -2164,7 +2114,7 @@ function AssignTileModal({ tileUID, habits, onAssign, onClose, onCreateHabit }) 
         {onCreateHabit && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.sandDark}` }}>
             <button onClick={onCreateHabit} style={{ width: "100%", padding: "12px 16px", background: `${C.accent}15`, border: `1.5px solid ${C.accent}`, borderRadius: 12, color: C.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
-              ➕ Create new habit for this tile
+              Create new habit for this tile
             </button>
           </div>
         )}
@@ -2192,7 +2142,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
         Tap a tile to assign it. Tiles come pre-programmed — just tap one near your phone.
       </div>
       <div style={{ background: `${C.slateLight}0D`, borderRadius: 14, padding: "11px 14px", marginBottom: 20, border: `1px solid ${C.sandLight}` }}>
-        <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.6 }}>💡 Unlock your phone first, then hold the back near a tile and keep still for 1–2 seconds. On iPhone a banner appears at the top — tap it. On Android, tap the notification.</div>
+        <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.6 }}>Unlock your phone first, then hold the back near a tile and keep still for 1–2 seconds. On iPhone a banner appears at the top — tap it. On Android, tap the notification.</div>
       </div>
 
       {/* Assigned tiles */}
@@ -2207,7 +2157,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
                   <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
                   <div style={{ fontSize: 11, color: C.slateLight }}><TileIcon size="11px" style={{ marginRight: 2 }} /> {tileLabel(habit.tileUid)}{habit.location ? ` · ${habit.location}` : ""}</div>
                 </div>
-                <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>✓ Active</span>
+                <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>Active</span>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setShowHabitPicker({ tileUID: habit.tileUid, currentHabitId: habit.id })} style={{ flex: 1, padding: "8px", background: C.offwhite, border: "none", borderRadius: 10, fontSize: 12, fontWeight: 600, color: C.slate, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Reassign</button>
@@ -2244,7 +2194,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
 
       {/* Reassign bottom sheet */}
       {showHabitPicker && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowHabitPicker(null)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,42,33,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1000 }} onClick={() => setShowHabitPicker(null)}>
           <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Reassign Tile</div>
             <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 20 }}>Which habit should this tile trigger?</div>
@@ -2360,7 +2310,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           {/* Everyone checkbox */}
           <div onClick={() => setForm(f => ({ ...f, assignedMemberIds: null, isShared: true }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: !form.assignedMemberIds ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${!form.assignedMemberIds ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!form.assignedMemberIds ? C.accent : C.sandDark}`, background: !form.assignedMemberIds ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{!form.assignedMemberIds && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
-            👥 Everyone in the family
+            Everyone in the family
           </div>
           {/* Individual member checkboxes */}
           {(family?.members || []).map(m => {
@@ -2390,8 +2340,8 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
         </div>
         <div style={{ background: C.white, borderRadius: 20, padding: 16, marginTop: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Which days?</div>
-          <div onClick={() => setForm(f => ({ ...f, daysActive: null }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: !form.daysActive ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${!form.daysActive ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📅 Every day</div>
-          <div onClick={() => setForm(f => ({ ...f, daysActive: [0,1,2,3,4] }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(form.daysActive) && form.daysActive.length === 5 && [0,1,2,3,4].every(d => form.daysActive.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(form.daysActive) && form.daysActive.length === 5 && [0,1,2,3,4].every(d => form.daysActive.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📚 Weekdays only (Mon–Fri)</div>
+          <div onClick={() => setForm(f => ({ ...f, daysActive: null }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: !form.daysActive ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${!form.daysActive ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>Every day</div>
+          <div onClick={() => setForm(f => ({ ...f, daysActive: [0,1,2,3,4] }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(form.daysActive) && form.daysActive.length === 5 && [0,1,2,3,4].every(d => form.daysActive.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(form.daysActive) && form.daysActive.length === 5 && [0,1,2,3,4].every(d => form.daysActive.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>Weekdays only (Mon–Fri)</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day, idx) => {
               const sel = Array.isArray(form.daysActive) && form.daysActive.includes(idx);
@@ -2412,14 +2362,14 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           <div onClick={() => setForm(f => ({ ...f, completionType: 'individual' }))} style={{ padding: "12px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: form.completionType === 'individual' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${form.completionType === 'individual' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
               <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${form.completionType === 'individual' ? C.accent : C.sandDark}`, background: form.completionType === 'individual' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{form.completionType === 'individual' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
-              <span style={{ fontWeight: 600 }}>👤 Individual tracking</span>
+              <span style={{ fontWeight: 600 }}>Individual tracking</span>
             </div>
             <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>Each person tracks their own progress separately</div>
           </div>
           <div onClick={() => setForm(f => ({ ...f, completionType: 'shared' }))} style={{ padding: "12px 14px", borderRadius: 12, cursor: "pointer", background: form.completionType === 'shared' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${form.completionType === 'shared' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
               <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${form.completionType === 'shared' ? C.accent : C.sandDark}`, background: form.completionType === 'shared' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{form.completionType === 'shared' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
-              <span style={{ fontWeight: 600 }}>👥 Shared/Household tracking</span>
+              <span style={{ fontWeight: 600 }}>Shared/Household tracking</span>
             </div>
             <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>One completion counts for everyone assigned</div>
             <div style={{ fontSize: 11, color: C.warm, marginLeft: 26, marginTop: 2 }}>Example: "Feed the pet" — anyone can do it, counts for all</div>
@@ -2497,7 +2447,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
         const [yY, yM, yD] = yKey.split('-').map(Number);
         const yDayName = new Date(yY, yM - 1, yD).toLocaleDateString('en-AU', { weekday: 'long' });
         return (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!isBackfilling) setShowBackfillConfirm(false); }}>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(20,42,33,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!isBackfilling) setShowBackfillConfirm(false); }}>
             <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
               <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Mark as done yesterday?</div>
               <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20 }}>Mark {editing.name} as done for yesterday ({yDayName})?</div>
@@ -2543,11 +2493,11 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>
               {h.location || h.category}{h.tileUid ? <span> · <TileIcon size="11px" style={{ marginRight: 2 }} /> {tileLabel(h.tileUid)}</span> : ""}
-              {!h.assignedMemberIds || h.assignedMemberIds.length === 0 ? " · 👥 Everyone" : (() => {
+              {!h.assignedMemberIds || h.assignedMemberIds.length === 0 ? " · Everyone" : (() => {
                 const assigned = (family?.members || []).filter(m => h.assignedMemberIds.includes(m.id));
-                if (assigned.length === 0) return " · 👤 Personal";
-                if (assigned.length === 1) return ` · 👤 ${assigned[0].name}`;
-                return ` · 👤 ${assigned.map(m => m.name).join(", ")}`;
+                if (assigned.length === 0) return " · Personal";
+                if (assigned.length === 1) return ` · ${assigned[0].name}`;
+                return ` · ${assigned.map(m => m.name).join(", ")}`;
               })()}
             </div>
           </div>
@@ -2662,7 +2612,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
           <div onClick={() => { setCustomSelectedMembers([]); setCustomIsShared(true); }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customSelectedMembers.length === 0 ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customSelectedMembers.length === 0 ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${customSelectedMembers.length === 0 ? C.accent : C.sandDark}`, background: customSelectedMembers.length === 0 ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{customSelectedMembers.length === 0 && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
-            👥 Everyone in the family
+            Everyone in the family
           </div>
           {(family.members || []).map(m => {
             const isSelected = customSelectedMembers.includes(m.id);
@@ -2686,8 +2636,8 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
 
         <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Which days?</div>
-          <div onClick={() => setCustomDays(null)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customDays === null ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customDays === null ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📅 Every day</div>
-          <div onClick={() => setCustomDays([0,1,2,3,4])} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(customDays) && customDays.length === 5 && [0,1,2,3,4].every(d => customDays.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(customDays) && customDays.length === 5 && [0,1,2,3,4].every(d => customDays.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📚 Weekdays only (Mon–Fri)</div>
+          <div onClick={() => setCustomDays(null)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customDays === null ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customDays === null ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>Every day</div>
+          <div onClick={() => setCustomDays([0,1,2,3,4])} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(customDays) && customDays.length === 5 && [0,1,2,3,4].every(d => customDays.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(customDays) && customDays.length === 5 && [0,1,2,3,4].every(d => customDays.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>Weekdays only (Mon–Fri)</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day, idx) => {
               const sel = Array.isArray(customDays) && customDays.includes(idx);
@@ -2720,14 +2670,14 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           <div onClick={() => setCustomCompletionType('individual')} style={{ padding: "12px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: customCompletionType === 'individual' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customCompletionType === 'individual' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
               <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${customCompletionType === 'individual' ? C.accent : C.sandDark}`, background: customCompletionType === 'individual' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{customCompletionType === 'individual' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
-              <span style={{ fontWeight: 600 }}>👤 Individual tracking</span>
+              <span style={{ fontWeight: 600 }}>Individual tracking</span>
             </div>
             <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>Each person tracks their own progress separately</div>
           </div>
           <div onClick={() => setCustomCompletionType('shared')} style={{ padding: "12px 14px", borderRadius: 12, cursor: "pointer", background: customCompletionType === 'shared' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customCompletionType === 'shared' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
               <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${customCompletionType === 'shared' ? C.accent : C.sandDark}`, background: customCompletionType === 'shared' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{customCompletionType === 'shared' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
-              <span style={{ fontWeight: 600 }}>👥 Shared/Household tracking</span>
+              <span style={{ fontWeight: 600 }}>Shared/Household tracking</span>
             </div>
             <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>One completion counts for everyone assigned</div>
             <div style={{ fontSize: 11, color: C.warm, marginLeft: 26, marginTop: 2 }}>Example: "Feed the pet" — anyone can do it, counts for all</div>
@@ -2774,7 +2724,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Add a Ritual</div>
       <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 12 }}>How do you want to add it?</div>
       <div style={{ background: `${C.slateLight}0D`, borderRadius: 14, padding: "11px 14px", marginBottom: 20, border: `1px solid ${C.sandLight}` }}>
-        <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.6 }}>💡 Add a habit here first, then link it to a tile from Manage Tiles. Start with something small you already do every day.</div>
+        <div style={{ fontSize: 12, color: C.slateLight, lineHeight: 1.6 }}>Add a habit here first, then link it to a tile from Manage Tiles. Start with something small you already do every day.</div>
       </div>
       <div style={{ display: "flex", gap: 10 }}>
         <div onClick={() => setView("habits")} style={{ flex: 1, background: C.white, borderRadius: 20, padding: 20, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
@@ -2822,7 +2772,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
             <div style={{ width: 42, height: 42, borderRadius: 13, background: `${cat.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, marginBottom: 10 }}>{cat.icon}</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, lineHeight: 1.3 }}>{cat.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 3 }}>{cat.habits.length} habits</div>
-            {cat.isKids && <div style={{ marginTop: 8, fontSize: 10, color: C.kids, fontWeight: 700 }}>⭐ Kids Special</div>}
+            {cat.isKids && <div style={{ marginTop: 8, fontSize: 10, color: C.kids, fontWeight: 700 }}>Kids Special</div>}
           </div>
         ))}
       </div>
@@ -2911,7 +2861,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
         <div onClick={() => { setHabitSelectedMembers([]); setHabitIsShared(true); }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitSelectedMembers.length === 0 ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitSelectedMembers.length === 0 ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${habitSelectedMembers.length === 0 ? C.accent : C.sandDark}`, background: habitSelectedMembers.length === 0 ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{habitSelectedMembers.length === 0 && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
-          👥 Everyone in the family
+          Everyone in the family
         </div>
         {(family.members || []).map(m => {
           const isSelected = habitSelectedMembers.includes(m.id);
@@ -2934,8 +2884,8 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       </div>
       <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Which days?</div>
-        <div onClick={() => setHabitDays(null)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitDays === null ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitDays === null ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📅 Every day</div>
-        <div onClick={() => setHabitDays([0,1,2,3,4])} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(habitDays) && habitDays.length === 5 && [0,1,2,3,4].every(d => habitDays.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(habitDays) && habitDays.length === 5 && [0,1,2,3,4].every(d => habitDays.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>📚 Weekdays only (Mon–Fri)</div>
+        <div onClick={() => setHabitDays(null)} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitDays === null ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitDays === null ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>Every day</div>
+        <div onClick={() => setHabitDays([0,1,2,3,4])} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: Array.isArray(habitDays) && habitDays.length === 5 && [0,1,2,3,4].every(d => habitDays.includes(d)) ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${Array.isArray(habitDays) && habitDays.length === 5 && [0,1,2,3,4].every(d => habitDays.includes(d)) ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>Weekdays only (Mon–Fri)</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day, idx) => {
             const sel = Array.isArray(habitDays) && habitDays.includes(idx);
@@ -2956,14 +2906,14 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         <div onClick={() => setHabitCompletionType('individual')} style={{ padding: "12px 14px", borderRadius: 12, marginBottom: 8, cursor: "pointer", background: habitCompletionType === 'individual' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitCompletionType === 'individual' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
             <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${habitCompletionType === 'individual' ? C.accent : C.sandDark}`, background: habitCompletionType === 'individual' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{habitCompletionType === 'individual' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
-            <span style={{ fontWeight: 600 }}>👤 Individual tracking</span>
+            <span style={{ fontWeight: 600 }}>Individual tracking</span>
           </div>
           <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>Each person tracks their own progress separately</div>
         </div>
         <div onClick={() => setHabitCompletionType('shared')} style={{ padding: "12px 14px", borderRadius: 12, cursor: "pointer", background: habitCompletionType === 'shared' ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitCompletionType === 'shared' ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
             <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${habitCompletionType === 'shared' ? C.accent : C.sandDark}`, background: habitCompletionType === 'shared' ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{habitCompletionType === 'shared' && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.white }} />}</div>
-            <span style={{ fontWeight: 600 }}>👥 Shared/Household tracking</span>
+            <span style={{ fontWeight: 600 }}>Shared/Household tracking</span>
           </div>
           <div style={{ fontSize: 11, color: C.slateLight, marginLeft: 26 }}>One completion counts for everyone assigned</div>
           <div style={{ fontSize: 11, color: C.warm, marginLeft: 26, marginTop: 2 }}>Example: "Feed the pet" — anyone can do it, counts for all</div>
@@ -3058,7 +3008,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
             <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 0.5, marginBottom: 6 }}>WHO CAN REDEEM</div>
             <div style={{ display: "flex", gap: 8 }}>
               {["Everyone", "Kids"].map(w => (
-                <div key={w} onClick={() => setRewardForm(f => ({ ...f, who: w }))} style={{ flex: 1, padding: "10px", borderRadius: 12, cursor: "pointer", textAlign: "center", fontSize: 13, fontWeight: 600, background: rewardForm.who === w ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${rewardForm.who === w ? C.accent : "transparent"}`, color: rewardForm.who === w ? C.slate : C.slateLight }}>{w === "Everyone" ? "👥 Everyone" : "⭐ Kids only"}</div>
+                <div key={w} onClick={() => setRewardForm(f => ({ ...f, who: w }))} style={{ flex: 1, padding: "10px", borderRadius: 12, cursor: "pointer", textAlign: "center", fontSize: 13, fontWeight: 600, background: rewardForm.who === w ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${rewardForm.who === w ? C.accent : "transparent"}`, color: rewardForm.who === w ? C.slate : C.slateLight }}>{w === "Everyone" ? "Everyone" : "Kids only"}</div>
               ))}
             </div>
           </div>
@@ -3077,7 +3027,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
             <div style={{ fontSize: 26 }}>{r.icon}</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{r.name}</div>
-              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who === "Kids" ? "⭐ Kids only" : "👥 Everyone"} · {r.points} pts</div>
+              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who === "Kids" ? "Kids only" : "Everyone"} · {r.points} pts</div>
             </div>
             <button onClick={() => { setEditingReward(r); setRewardForm({ name: r.name, icon: r.icon, points: r.points, who: r.who || "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 16, padding: 4 }}>✎</button>
             <button onClick={() => { if (window.confirm(`Delete "${r.name}"?`)) onDeleteReward(r.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: `${C.error}80`, fontSize: 16, padding: 4 }}>✕</button>
@@ -3457,7 +3407,24 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, color: C.slateLight }}>Current streak</span>
-            <span style={{ fontWeight: 700, fontSize: 16, color: C.warm }}>🔥 {weeklySummary.streak} days</span>
+            <span style={{ fontWeight: 700, fontSize: 16, color: T.ink }}>🔥 {weeklySummary.streak} days</span>
+          </div>
+          {/* Seven-day strip: green = day with completions, dashed orange = today (still open), grey = missed */}
+          <div style={{ display: "flex", gap: 5, margin: "2px 0" }}>
+            {getWeekDates().map((date, i) => {
+              const isToday = i === getTodayIndex();
+              const dayDone = weekCompletions.some(c => c.date === date && c.memberId === currentMember.id && c.taps > 0);
+              return (
+                <div key={date} style={{ flex: 1, textAlign: "center", fontSize: 9, color: T.mute, fontWeight: 600 }}>
+                  <div style={{
+                    height: 26, borderRadius: 7, marginBottom: 4,
+                    background: isToday ? T.ptsSoft : dayDone ? T.done : C.sand,
+                    outline: isToday ? `1.5px dashed ${T.pts}` : "none", outlineOffset: -1.5,
+                  }} />
+                  {["M", "T", "W", "T", "F", "S", "S"][i]}
+                </div>
+              );
+            })}
           </div>
           {weeklySummary.streak === 0 && weeklySummary.recentDays > 0 && (
             <div style={{ fontSize: 12, color: C.slateLight, marginTop: 4 }}>
@@ -3476,9 +3443,9 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
                   {weeklySummary.consistencyDays} of last 30 days
                 </span>
               </div>
-              <div style={{ height: 6, background: C.sandLight, borderRadius: 3 }}>
+              <div style={{ height: 6, background: C.sand, borderRadius: 3 }}>
                 <div style={{ height: "100%", borderRadius: 3, width: `${weeklySummary.consistencyPct}%`, transition: "width 0.6s ease",
-                  background: weeklySummary.consistencyPct >= 80 ? C.green : weeklySummary.consistencyPct >= 50 ? C.warm : `${C.slate}55` }} />
+                  background: T.pts }} />
               </div>
             </div>
           )}
@@ -3518,13 +3485,13 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             const barH = Math.round(dayFillPct * 28);
             const dayLabel = ["M","T","W","T","F","S","S"][i];
             const isToday = i === getTodayIndex();
-            const leafColor = dayFillPct >= 1 ? "#F4B8A8" : dayFillPct > 0 ? "#9BC07A" : "#E5DED4";
-            const fillColor = isToday ? "#7BA05B" : "#9BC07A";
+            const leafColor = dayFillPct >= 1 ? T.pts : dayFillPct > 0 ? TREE.g2 : T.line;
+            const fillColor = isToday ? T.done : TREE.g2;
             return (
               <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                 <svg width="28" height="42" viewBox="0 0 28 42" xmlns="http://www.w3.org/2000/svg">
                   {/* Bar background (stem) */}
-                  <rect x="10" y="8" width="8" height="28" rx="4" fill="#F0EDE6" />
+                  <rect x="10" y="8" width="8" height="28" rx="4" fill={T.line} />
                   {/* Fill from bottom */}
                   {barH > 0 && <rect x="10" y={8 + (28 - barH)} width="8" height={barH} rx="4" fill={fillColor} />}
                   {/* Leaf/blossom at top */}
@@ -3570,13 +3537,13 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{x.member.name}</div>
                 <div style={{ fontSize: 11, color: C.slateLight }}>
                   {x.daysAway === 1
-                    ? `🎯 1 day from ${x.next}-day streak!`
+                    ? `1 day from ${x.next}-day streak!`
                     : x.daysAway && x.daysAway <= 3
-                    ? `✨ ${x.daysAway} days from ${x.next}-day streak!`
-                    : `🔥 ${x.streak} day streak`}
+                    ? `${x.daysAway} days from ${x.next}-day streak!`
+                    : `${x.streak} day streak`}
                 </div>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{x.streak}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: T.pts }}>{x.streak}</div>
             </div>
           ))}
         </>);
@@ -3592,10 +3559,10 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{x.habitName}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: x.isFormed ? C.green : C.slateLight }}>{x.isFormed ? "✓ Habit formed!" : `${x.totalDays} / 66 days`}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: x.isFormed ? C.green : C.slateLight }}>{x.isFormed ? "Habit formed!" : `${x.totalDays} / 66 days`}</span>
               </div>
-              <div style={{ height: 5, background: C.sandLight, borderRadius: 3 }}>
-                <div style={{ height: "100%", borderRadius: 3, background: C.accent, width: `${x.formationPct}%`, transition: "width 0.6s ease" }} />
+              <div style={{ height: 5, background: C.sand, borderRadius: 3 }}>
+                <div style={{ height: "100%", borderRadius: 3, background: T.done, width: `${x.formationPct}%`, transition: "width 0.6s ease" }} />
               </div>
             </div>
           </div>
@@ -3627,7 +3594,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           })
         ) : (
           <div style={{ textAlign: "center", padding: "16px 0", color: C.slateLight, fontSize: 13, fontStyle: "italic" }}>
-            Track habits for a week to see health trends! 📈
+            Track habits for a week to see health trends!
           </div>
         )}
       </>)}
@@ -3647,7 +3614,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
                 <div style={{ fontSize: 11, color: C.slateLight }}>{k.taps} completion{k.taps !== 1 ? "s" : ""} this week</div>
               </div>
               {k.liveStreak > 0 && (
-                <div style={{ fontSize: 11, color: C.accent, fontWeight: 600, padding: "3px 8px", borderRadius: 10, background: `${C.accent}12` }}>🔥 {k.liveStreak}</div>
+                <div style={{ fontSize: 11, color: T.ptsDeep, fontWeight: 600, padding: "3px 8px", borderRadius: 10, background: T.ptsSoft }}>🔥 {k.liveStreak}</div>
               )}
             </div>
           ))
@@ -3661,7 +3628,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           <div>
             {personalBests.isNewRecord && (
               <div style={{ background: `${C.accent}12`, borderRadius: 12, padding: "10px 14px", marginBottom: 10, border: `1px solid ${C.accent}30` }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>🎊 New all-time best week!</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>New all-time best week!</div>
                 <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{personalBests.thisWeekCount} habits completed</div>
               </div>
             )}
@@ -3677,7 +3644,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <span style={{ fontSize: 16 }}>{x.habit.icon}</span>
                 <span style={{ fontSize: 12, color: C.slate, flex: 1 }}>{x.habit.name}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>🔥 {x.streak} day streak</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.ptsDeep }}>🔥 {x.streak} day streak</span>
               </div>
             ))}
             {personalBests.thisWeekCount === 0 && personalBests.habitStreaks.length === 0 && (
@@ -3686,7 +3653,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           </div>
         ) : (
           <div style={{ textAlign: "center", padding: "16px 0", color: C.slateLight, fontSize: 13, fontStyle: "italic" }}>
-            Complete more habits to unlock achievements! 🎉
+            Complete more habits to unlock achievements!
           </div>
         )}
       </>)}
@@ -3749,7 +3716,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 const HELP_TOPICS = [
     { id: "add-first", icon: "⊕", title: "Add a habit before anything else", content: `Your tiles don't do anything until you've connected them to a habit. Think of the tile as the button — but first you need to tell Ritual what that button does. Start simple: go to the Manage tab, pick a category, choose one habit, and save it. Then connect a tile. That's it — you're ready to go. Don't overthink your first habit. Pick something you already do most days and make it official.` },
     { id: "how-to-tap", icon: "◻", title: "How to tap a tile", content: `This trips people up the first time, so here's exactly what to do:\n\n1. Unlock your phone first — it won't work on a locked screen\n2. Hold the back of your phone near the tile — the reader sits near your camera\n3. Hold still for 1–2 seconds — don't wave it, just hold it close\n4. On iPhone: a small banner appears at the top — tap it\n5. On Android: a notification appears — tap it\n\nDoesn't work? Try moving your phone slightly up or down — every phone model is a little different. Make sure you're using the back of the phone, not the front.` },
-    { id: "what-are-tiles", icon: <TileIcon size="16px" color="#555" />, title: "What are Ritual tiles?", content: `Ritual tiles use the same technology as tap-to-pay — the kind you use when you tap your card or phone at a checkout, or hold a key card to a hotel door. It's been around for years and is used billions of times every day around the world.\n\nThe tile itself does absolutely nothing on its own. No signal, no emission, nothing at all. It only activates for the one second your phone is held next to it. No batteries. No charging. Ever.\n\nAnd if you want to move a tile from one habit to another, you can — they're completely reusable.\n\nIs it safe? Completely. The tile is passive — it has no power source and emits nothing. It simply waits. That's actually what makes tiles such a clever and perfect fit for Ritual — safe enough to place anywhere in your home, yet reliable enough to work every single time.\n\nOne practical note: tiles come with adhesive backing and should be secured to a surface — a wall, door frame, or shelf works well. Keep them out of reach of young children who may want to put them in their mouths.\n\nWant to know more? Reach out to us at support@ritualhabits.com.au` },
+    { id: "what-are-tiles", icon: <TileIcon size="16px" />, title: "What are Ritual tiles?", content: `Ritual tiles use the same technology as tap-to-pay — the kind you use when you tap your card or phone at a checkout, or hold a key card to a hotel door. It's been around for years and is used billions of times every day around the world.\n\nThe tile itself does absolutely nothing on its own. No signal, no emission, nothing at all. It only activates for the one second your phone is held next to it. No batteries. No charging. Ever.\n\nAnd if you want to move a tile from one habit to another, you can — they're completely reusable.\n\nIs it safe? Completely. The tile is passive — it has no power source and emits nothing. It simply waits. That's actually what makes tiles such a clever and perfect fit for Ritual — safe enough to place anywhere in your home, yet reliable enough to work every single time.\n\nOne practical note: tiles come with adhesive backing and should be secured to a surface — a wall, door frame, or shelf works well. Keep them out of reach of young children who may want to put them in their mouths.\n\nWant to know more? Reach out to us at support@ritualhabits.com.au` },
     { id: "why-tiles", icon: "◈", title: "Why tiles work better than buttons", content: `Let's be honest — most habit apps don't work. You download them full of good intentions, tap a button for a few days, and then forget they exist.\n\nThe problem isn't you. It's that a button on a screen is easy to ignore. Physical objects are different.\n\nHabit researchers have found that things in specific places are among the most powerful triggers for automatic behaviour. When something exists in your space, your brain starts connecting "I'm here" with "I do this." That's the whole idea behind Ritual's tiles.\n\nPut the tile where the habit happens — by the bathroom sink, on the fridge, at the front door. Tap it every day and within a few weeks, the location itself becomes the reminder.\n\nResearch shows that people who linked habits to physical cues in their environment had 58% higher success rates than those who relied on app reminders alone. Your phone notification is easy to swipe away. A tile on your bathroom mirror is a lot harder to ignore.` },
     { id: "individual-vs-family", icon: "◉", title: "Individual vs family habits", content: `When you create a habit, you choose how it gets tracked.\n\nIndividual means each person tracks it separately. Good for personal habits where it matters who did it, not just that it got done. Example: Homework. One child finishing their homework doesn't count for another child. They each need their own completion.\n\nFamily/shared means one completion counts for everyone assigned. Good for household tasks where it doesn't matter who does it — just that it happened. Example: Feeding the dog. If one person feeds the dog, that counts for the whole family. You don't need everyone else to feed the dog again just to tick their box.\n\nWhen in doubt: if the habit is personal to one person, use Individual. If it's a household job anyone can do, use Family.` },
     { id: "kids", icon: "✦", title: "How kids work in Ritual", content: `Kids earn points the same way adults do — complete a habit, earn points. The main difference is with rewards.\n\nWhen a child redeems a reward, it doesn't just happen — it creates a request that a parent needs to fulfil.\n\nExample: Your child earns enough points for "Choose a movie night." They tap redeem on Friday morning. Their points are set aside straight away — they can't spend them on anything else. When Friday night comes, a parent opens the Family tab and marks it as fulfilled. Done.\n\nThis keeps parents in the loop and means kids can't redeem rewards without it actually happening in real life.\n\nOne other thing — when a tile is tapped on a habit that belongs to a child, the app asks "Who did this?" This is because kids often share devices, so Ritual checks rather than assumes.` },
@@ -3783,7 +3750,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
       await onEditMember(editingId, { name: editName.trim(), isKid: editIsKid, color: editColor, avatar: editName.trim()[0].toUpperCase() });
       setEditingId(null);
       onToast("Member updated");
-    } catch { onToast("❌ Failed to update member", "error"); }
+    } catch { onToast("Failed to update member", "error"); }
   };
   const confirmDelete = (id) => setConfirmDeleteId(id);
   const doDelete = async (id) => {
@@ -3791,7 +3758,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
       await onRemoveMember(id);
       setConfirmDeleteId(null);
       onToast("Member removed");
-    } catch { onToast("❌ Failed to remove member", "error"); }
+    } catch { onToast("Failed to remove member", "error"); }
   };
 
   return (
@@ -3827,7 +3794,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
                 <input
                   value={editName} onChange={e => setEditName(e.target.value)}
                   placeholder="Name"
-                  style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${C.sandLight}`, fontSize: 14, fontFamily: "'DM Sans', sans-serif", outline: "none", color: C.slate, background: "#F7F4EF" }}
+                  style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${C.sandLight}`, fontSize: 14, fontFamily: "'DM Sans', sans-serif", outline: "none", color: C.slate, background: T.card2 }}
                 />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 13, color: C.slateLight }}>Child account</span>
@@ -3837,7 +3804,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {SETUP_MEMBER_COLORS.map(c => (
-                    <div key={c} onClick={() => setEditColor(c)} style={{ width: 26, height: 26, borderRadius: "50%", background: c, cursor: "pointer", border: editColor === c ? "2.5px solid #1E1C18" : "2.5px solid transparent", boxSizing: "border-box" }} />
+                    <div key={c} onClick={() => setEditColor(c)} style={{ width: 26, height: 26, borderRadius: "50%", background: c, cursor: "pointer", border: editColor === c ? `2.5px solid ${T.ink}` : "2.5px solid transparent", boxSizing: "border-box" }} />
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -3851,7 +3818,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
                 <div style={{ width: 32, height: 32, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{m.name}{idx === 0 ? " 👑" : ""}</div>
-                  <div style={{ fontSize: 11, color: C.slateLight }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · 🔥 {m.streak || 0}</div>
+                  <div style={{ fontSize: 11, color: C.slateLight }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · {m.streak || 0} day streak</div>
                 </div>
                 {isAdmin && (
                   <div style={{ display: "flex", gap: 6 }}>
@@ -3905,17 +3872,17 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
           <TileIcon size="16px" style={{ marginRight: 4 }} /> Manage Tiles
         </button>
         <button onClick={async () => { try { await onRefresh(); } catch (e) { console.warn('Refresh failed:', e); } }} style={{ flex: 1, padding: "14px", borderRadius: 16, border: `1.5px solid ${C.green}30`, background: `${C.green}10`, color: C.green, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
-          🔄 Refresh Data
+          Refresh Data
         </button>
       </div>
       <button onClick={onManageHabits} style={{ width: "100%", padding: "14px", borderRadius: 16, border: `1.5px solid ${C.slateLight}30`, background: `${C.slateLight}10`, color: C.slateLight, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 12 }}>
-        ✏️ Manage Habits
+        Manage Habits
       </button>
 
       {/* Admin: Reset all points — hidden from kids */}
       {!currentMember?.isKid && (
       <div style={{ marginBottom: 12, padding: "20px", background: `${C.error}08`, borderRadius: 16, border: `1px solid ${C.error}30` }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 6 }}>⚠️ Admin Actions</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Admin Actions</div>
         <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 12 }}>These actions affect all family members and cannot be undone.</div>
         <button
           onClick={async () => {
@@ -3924,15 +3891,15 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
               await supabase.from("members").update({ points: 0, streak: 0 }).eq('family_id', family.id);
               await supabase.from("habits").update({ streak: 0 }).eq('family_id', family.id);
               await onRefresh();
-              onToast("✅ Points and streaks reset to zero");
+              onToast("Points and streaks reset to zero");
             } catch (err) {
               console.error("Reset failed:", err);
-              onToast("❌ Reset failed — check console", "error");
+              onToast("Reset failed — check console", "error");
             }
           }}
           style={{ width: "100%", padding: "12px 16px", background: C.error, border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
         >
-          🔄 Reset All Points &amp; Streaks
+          Reset All Points &amp; Streaks
         </button>
         {window.location.hostname === 'localhost' && (
           <button onClick={async () => {
@@ -3941,7 +3908,7 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
             console.log(data);
             onToast("Cron test complete — check console");
           }} style={{ width: "100%", padding: "12px 16px", background: C.slateLight, border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 8 }}>
-            🔧 Test Streak Reset (dev only)
+            Test Streak Reset (dev only)
           </button>
         )}
         {(window.location.hostname === 'localhost' || window.location.search.includes('debug=true')) && (
@@ -3952,8 +3919,8 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
             localStorage.removeItem("ritual_soloMode");
             localStorage.removeItem("ritual_soundEnabled");
             window.location.reload();
-          }} style={{ width: "100%", padding: "12px 16px", background: "#6366f1", border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 8 }}>
-            🧹 Clear all data &amp; sign out
+          }} style={{ width: "100%", padding: "12px 16px", background: T.ink2, border: "none", borderRadius: 12, color: C.white, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 8 }}>
+            Clear all data &amp; sign out
           </button>
         )}
       </div>
@@ -4053,7 +4020,7 @@ function ManageScreen({
       await onEditMember(editingMemberId, { name: editName.trim(), isKid: editIsKid, color: editColor, avatar: editName.trim()[0].toUpperCase() });
       setActiveSubView("main");
       onToast("Member updated");
-    } catch { onToast("❌ Failed to update member", "error"); }
+    } catch { onToast("Failed to update member", "error"); }
   };
 
   const doDeleteMember = async (id) => {
@@ -4062,7 +4029,7 @@ function ManageScreen({
       setConfirmDeleteId(null);
       setActiveSubView("main");
       onToast("Member removed");
-    } catch { onToast("❌ Failed to remove member", "error"); }
+    } catch { onToast("Failed to remove member", "error"); }
   };
 
   // ─── Sub-views ────────────────────────────────────────────────
@@ -4122,7 +4089,7 @@ function ManageScreen({
           <div style={{ width: 44, height: 44, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif" }}>Edit Member</div>
-            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · 🔥 {m.streak || 0}</div>
+            <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · {m.streak || 0} day streak</div>
           </div>
         </div>
         {confirmDeleteId === m.id && (
@@ -4159,7 +4126,7 @@ function ManageScreen({
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: C.white, borderRadius: 14, padding: "14px 16px", border: `1.5px solid ${C.sandDark}` }}>
             {SETUP_MEMBER_COLORS.map(col => (
-              <div key={col} onClick={() => setEditColor(col)} style={{ width: 32, height: 32, borderRadius: "50%", background: col, cursor: "pointer", border: editColor === col ? "2.5px solid #1E1C18" : "2.5px solid transparent", boxSizing: "border-box" }} />
+              <div key={col} onClick={() => setEditColor(col)} style={{ width: 32, height: 32, borderRadius: "50%", background: col, cursor: "pointer", border: editColor === col ? `2.5px solid ${T.ink}` : "2.5px solid transparent", boxSizing: "border-box" }} />
             ))}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -4186,7 +4153,7 @@ function ManageScreen({
         setNewMemberColor(SETUP_MEMBER_COLORS[0]);
         setActiveSubView("main");
         onToast("Member added");
-      } catch { onToast("❌ Failed to add member", "error"); }
+      } catch { onToast("Failed to add member", "error"); }
     };
     return (
       <div style={{ padding: "0 20px 140px" }}>
@@ -4205,7 +4172,7 @@ function ManageScreen({
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: C.white, borderRadius: 14, padding: "14px 16px", border: `1.5px solid ${C.sandDark}` }}>
             {SETUP_MEMBER_COLORS.map(col => (
-              <div key={col} onClick={() => setNewMemberColor(col)} style={{ width: 32, height: 32, borderRadius: "50%", background: col, cursor: "pointer", border: newMemberColor === col ? "2.5px solid #1E1C18" : "2.5px solid transparent", boxSizing: "border-box" }} />
+              <div key={col} onClick={() => setNewMemberColor(col)} style={{ width: 32, height: 32, borderRadius: "50%", background: col, cursor: "pointer", border: newMemberColor === col ? `2.5px solid ${T.ink}` : "2.5px solid transparent", boxSizing: "border-box" }} />
             ))}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -4277,7 +4244,7 @@ function ManageScreen({
             <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>{m.name}{idx === 0 ? " 👑" : ""}</div>
-              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · 🔥 {m.streak || 0}</div>
+              <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · {m.streak || 0} day streak</div>
             </div>
             {isAdmin && (
               <div onClick={() => startMemberEdit(m)} style={{ fontSize: 13, color: C.accent, fontWeight: 600, cursor: "pointer", padding: "4px 4px 4px 8px" }}>Edit</div>
@@ -4287,17 +4254,17 @@ function ManageScreen({
         {isAdmin && (soloMode ? (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12,
-            padding: '14px 16px', background: '#f8f5f0', borderRadius: 12,
+            padding: '14px 16px', background: T.card2, borderRadius: 12,
             opacity: 0.85
           }}>
             <div style={{
               width: 36, height: 36, borderRadius: '50%',
-              background: '#e8e0d8', display: 'flex', alignItems: 'center',
+              background: T.line, display: 'flex', alignItems: 'center',
               justifyContent: 'center', fontSize: 16
             }}>👥</div>
             <div>
-              <div style={{ fontWeight: 500, fontSize: 14, color: '#5a5a5a' }}>Add family members</div>
-              <div style={{ fontSize: 12, color: '#999' }}>Contact us for family upgrade options</div>
+              <div style={{ fontWeight: 500, fontSize: 14, color: T.ink2 }}>Add family members</div>
+              <div style={{ fontSize: 12, color: T.mute }}>Contact us for family upgrade options</div>
             </div>
           </div>
         ) : settingsRow("+", `${C.accent}20`, "Add family member", "Add a new kid or adult", () => setActiveSubView("addMember"), { last: true }))}
@@ -4358,8 +4325,8 @@ function ManageScreen({
             await supabase.from("members").update({ points: 0, streak: 0 }).eq('family_id', family.id);
             await supabase.from("habits").update({ streak: 0 }).eq('family_id', family.id);
             await onRefresh();
-            onToast("✅ Points and streaks reset to zero");
-          } catch (err) { onToast("❌ Reset failed", "error"); }
+            onToast("Points and streaks reset to zero");
+          } catch (err) { onToast("Reset failed", "error"); }
         }, { last: !window.location.hostname.includes('localhost') && !window.location.search.includes('debug=true'), danger: true })}
         {(window.location.hostname === 'localhost' || window.location.search.includes('debug=true')) && settingsRow("🧹", `${C.error}15`, "Clear all data & sign out", null, () => {
           localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_savedFamilyName");
@@ -4394,7 +4361,7 @@ function ManageScreen({
 
       {/* Edit email modal — Phase 2 auth */}
       {showEditEmail && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!emailSaving) setShowEditEmail(false); }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,42,33,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!emailSaving) setShowEditEmail(false); }}>
           <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Change email</div>
             <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 16 }}>You'll receive a confirmation link at the new address.</div>
@@ -4430,7 +4397,7 @@ function ManageScreen({
 
       {/* Change password modal — Phase 2 auth */}
       {showChangePassword && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(42,52,56,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!pwSaving) setShowChangePassword(false); }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,42,33,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000 }} onClick={() => { if (!pwSaving) setShowChangePassword(false); }}>
           <div style={{ background: C.white, borderRadius: "24px 24px 0 0", padding: "24px 20px 48px", width: "100%", maxWidth: 500 }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 16 }}>Change password</div>
             <input style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: `1.5px solid ${C.sandDark}`, background: C.offwhite, fontSize: 15, color: C.slate, outline: "none", fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box", marginBottom: 10 }} type="password" placeholder="Current password" value={pwCurrent} onChange={e => setPwCurrent(e.target.value)} autoComplete="current-password" />
@@ -4581,13 +4548,13 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
         <svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="marble" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" style={{ stopColor: "#F2EDE8", stopOpacity: 1 }} />
-              <stop offset="40%" style={{ stopColor: "#EDE8E1", stopOpacity: 1 }} />
-              <stop offset="100%" style={{ stopColor: "#E0D9D0", stopOpacity: 1 }} />
+              <stop offset="0%" style={{ stopColor: T.card2, stopOpacity: 1 }} />
+              <stop offset="40%" style={{ stopColor: T.bg, stopOpacity: 1 }} />
+              <stop offset="100%" style={{ stopColor: T.doneSoft, stopOpacity: 1 }} />
             </linearGradient>
           </defs>
-          <polygon points="32,4 56,18 56,46 32,60 8,46 8,18" fill="url(#marble)" stroke="#C4B8A8" strokeWidth="2" />
-          <polygon points="32,10 51,21 51,43 32,54 13,43 13,21" fill="none" stroke="#D8D0C4" strokeWidth="0.75" opacity="0.6" />
+          <polygon points="32,4 56,18 56,46 32,60 8,46 8,18" fill="url(#marble)" stroke={T.mute} strokeWidth="2" />
+          <polygon points="32,10 51,21 51,43 32,54 13,43 13,21" fill="none" stroke={T.line} strokeWidth="0.75" opacity="0.6" />
         </svg>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -4970,7 +4937,7 @@ export default function RitualApp() {
         if (memberId && supabase && token.value) {
           supabase.from('members').update({ push_token: token.value }).eq('id', memberId)
             .then(({ error }) => {
-              if (error) console.error('❌ Failed to save push token:', error);
+              if (error) console.error('Failed to save push token:', error);
               else pushTokenWrittenForMemberRef.current = memberId;
             }).catch(() => {});
         }
@@ -5005,7 +4972,7 @@ export default function RitualApp() {
     if (pushTokenWrittenForMemberRef.current === memberId) return;
     supabase.from('members').update({ push_token: token }).eq('id', memberId)
       .then(({ error }) => {
-        if (error) console.error('❌ Failed to save push token:', error);
+        if (error) console.error('Failed to save push token:', error);
         else pushTokenWrittenForMemberRef.current = memberId;
       }).catch(() => {});
   }, [currentMember]);
@@ -5197,12 +5164,12 @@ export default function RitualApp() {
       try {
         applyCompletions(await fetchWeekAndTodayCompletions(familyData.id));
       } catch (e) {
-        console.error("❌ Completions fetch failed, retrying:", e);
+        console.error("Completions fetch failed, retrying:", e);
         setTimeout(async () => {
           try {
             applyCompletions(await fetchWeekAndTodayCompletions(familyData.id));
           } catch (e2) {
-            console.error("❌ Completions retry also failed:", e2);
+            console.error("Completions retry also failed:", e2);
           }
         }, 2000);
       }
@@ -5218,7 +5185,7 @@ export default function RitualApp() {
       const { data: famRows, error: famErr } = await supabase
         .from('families').select('id, name, pin, is_solo')
         .eq('account_holder_id', authUserId).limit(1);
-      if (famErr) { console.error('❌ loadFamilyForAuthUser families select failed:', famErr); return; }
+      if (famErr) { console.error('loadFamilyForAuthUser families select failed:', famErr); return; }
       if (!famRows || famRows.length === 0) {
         // Genuinely no family for this account — a cache-hydrated frame
         // (if any) belongs to no one; drop it before the creation screen.
@@ -5231,7 +5198,7 @@ export default function RitualApp() {
       // Completions fetch runs concurrently with the three selects below —
       // one less serial round-trip on the boot critical path.
       const completionsPromise = fetchWeekAndTodayCompletions(fam.id)
-        .catch(e => { console.error('❌ prefetched completions failed:', e); return null; });
+        .catch(e => { console.error('prefetched completions failed:', e); return null; });
       const [membersRes, habitsRes, rewardsRes] = await Promise.all([
         supabase.from('members').select('*').eq('family_id', fam.id),
         supabase.from('habits').select('*').eq('family_id', fam.id),
@@ -5240,7 +5207,7 @@ export default function RitualApp() {
       const selectErr = membersRes.error || habitsRes.error || rewardsRes.error;
       // Treat a failed select as transient (keeps cached state on screen)
       // rather than hydrating a half-empty family.
-      if (selectErr) { console.error('❌ loadFamilyForAuthUser select failed:', selectErr); return; }
+      if (selectErr) { console.error('loadFamilyForAuthUser select failed:', selectErr); return; }
       const { data: members } = membersRes, { data: habits } = habitsRes, { data: rewards } = rewardsRes;
       const familyData = {
         id: fam.id, name: fam.name, pin: fam.pin || null,
@@ -5253,7 +5220,7 @@ export default function RitualApp() {
       setSoloMode(!!fam.is_solo);
       await loadDataForFamily(familyData, completionsPromise);
     } catch (e) {
-      console.error('❌ loadFamilyForAuthUser exception:', e);
+      console.error('loadFamilyForAuthUser exception:', e);
     }
   };
 
@@ -5289,7 +5256,7 @@ export default function RitualApp() {
         const devParams = new URLSearchParams(window.location.search);
         const fixtureMode = devParams.get('fixture');
         if (fixtureMode) {
-          const { buildFixtures } = require('./devFixtures');
+          const { buildFixtures } = await import('./devFixtures');
           const fx = buildFixtures(fixtureMode);
           const devTab = devParams.get('tab');
           if (devTab) setTab(devTab);
@@ -5327,11 +5294,11 @@ export default function RitualApp() {
           let completionsPromise = null;
           const familyData = await fetchFamilyData(savedPin, savedFamilyName, (familyId) => {
             completionsPromise = fetchWeekAndTodayCompletions(familyId)
-              .catch(e => { console.error('❌ prefetched completions failed:', e); return null; });
+              .catch(e => { console.error('prefetched completions failed:', e); return null; });
           });
           if (familyData) { await loadDataForFamily(familyData, completionsPromise); return; }
           // null = credentials genuinely rejected (transport errors throw)
-          console.warn("⚠️ Saved credentials invalid, clearing");
+          console.warn("Saved credentials invalid, clearing");
           localStorage.removeItem("ritual_savedPin");
           localStorage.removeItem("ritual_savedFamilyName");
           abandonBootHydration();
@@ -5348,7 +5315,7 @@ export default function RitualApp() {
         // Transient/network failure. A cache-hydrated session keeps showing
         // its same-day state (offline launch); a cold boot falls through to
         // the login screen as before.
-        console.error("❌ Auto-login error:", e);
+        console.error("Auto-login error:", e);
       } finally {
         setMounted(true);
       }
@@ -5411,7 +5378,7 @@ export default function RitualApp() {
       await loadDataForFamily(familyData);
       setSoloMode(localStorage.getItem("ritual_soloMode") === "true");
     } catch (e) {
-      console.error('❌ handleLogin error:', e);
+      console.error('handleLogin error:', e);
     }
   };
 
@@ -5454,7 +5421,7 @@ export default function RitualApp() {
       const { data: famRows, error: rpcErr } = await supabase
         .rpc('create_family_with_account_holder', { p_family_name: trimmed });
       if (rpcErr || !famRows?.[0]) {
-        console.error('❌ create_family_with_account_holder failed:', rpcErr);
+        console.error('create_family_with_account_holder failed:', rpcErr);
         setCreateFamilyError("Couldn't create your family. Please try again.");
         return;
       }
@@ -5470,7 +5437,7 @@ export default function RitualApp() {
       setNeedsFamilyCreation(false);
       setCreateFamilyName("");
     } catch (e) {
-      console.error('❌ handleCreateFamilyForAuthedUser exception:', e);
+      console.error('handleCreateFamilyForAuthedUser exception:', e);
       setCreateFamilyError("Something went wrong. Please try again.");
     } finally {
       setCreatingFamily(false);
@@ -5493,7 +5460,7 @@ export default function RitualApp() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) await loadFamilyForAuthUser(session.user.id, session.user.email);
     } catch (e) {
-      console.error('❌ handleSetNewPassword exception:', e);
+      console.error('handleSetNewPassword exception:', e);
       setRecoveryError("Something went wrong. Please try again.");
     } finally {
       setRecoverySaving(false);
@@ -5517,7 +5484,7 @@ export default function RitualApp() {
         await loadFamilyForAuthUser(session.user.id, session.user.email);
       }
     } catch (e) {
-      console.error('❌ handleAuthFamilyReady exception:', e);
+      console.error('handleAuthFamilyReady exception:', e);
     }
   };
 
@@ -5571,7 +5538,7 @@ export default function RitualApp() {
       .from('completions')
       .upsert(rows, { onConflict: 'habit_id,member_id,date' });
     if (upErr) {
-      console.error('❌ Backfill upsert failed:', upErr);
+      console.error('Backfill upsert failed:', upErr);
       addToast('Failed to mark as done', 'error');
       return;
     }
@@ -5580,7 +5547,7 @@ export default function RitualApp() {
     const { data: freshMember } = await supabase.from('members').select('points').eq('id', currentMember.id).single();
     const freshPoints = freshMember?.points ?? (currentMember.points || 0);
     const { error: pe } = await supabase.from('members').update({ points: freshPoints + pointValue }).eq('id', currentMember.id);
-    if (pe) console.error('❌ Backfill points sync failed:', pe);
+    if (pe) console.error('Backfill points sync failed:', pe);
 
     // Recompute habit streak cache from all completions on this habit (any member, taps > 0)
     const habitDates = await fetchAllPages(() => supabase
@@ -5743,7 +5710,7 @@ export default function RitualApp() {
         { habit_id: habitId, member_id: resolvedMember.id, family_id: family.id, date: today, taps: memberNewTaps },
         { onConflict: "habit_id,member_id,date" }
       );
-      if (error) console.error("❌ Completion sync failed:", error);
+      if (error) console.error("Completion sync failed:", error);
 
       // Expire the analytics cache (keep the data for stale-while-refetch) so
       // Insights streaks include this completion on the next visit instead of
@@ -5774,7 +5741,7 @@ export default function RitualApp() {
       const { data: freshMember } = await supabase.from("members").select("points").eq("id", resolvedMember.id).single();
       const freshPoints = freshMember?.points ?? (resolvedMember.points || 0);
       const { error: pe } = await supabase.from("members").update({ points: freshPoints + habitPointValue }).eq("id", resolvedMember.id);
-      if (pe) console.error("❌ Points sync failed:", pe);
+      if (pe) console.error("Points sync failed:", pe);
 
       // Streak logic: only on first tap of this habit by this member today
       if (memberCurrentTaps === 0) {
@@ -5854,7 +5821,7 @@ export default function RitualApp() {
         { habit_id: habitId, member_id: undoMemberId, family_id: family.id, date: today, taps: newTaps },
         { onConflict: "habit_id,member_id,date" }
       );
-      if (error) console.error("❌ Undo sync failed:", error);
+      if (error) console.error("Undo sync failed:", error);
 
       // Shared/household habit: sync decremented taps to all other assigned members
       if (isSharedHabit) {
@@ -5872,7 +5839,7 @@ export default function RitualApp() {
         const { data: freshMember } = await supabase.from("members").select("points").eq("id", memberToDeduct.id).single();
         const freshPoints = freshMember?.points ?? (memberToDeduct.points || 0);
         const { error: pe } = await supabase.from("members").update({ points: Math.max(freshPoints - habitPointValue, 0) }).eq("id", memberToDeduct.id);
-        if (pe) console.error("❌ Points undo failed:", pe);
+        if (pe) console.error("Points undo failed:", pe);
       }
 
       // Revert the streak increments if this undo removed the habit's last
@@ -5903,7 +5870,7 @@ export default function RitualApp() {
             }
           }
         } catch (e) {
-          console.error("❌ Undo streak revert failed:", e);
+          console.error("Undo streak revert failed:", e);
         }
       }
     }
@@ -5938,14 +5905,14 @@ export default function RitualApp() {
       }).select().single();
       if (data) {
         setHabits(prev => prev.map(x => x.id === tempId ? normalizeHabit(data) : x));
-        addToast(`✓ "${h.name.trim()}" added to your rituals`);
+        addToast(`"${h.name.trim()}" added to your rituals`);
       } else {
-        console.error("❌ Add habit failed:", error);
+        console.error("Add habit failed:", error);
         setHabits(prev => prev.filter(x => x.id !== tempId));
         addToast(`Failed to add habit: ${error?.message || 'unknown error'}`, 'error');
       }
     } else {
-      addToast(`✓ "${h.name.trim()}" added to your rituals`);
+      addToast(`"${h.name.trim()}" added to your rituals`);
     }
     setTab("today");
   };
@@ -5956,7 +5923,7 @@ export default function RitualApp() {
     await supabase.from("habits").update({ tile_uid: null }).eq("tile_uid", tileUID).neq("id", habitId);
     // Assign to new habit
     const { error } = await supabase.from("habits").update({ tile_uid: tileUID }).eq("id", habitId);
-    if (error) { console.error("❌ Assign tile failed:", error); return; }
+    if (error) { console.error("Assign tile failed:", error); return; }
     setHabits(prev => prev.map(h => {
       if (h.tileUid === tileUID && h.id !== habitId) return { ...h, tileUid: null };
       if (h.id === habitId) return { ...h, tileUid: tileUID };
@@ -6020,7 +5987,7 @@ export default function RitualApp() {
   const handleAddReward = async (rewardData) => {
     if (!supabase) {
       addToast('Cannot save — Supabase not configured', 'error');
-      console.error('❌ handleAddReward: supabase client is null');
+      console.error('handleAddReward: supabase client is null');
       return;
     }
     if (!family) return;
@@ -6031,9 +5998,9 @@ export default function RitualApp() {
     }).select().single();
     if (data) {
       setFamily(f => ({ ...f, rewards: [...(f.rewards || []), normalizeReward(data)] }));
-      addToast(`✓ Reward "${rewardData.name.trim()}" created`);
+      addToast(`Reward "${rewardData.name.trim()}" created`);
     } else {
-      console.error('❌ Add reward failed:', error);
+      console.error('Add reward failed:', error);
       addToast(`Failed to save reward: ${error?.message || 'unknown error'}`, 'error');
     }
   };
@@ -6074,14 +6041,14 @@ export default function RitualApp() {
       const { data: row, error } = await supabase.from('reward_redemptions').insert({
         reward_id: rewardId, member_id: memberId, family_id: family.id, points_spent: cost, status: 'pending',
       }).select().single();
-      if (error) { console.error('❌ Redemption failed:', error); addToast('Failed to create redemption request', 'error'); return; }
+      if (error) { console.error('Redemption failed:', error); addToast('Failed to create redemption request', 'error'); return; }
       if (row) setRedemptions(prev => [row, ...prev]);
       redemptionsLastFetched.current = Date.now();
       triggerHaptic("milestone");
-      addToast(`✓ ${reward.name} requested — a parent will fulfil it`);
+      addToast(`${reward.name} requested — a parent will fulfil it`);
     } else {
       triggerHaptic("milestone");
-      addToast(`✓ ${reward.name} redeemed — enjoy!`);
+      addToast(`${reward.name} redeemed — enjoy!`);
     }
   };
 
@@ -6094,15 +6061,15 @@ export default function RitualApp() {
         status: 'fulfilled',
       }).eq('id', redemptionId);
       if (error) {
-        console.error('❌ Fulfill failed:', error);
+        console.error('Fulfill failed:', error);
         // Revert optimistic update — force a fresh fetch on next tab visit
         redemptionsLastFetched.current = null;
         addToast('Failed to mark as fulfilled — please try again', 'error');
       } else {
-        addToast('✓ Reward fulfilled!');
+        addToast('Reward fulfilled!');
       }
     } else {
-      addToast('✓ Reward fulfilled!');
+      addToast('Reward fulfilled!');
     }
   };
 
@@ -6115,13 +6082,13 @@ export default function RitualApp() {
       const fp = fm?.points ?? 0;
       await supabase.from('members').update({ points: fp + pointsToRefund }).eq('id', memberId);
     }
-    addToast(`↩ Redemption cancelled — ${pointsToRefund} pts refunded`);
+    addToast(`Redemption cancelled — ${pointsToRefund} pts refunded`);
   };
 
   const handleRemoveTile = async (habitId) => {
     if (!supabase) return;
     const { error } = await supabase.from("habits").update({ tile_uid: null }).eq("id", habitId);
-    if (error) { console.error("❌ Remove tile failed:", error); return; }
+    if (error) { console.error("Remove tile failed:", error); return; }
     setHabits(prev => prev.map(h => h.id === habitId ? { ...h, tileUid: null } : h));
   };
 
@@ -6139,9 +6106,9 @@ export default function RitualApp() {
       }
       setTodayCompletions(today);
       setWeekCompletions(week);
-      addToast("✓ Data refreshed");
+      addToast("Data refreshed");
     } catch (err) {
-      console.error("❌ Refresh failed:", err);
+      console.error("Refresh failed:", err);
       addToast("Failed to refresh — check your connection");
     }
   };
@@ -6323,7 +6290,7 @@ export default function RitualApp() {
             <button
               onClick={handleSetNewPassword}
               disabled={recoverySaving}
-              style={{ background: D.terracotta, color: "#F5EFE6", border: "none", borderRadius: 50, padding: "14px 20px", fontFamily: D.fontBody, fontWeight: 500, fontSize: 15, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: recoverySaving ? "default" : "pointer", opacity: recoverySaving ? 0.7 : 1 }}
+              style={{ background: D.terracotta, color: T.white, border: "none", borderRadius: 50, padding: "14px 20px", fontFamily: D.fontBody, fontWeight: 500, fontSize: 15, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: recoverySaving ? "default" : "pointer", opacity: recoverySaving ? 0.7 : 1 }}
             >
               <span>{recoverySaving ? "Saving…" : "Save new password"}</span><span>→</span>
             </button>
@@ -6367,7 +6334,7 @@ export default function RitualApp() {
             <button
               onClick={handleCreateFamilyForAuthedUser}
               disabled={creatingFamily}
-              style={{ background: D.terracotta, color: "#F5EFE6", border: "none", borderRadius: 50, padding: "14px 20px", fontFamily: D.fontBody, fontWeight: 500, fontSize: 15, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: creatingFamily ? "default" : "pointer", opacity: creatingFamily ? 0.7 : 1 }}
+              style={{ background: D.terracotta, color: T.white, border: "none", borderRadius: 50, padding: "14px 20px", fontFamily: D.fontBody, fontWeight: 500, fontSize: 15, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: creatingFamily ? "default" : "pointer", opacity: creatingFamily ? 0.7 : 1 }}
             >
               <span>{creatingFamily ? "Setting up…" : "Continue"}</span><span>→</span>
             </button>
@@ -6400,6 +6367,20 @@ export default function RitualApp() {
 
   const doneTodayCount = myHabitsWithTaps.filter(h => (h.taps || 0) >= (h.target || 1)).length;
 
+  // Family view (Today tab): one small tree per member replaces the avatar
+  // row. Falls back to avatars when the row wouldn't fit the smallest
+  // supported width (>6 members at 390px).
+  const memberTrees = (family.members || []).map(m => {
+    const mHabits = habits.filter(h => {
+      if (h.assignedMemberIds && h.assignedMemberIds.length > 0 && !h.assignedMemberIds.includes(m.id)) return false;
+      if (h.daysActive && h.daysActive.length > 0 && !h.daysActive.includes(todayIndex)) return false;
+      return true;
+    });
+    const mDone = memberDayDoneCount(todayCompletions, todayKey(), m.id, mHabits);
+    return { member: m, done: mDone, total: mHabits.length, stage: stageForProgress(mDone, mHabits.length) };
+  });
+  const showMemberTrees = !soloMode && tab === "today" && (family.members?.length || 0) > 1 && family.members.length <= 6;
+
   return (
     <>
       <style>{`
@@ -6420,7 +6401,7 @@ export default function RitualApp() {
         /* FIX 1: Responsive layout */
         .ritual-root{max-width:390px;margin:0 auto;background:${C.sandLight};position:relative;height:100vh;height:100dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         .habit-grid{display:flex;flex-direction:column;gap:10px;}
-        .tab-bar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:390px;background:rgba(250,248,245,0.96);backdrop-filter:blur(24px);border-top:1px solid ${C.sandDark}50;padding:10px 0 26px;display:flex;justify-content:space-around;}
+        .tab-bar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:390px;background:rgba(248,250,245,0.96);backdrop-filter:blur(24px);border-top:1px solid ${T.line};padding:10px 0 26px;display:flex;justify-content:space-around;}
         @media(min-width:768px){
           .ritual-root{max-width:900px;}
           .habit-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
@@ -6470,8 +6451,8 @@ export default function RitualApp() {
               width: 56,
               height: 56,
               borderRadius: '50%',
-              background: '#C17B4E',
-              boxShadow: '0 2px 8px rgba(193, 123, 78, 0.35)',
+              background: T.act,
+              boxShadow: '0 2px 8px rgba(217,70,122,0.35)',
               border: 'none',
               display: 'flex',
               alignItems: 'center',
@@ -6522,7 +6503,21 @@ export default function RitualApp() {
             )}
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", minHeight: soloMode ? 0 : "auto", marginTop: soloMode ? 0 : 12 }}>
-            {!soloMode && family.members?.length > 0 && family.members.map(m => {
+            {showMemberTrees ? memberTrees.map(({ member: m, done: mDone, stage: mStage }) => {
+              const isActive = currentMember?.id === m.id;
+              return (
+                <div key={m.id} onClick={() => setCurrentMember(m)} style={{
+                  display: "flex", flexDirection: "column", alignItems: "center",
+                  cursor: "pointer", padding: "3px 2px 1px", borderRadius: 12, flexShrink: 0,
+                  background: isActive ? T.card : "transparent",
+                  boxShadow: isActive ? `0 0 0 2px ${T.act}` : "none",
+                  opacity: isActive ? 1 : 0.6, transition: "all 0.2s ease",
+                }}>
+                  <GrowingTree stage={mStage} fruit={mDone} size={44} animate={false} />
+                  <div style={{ fontSize: 9, fontWeight: isActive ? 700 : 500, color: isActive ? T.ink : T.ink2, maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
+                </div>
+              );
+            }) : !soloMode && family.members?.length > 0 && family.members.map(m => {
               const isActive = currentMember?.id === m.id;
               return (
                 <div key={m.id} onClick={() => setCurrentMember(m)} style={{
@@ -6533,8 +6528,8 @@ export default function RitualApp() {
                   flexShrink: 0, transition: "all 0.2s ease",
                   transform: isActive ? "scale(1.25)" : "scale(1)",
                   opacity: isActive ? 1 : 0.4,
-                  boxShadow: isActive ? `0 0 0 2px ${C.white}, 0 0 16px ${m.color}, 0 4px 20px ${m.color}60` : "none",
-                  border: isActive ? `2px solid ${m.color}` : "2px solid transparent",
+                  boxShadow: isActive ? `0 0 0 2px ${C.white}, 0 0 0 4px ${T.act}` : "none",
+                  border: isActive ? `2px solid ${T.act}` : "2px solid transparent",
                   zIndex: isActive ? 10 : 1,
                   filter: isActive ? "none" : "grayscale(30%)",
                 }}>{m.avatar}</div>
