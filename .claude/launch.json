@@ -3,21 +3,9 @@
   "configurations": [
     {
       "name": "ritual-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"],
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["BROWSER=none", "npm", "start"],
       "port": 3000
-    },
-    {
-      "name": "ritual-dev-mock-supabase",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": ["-lc", "REACT_APP_SUPABASE_URL=http://localhost:9999 REACT_APP_SUPABASE_ANON_KEY=mock-anon-key BROWSER=none npm start"],
-      "port": 3000
-    },
-    {
-      "name": "ritual-site",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "/Users/christellebekker/Developer/ritual-website/public", "-l", "4173", "--no-clipboard"],
-      "port": 4173
     }
   ]
 }

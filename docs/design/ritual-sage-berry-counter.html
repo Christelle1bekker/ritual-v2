@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ritual — Sage &amp; Berry: progress card and streaks</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#F1F4EC;--card:#FFFFFF;--card2:#F8FAF5;--ink:#1C3A2E;--ink2:#54685B;--mute:#8B9C90;--line:#DDE4D8;--icon:#E7EDE1;
+        --act:#D9467A;--act-soft:#FBE3EB;--done:#3F9A5C;--done-soft:#DCE7DA;--pts:#F5A623;--pts-soft:#FDEBCF;--pts-deep:#7E4A00}
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:var(--ink);font:15px/1.5 "DM Sans",system-ui,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:36px 24px 70px}
+  h1{font:400 32px/1.1 "DM Serif Display",serif;margin:0 0 6px}
+  .lede{color:var(--ink2);max-width:760px;margin:0 0 28px}
+  .row{display:grid;grid-template-columns:repeat(2,1fr);gap:26px;max-width:860px}
+  @media(max-width:900px){.row{grid-template-columns:1fr}}
+  .cap{font-size:13px;color:var(--ink2);margin:12px 4px 0}
+  .cap b{color:var(--ink);font-weight:600}
+
+  .phone{width:320px;height:672px;margin:0 auto;border-radius:40px;padding:12px;background:#0f1a16;box-shadow:0 22px 60px rgba(20,40,32,.22);position:relative}
+  .scr{width:100%;height:100%;border-radius:30px;background:var(--bg);overflow:hidden;position:relative;padding:40px 16px 0;color:var(--ink)}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:88px;height:20px;border-radius:12px;background:#0f1a16;z-index:5}
+  .top{display:flex;justify-content:space-between;align-items:flex-start}
+  .greet{font:400 24px/1.05 "DM Serif Display",serif;letter-spacing:-.01em}
+  .sub{font-size:11.5px;color:var(--ink2);margin-top:6px}
+  .seg{display:flex;background:var(--line);border-radius:999px;padding:3px;font-size:11px;font-weight:600;color:var(--ink2);flex:none}
+  .seg span{padding:5px 10px;border-radius:999px}
+  .seg span.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .avs{display:flex;gap:6px;margin:12px 0}
+  .av{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff}
+  .av.on{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--act)}
+
+  .dark{background:var(--ink);border-radius:20px;padding:16px;color:#fff;margin:6px 0 16px;position:relative;overflow:hidden}
+  .dark:after{content:"";position:absolute;right:-40px;top:-50px;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.06)}
+  .dark .lbl{font-size:10px;letter-spacing:.16em;color:#9FB8AB}
+  .dark .big{font:400 34px/1.1 "DM Serif Display",serif;margin:4px 0 10px}
+  .dark .big small{font:400 15px "DM Sans";color:#9FB8AB;margin-left:4px}
+  .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.14)}
+  .bar i{display:block;height:100%;border-radius:3px;background:var(--pts)}
+  .dark .streaks{display:flex;gap:6px;margin-top:12px;position:relative}
+  .dchip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;border-radius:999px;padding:5px 10px;background:rgba(255,255,255,.1);color:#fff}
+  .dchip svg{width:12px;height:12px;stroke:var(--pts);fill:none;stroke-width:2;stroke-linecap:round}
+  .dchip.pts svg{stroke:var(--pts)}
+  .dark .quote{font:italic 400 13px/1.35 "DM Serif Display",serif;color:#D7E3DC;margin-top:12px}
+
+  .h6{font-size:14px;font-weight:600;margin:0 0 8px}
+  .rit{background:var(--card2);border:1px solid var(--line);border-radius:18px;padding:11px 12px;display:flex;align-items:center;gap:12px;margin-bottom:9px}
+  .ic{width:42px;height:42px;border-radius:12px;background:var(--icon);display:grid;place-items:center;flex:none;color:var(--ink)}
+  .ic svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .ic.done{background:var(--done);color:#fff}
+  .rit .t{flex:1;min-width:0}
+  .rit b{font-weight:600;font-size:14px;display:block;line-height:1.15}
+  .rit em{font-style:normal;font-size:11px;color:var(--ink2);display:flex;gap:5px;align-items:center;margin-top:3px}
+  .rit em svg{width:10px;height:10px;fill:var(--ink2)}
+  .pill{font-size:11px;font-weight:600;color:var(--act);background:var(--act-soft);border-radius:999px;padding:6px 11px;flex:none}
+  .undo{font-size:10px;color:var(--mute);flex:none}
+  .fab{position:absolute;right:16px;bottom:74px;width:52px;height:52px;border-radius:50%;background:var(--act);display:grid;place-items:center;box-shadow:0 8px 20px rgba(217,70,122,.3)}
+  .fab svg{width:22px;height:22px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round}
+  .tabs{position:absolute;left:0;right:0;bottom:0;height:64px;background:var(--card2);border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:center;padding:0 8px;font-size:9px;letter-spacing:.14em;color:var(--mute);font-weight:600}
+  .tabs div{display:flex;flex-direction:column;align-items:center;gap:4px}
+  .tabs svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6}
+  .tabs .on{color:var(--act)}
+
+  .panel{background:var(--card2);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
+  .panel .ph{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;margin-bottom:10px}
+  .panel .ph .ic{width:32px;height:32px;border-radius:9px}
+  .panel .ph .ic svg{width:17px;height:17px}
+  .kv{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;color:var(--ink2)}
+  .kv b{color:var(--ink);font-weight:600;display:flex;align-items:center;gap:5px}
+  .kv b.acc{color:var(--act)}
+  .kv b svg{width:13px;height:13px;stroke:var(--pts);fill:none;stroke-width:2;stroke-linecap:round}
+  .cons{height:5px;border-radius:3px;background:var(--line);margin:2px 0 8px}
+  .cons i{display:block;height:100%;border-radius:3px;background:var(--pts)}
+  .note{font-size:11px;color:var(--ink2);margin-top:4px}
+  .week{display:flex;gap:5px;margin:8px 0 4px}
+  .week div{flex:1;text-align:center;font-size:9px;color:var(--mute);font-weight:600}
+  .week i{display:block;height:26px;border-radius:7px;background:var(--line);margin-bottom:4px}
+  .week i.on{background:var(--done)}
+  .week i.today{background:var(--pts-soft);outline:1.5px dashed var(--pts);outline-offset:-1.5px}
+  .hs{display:flex;align-items:center;gap:10px;margin:8px 0}
+  .hs .ic{width:30px;height:30px;border-radius:9px}
+  .hs .ic svg{width:16px;height:16px}
+  .hs .t{flex:1}
+  .hs .t div{display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:4px}
+  .hs .t div span{color:var(--ink2);font-weight:500}
+  .hs .bar2{height:5px;border-radius:3px;background:var(--line)}
+  .hs .bar2 i{display:block;height:100%;border-radius:3px;background:var(--done)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Sage &amp; Berry — the non-tree counter</h1>
+  <p class="lede">The dark progress card (family view, and any member without a tree) and the streak lines in Insights, in palette 2. Rule of thumb: the dark card is forest ink, progress and streak flames are sun orange, berry is kept for things you tap.</p>
+
+  <div class="row">
+    <div>
+      <div class="phone"><div class="notch"></div><div class="scr">
+        <div class="top">
+          <div><div class="greet">Good morning,<br>Willem</div><div class="sub">Saturday 29 August · 3 of 9 complete</div></div>
+          <div class="seg"><span class="on">Family</span><span>Just me</span></div>
+        </div>
+        <div class="avs">
+          <div class="av" style="background:#4F9A5C">C</div><div class="av" style="background:#8B9C90">S</div><div class="av" style="background:#F5A623;color:#4a2d00">O</div><div class="av on" style="background:#D9467A">W</div>
+        </div>
+        <div class="dark">
+          <div class="lbl">TODAY'S PROGRESS</div>
+          <div class="big">3<small>/ 9</small></div>
+          <div class="bar"><i style="width:33%"></i></div>
+          <div class="streaks">
+            <span class="dchip"><svg viewBox="0 0 24 24"><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3 1-6 1-9z"/></svg>4 day streak</span>
+            <span class="dchip pts"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>5,180 pts</span>
+          </div>
+          <div class="quote">Good start — six to go before dinner</div>
+        </div>
+        <div class="h6">Today's Rituals</div>
+        <div class="rit"><div class="ic done"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></div><div class="t"><b>Kitchen clean before bed</b><em>Done · 2 day streak · +10 pts · Willem</em></div><div class="undo">Hold to undo</div></div>
+        <div class="rit"><div class="ic"><svg viewBox="0 0 24 24"><path d="M6 8v8M18 8v8M3 10v4M21 10v4M6 12h12"/></svg></div><div class="t"><b>Workout</b><em>Tile at: Office Door · <svg viewBox="0 0 10 10"><path d="M5 0l4.3 2.5v5L5 10 .7 7.5v-5z"/></svg></em></div><div class="pill">Tap tile</div></div>
+        <div class="rit"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 10l8-6 8 6v10H4zM10 20v-6h4v6"/></svg></div><div class="t"><b>Tidy your room</b><em>Tile at: Bedroom · <svg viewBox="0 0 10 10"><path d="M5 0l4.3 2.5v5L5 10 .7 7.5v-5z"/></svg></em></div><div class="pill">Tap tile</div></div>
+        <div class="rit" style="opacity:.6"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/></svg></div><div class="t"><b>Morning meditation</b><em>Tile at: Study · <svg viewBox="0 0 10 10"><path d="M5 0l4.3 2.5v5L5 10 .7 7.5v-5z"/></svg></em></div><div class="pill">Tap tile</div></div>
+        <div class="fab"><svg viewBox="0 0 24 24"><path d="M5 12a10 10 0 0 1 14 0M8.5 15a5 5 0 0 1 7 0M12 18.5h.01"/></svg></div>
+        <div class="tabs">
+          <div class="on"><svg viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z"/></svg>TODAY</div>
+          <div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></svg>FAMILY</div>
+          <div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/></svg>INSIGHTS</div>
+          <div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>MANAGE</div>
+        </div>
+      </div></div>
+      <p class="cap"><b>Dark card, family view.</b> Card goes forest ink instead of charcoal, so it belongs to the palette. The bar and the flame are sun orange; streak and points sit as two chips on the card rather than only in the ritual rows. The quote line stays but gets a specific number in it.</p>
+    </div>
+
+    <div>
+      <div class="phone"><div class="notch"></div><div class="scr">
+        <div class="top">
+          <div><div class="greet">Insights</div><div class="sub">Your habit data</div></div>
+          <div class="seg"><span>Family</span><span class="on">Just me</span></div>
+        </div>
+        <div class="panel" style="margin-top:14px">
+          <div class="ph"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg></div>Your Weekly Summary</div>
+          <div class="kv"><span>Habits completed this week</span><b class="acc">16 / 21 <span style="color:var(--mute);font-weight:500">(76%)</span></b></div>
+          <div class="kv"><span>Current streak</span><b><svg viewBox="0 0 24 24"><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3 1-6 1-9z"/></svg>4 days</b></div>
+          <div class="week">
+            <div><i class="on"></i>M</div><div><i class="on"></i>T</div><div><i></i>W</div><div><i class="on"></i>T</div><div><i class="on"></i>F</div><div><i class="today"></i>S</div><div><i></i>S</div>
+          </div>
+          <div class="kv"><span>Consistency</span><b>21 of last 30 days</b></div>
+          <div class="cons"><i style="width:70%"></i></div>
+          <div class="kv"><span>Best habit this week</span><b style="color:var(--done)">Medication (100%)</b></div>
+          <div class="note">Finish today and the tree fruits for the fourth day running.</div>
+        </div>
+        <div class="panel">
+          <div class="ph"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 20h16M6 20V9a6 6 0 0 1 12 0v11M9 12h6"/></svg></div>Habit Strength</div>
+          <div class="note" style="margin:0 0 8px">Research shows habits take ~66 days to become automatic</div>
+          <div class="hs"><div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="9" width="16" height="6" rx="3" transform="rotate(-30 12 12)"/><path d="M9.5 8.5l5 3"/></svg></div><div class="t"><div>Medication<span>53 / 66 days</span></div><div class="bar2"><i style="width:80%"></i></div></div></div>
+          <div class="hs"><div class="ic"><svg viewBox="0 0 24 24"><path d="M6 8v8M18 8v8M3 10v4M21 10v4M6 12h12"/></svg></div><div class="t"><div>Workout<span>33 / 66 days</span></div><div class="bar2"><i style="width:50%"></i></div></div></div>
+          <div class="hs"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 9h16l-1.5 11h-13zM4 9l2-4h12l2 4M10 13v3M14 13v3"/></svg></div><div class="t"><div>Kitchen clean before bed<span>8 / 66 days</span></div><div class="bar2"><i style="width:12%"></i></div></div></div>
+        </div>
+        <div class="tabs">
+          <div><svg viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z"/></svg>TODAY</div>
+          <div class="on"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/></svg>INSIGHTS</div>
+          <div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>MANAGE</div>
+        </div>
+      </div></div>
+      <p class="cap"><b>Insights streak.</b> Flame is a line icon in sun orange, and the streak line gets a seven-day strip under it (green = done day, dashed orange = today, still open) so the number has a picture. Strength bars go green rather than berry, so berry stays reserved for actions.</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>
