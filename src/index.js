@@ -63,7 +63,12 @@ class ErrorBoundary extends React.Component {
           justifyContent: 'center',
           alignItems: 'center',
         }}>
-          <div style={{ fontSize: 48, marginBottom: 20 }}>✦</div>
+          <div style={{ marginBottom: 20 }}>
+            {/* Inline four-point spark — the boundary stays dependency-free on purpose */}
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#3F9A5C" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3c.7 4.2 2.3 6.4 6.5 7-4.2.6-5.8 2.8-6.5 7-.7-4.2-2.3-6.4-6.5-7 4.2-.6 5.8-2.8 6.5-7z" />
+            </svg>
+          </div>
           <h1 style={{ color: '#1C3A2E', marginBottom: 16, fontSize: 24, fontWeight: 700 }}>
             Something went wrong
           </h1>

@@ -16,6 +16,7 @@ import {
 import { parseTileUrl } from './utils/parseTileUrl';
 import { T, TREE, FONTS, MEMBER_COLORS, SETUP_MEMBER_COLORS, mapLegacyColor } from './styles/tokens';
 import GrowingTree, { stageForProgress } from './GrowingTree';
+import { Icon, iconNameFor } from './icons';
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────
 // Sage & Berry palette. src/styles/tokens.js is the single source of truth;
@@ -298,17 +299,6 @@ function triggerCelebrationHaptic(type = "kids") {
   }
 }
 
-// ─── GEAR ICON ────────────────────────────────────────────────────
-function GearIcon({ color, size = 20 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
-  );
-}
-
-// ─── CATEGORIES ───────────────────────────────────────────────────
 const CATEGORIES = [
   {
     id: "family", name: "Family & Chores", icon: "🏠", color: C.warm,
@@ -1152,7 +1142,7 @@ function WhoDidThis({ habit, members, onSelect, onCancel }) {
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", zIndex: 990, background: "rgba(20,42,33,0.97)", backdropFilter: "blur(12px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px", animation: "fadeUp 0.3s ease", overflowY: "auto" }}>
       <div style={{ textAlign: "center", marginBottom: 28 }}>
-        <div style={{ fontSize: 44, marginBottom: 12 }}>{habit.icon}</div>
+        <div style={{ marginBottom: 12, color: T.white }}><Icon name={iconNameFor(habit.icon)} size={44} /></div>
         <div style={{ fontSize: 24, fontWeight: 700, color: C.white, fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Who completed this?</div>
         <div style={{ fontSize: 14, color: "rgba(255,255,255,0.5)" }}>{habit.name}</div>
       </div>
@@ -1313,7 +1303,7 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
         <div style={{ position: "absolute", top: -30, right: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(139,156,144,0.15)", pointerEvents: "none" }} />
         <div style={{ position: "absolute", bottom: 90, left: -25, width: 110, height: 110, borderRadius: "50%", background: "rgba(63,154,92,0.10)", pointerEvents: "none" }} />
       </>}
-      <div style={{ fontSize: 72, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>{isKid ? "✦" : justCompleted ? "✦" : "◈"}</div>
+      <div style={{ fontSize: 72, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}><Icon name={justCompleted || isKid ? "spark" : "diamond"} size={60} color={isKid ? T.done : T.white} /></div>
       {member && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.15)" }}>
           <div style={{ width: 28, height: 28, borderRadius: "50%", background: member.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white }}>{member.avatar}</div>
@@ -1325,10 +1315,10 @@ function CompletionFlash({ habit, member, onDone, onUndo, soundEnabled }) {
       </div>
       <div style={{ fontSize: 14, color: isKid ? T.ink2 : "rgba(255,255,255,0.7)", textAlign: "center" }}>{habit?.name}</div>
       {habit?.target > 1 && <div style={{ padding: "8px 20px", borderRadius: 20, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 14, color: isKid ? T.done : C.white, fontWeight: 600 }}>{taps} / {target} today</div>}
-      {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 13, color: isKid ? T.done : C.white, fontWeight: 600 }}>{isKid ? "🌿" : "🔥"} {(habit?.streak || 0) + 1} day streak</div>}
+      {justCompleted && <div style={{ padding: "8px 20px", borderRadius: 30, background: isKid ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 13, color: isKid ? T.done : C.white, fontWeight: 600 }}><Icon name={isKid ? "herb" : "flame"} size={13} color={isKid ? T.done : T.pts} style={{ marginRight: 5 }} /> {(habit?.streak || 0) + 1} day streak</div>}
       <div style={{ fontSize: 12, color: isKid ? T.mute : "rgba(255,255,255,0.4)" }}>+{habit?.points || 10} points</div>
       <button onClick={() => { if (soundEnabled) playCompletionSound("undo"); triggerHaptic("undo"); onUndo(); onDone(); }} style={{ position: "absolute", bottom: 48, background: isKid ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.1)", border: isKid ? "1px solid rgba(139,156,144,0.3)" : "1px solid rgba(255,255,255,0.2)", borderRadius: 20, padding: "10px 24px", cursor: "pointer", color: isKid ? T.ink2 : "rgba(255,255,255,0.6)", fontSize: 13, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8 }}>
-        <span>↩</span> Undo tap · {countdown}s
+        <Icon name="undo" size={14} /> Undo tap · {countdown}s
       </button>
     </div>
   );
@@ -1465,7 +1455,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
         style={{ width: "100%", background: C.white, borderRadius: 20, padding: 18, boxShadow: `0 4px 20px ${T.done}18`, border: `1px solid ${T.done}30`, position: "relative", overflow: "hidden", cursor: "pointer", userSelect: "none", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
         {longPressProgress > 0 && <div style={{ position: "absolute", inset: 0, background: `${T.done}12`, width: `${longPressProgress}%`, zIndex: 0 }} />}
         <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 1 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: T.done, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: C.white, boxShadow: `0 4px 10px ${T.done}35` }}>✓</div>
+          <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: T.done, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, boxShadow: `0 4px 10px ${T.done}35` }}><Icon name="check" size={20} strokeWidth={2.2} /></div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>Done · {(habit.streak || 0) + 1} day streak · +{habit.points || 10} pts{habit.completedBy ? ` · ${habit.completedBy}` : ""}</div>
@@ -1493,7 +1483,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
         style={{ width: "100%", background: isKidsHabit ? `linear-gradient(135deg, ${habit.color}10, ${C.white})` : C.white, borderRadius: 20, border: isKidsHabit ? `1.5px solid ${habit.color}30` : "1px solid rgba(0,0,0,0.05)", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", overflow: "hidden", transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}>
       <div style={{ padding: 18 }} onClick={() => swipeX === 0 && !expanded && setExpanded(true)}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
-          <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{habit.icon}</div>
+          <div style={{ width: 44, height: 44, borderRadius: 13, flexShrink: 0, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}><Icon name={iconNameFor(habit.icon)} size={22} /></div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>
@@ -1520,7 +1510,7 @@ function HabitCard({ habit, currentMember, allMembers, onComplete, onUndo, onEdi
           </div>
           <div style={{ background: `linear-gradient(135deg, ${C.slateDark}, ${C.slate})`, borderRadius: 20, padding: "20px", marginBottom: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
             <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: 2, textTransform: "uppercase" }}>Your Ritual tile</div>
-            <div style={{ fontSize: 36 }}>{habit.icon}</div>
+            <div style={{ color: T.white }}><Icon name={iconNameFor(habit.icon)} size={34} /></div>
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", textAlign: "center" }}>At your <span style={{ color: C.accentLight, fontWeight: 600 }}>{habit.location || "tile location"}</span></div>
           </div>
           {!showDigital ? (
@@ -1561,11 +1551,16 @@ function CelebrationOverlay({ member, onDone, soundEnabled }) {
   }, []); // eslint-disable-line
   // ── KIDS / TREE celebration ──
   if (isTree) {
-    const EMOJIS = ['🍃', '✨', '🌿', '⭐', '🌱'];
+    // Botanical particles from the icon set — greens and sun orange only.
+    const PIECES = [
+      { name: 'leaf', color: TREE.g2 }, { name: 'spark', color: T.pts },
+      { name: 'herb', color: T.done }, { name: 'star', color: T.pts },
+      { name: 'seedling', color: TREE.g1 },
+    ];
     const particles = Array.from({ length: 20 }, (_, i) => ({
       id: i,
       left: `${5 + (i * 4.75) % 90}%`,
-      emoji: EMOJIS[i % EMOJIS.length],
+      piece: PIECES[i % PIECES.length],
       size: 16 + (i % 4) * 4,
       delay: `${((i * 0.08) % 1.5).toFixed(2)}s`,
       duration: `${(2.5 + (i % 5) * 0.35).toFixed(1)}s`,
@@ -1573,19 +1568,19 @@ function CelebrationOverlay({ member, onDone, soundEnabled }) {
     return (
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh", margin: 0, border: "none", maxWidth: "none", display: "flex", alignItems: "center",
         justifyContent: "center", zIndex: 9999, pointerEvents: "none", overflow: "hidden",
-        background: "rgba(237, 232, 224, 0.97)" }}>
+        background: "rgba(241, 244, 236, 0.97)" }}>
         {/* Decorative circles */}
         <div style={{ position: "absolute", top: -30, right: -20, width: 140, height: 140,
-          borderRadius: "50%", background: "rgba(183,175,160,0.15)", pointerEvents: "none" }} />
+          borderRadius: "50%", background: "rgba(139,156,144,0.15)", pointerEvents: "none" }} />
         <div style={{ position: "absolute", bottom: 120, left: -25, width: 120, height: 120,
-          borderRadius: "50%", background: "rgba(166,191,159,0.12)", pointerEvents: "none" }} />
+          borderRadius: "50%", background: "rgba(63,154,92,0.10)", pointerEvents: "none" }} />
         {/* Botanical particles */}
         {particles.map(p => (
           <div key={p.id} style={{ position: "absolute", top: "-30px", left: p.left,
-            fontSize: p.size, lineHeight: 1,
+            lineHeight: 1,
             animation: `confettiFall ${p.duration} ${p.delay} ease-in forwards`,
             pointerEvents: "none" }}>
-            {p.emoji}
+            <Icon name={p.piece.name} size={p.size} color={p.piece.color} />
           </div>
         ))}
         {/* Central content */}
@@ -1638,7 +1633,7 @@ function CelebrationOverlay({ member, onDone, soundEnabled }) {
       ))}
       <div style={{ textAlign: "center", animation: "celebFadeIn 0.5s ease forwards",
         width: "78%", position: "relative", zIndex: 1 }}>
-        <div style={{ fontSize: 52, marginBottom: 12, lineHeight: 1 }}>🌸</div>
+        <div style={{ marginBottom: 12, lineHeight: 1 }}><Icon name="spark" size={48} color={T.pts} /></div>
         <div style={{ fontSize: 22, fontWeight: 700, color: T.ink,
           fontFamily: "'DM Serif Display', serif", lineHeight: 1.3,
           background: "rgba(255,255,255,0.93)", borderRadius: 20, padding: "18px 24px",
@@ -1730,11 +1725,11 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {streak > 0 && (
                 <div style={{ padding: "4px 10px", borderRadius: 20, background: T.ptsSoft, fontSize: 12, fontWeight: 600, color: T.ptsDeep }}>
-                  🔥 {streak} day streak
+                  <Icon name="flame" size={13} color={T.pts} style={{ marginRight: 4 }} /> {streak} day streak
                 </div>
               )}
               <div style={{ padding: "4px 10px", borderRadius: 20, background: T.ptsSoft, fontSize: 12, fontWeight: 600, color: T.ptsDeep }}>
-                ⭐ {pts} pts
+                <Icon name="star" size={13} color={T.pts} style={{ marginRight: 4 }} /> {pts} pts
               </div>
             </div>
           </div>
@@ -1743,7 +1738,7 @@ function KidsTreeView({ habits, weekCompletions, currentMember, allMembers, onCo
         {/* Habits */}
         {total === 0 ? (
           <div style={{ background: T.card, borderRadius: 24, padding: 36, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🌱</div>
+            <div style={{ marginBottom: 16 }}><Icon name="seedling" size={44} color={T.done} /></div>
             <div style={{ fontSize: 18, fontWeight: 700, color: T.ink, fontFamily: "'DM Serif Display', serif", marginBottom: 8 }}>Ready to grow</div>
             <div style={{ fontSize: 13, color: T.mute, lineHeight: 1.6 }}>No habits yet — ask a parent to add some!</div>
           </div>
@@ -1954,7 +1949,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: m.color }}>{m.points || 0} pts</span>
                   {!currentMember?.isKid && (
-                    <button onClick={() => { setEditing(m); setForm({ name: m.name, isKid: m.isKid, colorIdx: Math.max(0, MEMBER_COLORS.indexOf(m.color)) }); setView("add"); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.sandDark, fontSize: 16 }}>✎</button>
+                    <button onClick={() => { setEditing(m); setForm({ name: m.name, isKid: m.isKid, colorIdx: Math.max(0, MEMBER_COLORS.indexOf(m.color)) }); setView("add"); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.sandDark, display: "flex" }}><Icon name="edit" size={15} /></button>
                   )}
                 </div>
               </div>
@@ -1983,7 +1978,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
             const redeemer = family.members.find(m => m.id === rd.member_id);
             return (
               <div key={rd.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid " + C.sandLight }}>
-                <div style={{ fontSize: 24 }}>{reward?.icon || "🎁"}</div>
+                <div style={{ fontSize: 24 }}><Icon name={reward?.icon ? iconNameFor(reward.icon) : "gift"} size={22} /></div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{reward?.name || "Reward"}</div>
                   <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>
@@ -1993,7 +1988,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
                 {!currentMember?.isKid && (
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={() => onFulfillRedemption(rd.id)} style={{ padding: "5px 10px", borderRadius: 12, border: "none", background: `${C.green}18`, color: C.green, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Done</button>
-                    <button onClick={() => onCancelRedemption(rd.id, rd.member_id, rd.points_spent)} style={{ padding: "5px 10px", borderRadius: 12, border: "none", background: `${C.error}12`, color: C.error, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕</button>
+                    <button onClick={() => onCancelRedemption(rd.id, rd.member_id, rd.points_spent)} style={{ padding: "5px 10px", borderRadius: 12, border: "none", background: `${C.error}12`, color: C.error, fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Icon name="close" size={13} /></button>
                   </div>
                 )}
               </div>
@@ -2010,7 +2005,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
         {currentMember && <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 14 }}>{currentMember.name} has {currentMember.points || 0} pts</div>}
         {visibleRewards.length === 0 ? (
           <div style={{ textAlign: "center", padding: "20px 0" }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🎁</div>
+            <div style={{ marginBottom: 8 }}><Icon name="gift" size={30} color={T.ink2} /></div>
             <div style={{ fontSize: 13, color: C.slate, fontWeight: 600, marginBottom: 4 }}>No rewards yet</div>
             <div style={{ fontSize: 12, color: C.slateLight, marginBottom: 16 }}>Add rewards in the Manage tab → Manage Rewards</div>
           </div>
@@ -2018,7 +2013,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
           const canAfford = currentMember && (currentMember.points || 0) >= r.points;
           return (
             <div key={r.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: i < visibleRewards.length - 1 ? `1px solid ${C.sandLight}` : "none" }}>
-              <div style={{ fontSize: 26 }}>{r.icon}</div>
+              <div style={{ fontSize: 26 }}><Icon name={iconNameFor(r.icon)} size={22} /></div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{r.name}</div>
                 <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who === "Kids" ? "Kids" : "Everyone"} · {r.points} pts</div>
@@ -2042,7 +2037,7 @@ function FamilyScreen({ family, onAddMember, onEditMember, onRemoveMember, curre
             <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif", marginBottom: 4 }}>Redeem Reward?</div>
             <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 20 }}>This will use {redeemTarget.points} points from {currentMember.name}'s balance</div>
             <div style={{ display: "flex", alignItems: "center", gap: 14, background: C.offwhite, borderRadius: 16, padding: 16, marginBottom: 6 }}>
-              <div style={{ fontSize: 36 }}>{redeemTarget.icon}</div>
+              <div style={{ fontSize: 36 }}><Icon name={iconNameFor(redeemTarget.icon)} size={30} /></div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 600, color: C.slate }}>{redeemTarget.name}</div>
                 <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>{redeemTarget.points} pts · {currentMember.name} will have {Math.max((currentMember.points || 0) - redeemTarget.points, 0)} pts remaining</div>
@@ -2099,7 +2094,7 @@ function AssignTileModal({ tileUID, habits, onAssign, onClose, onCreateHabit }) 
                     disabled={alreadyAssigned}
                     style={{ width: "100%", padding: "12px 14px", background: alreadyAssigned ? C.offwhite : C.white, border: `1px solid ${alreadyAssigned ? C.sandDark : C.sand}`, borderRadius: 12, marginBottom: 6, textAlign: "left", fontSize: 14, fontWeight: 500, color: alreadyAssigned ? C.sandDark : C.slate, cursor: alreadyAssigned ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 10, opacity: alreadyAssigned ? 0.6 : 1 }}
                   >
-                    <span style={{ fontSize: 18 }}>{h.icon}</span>
+                    <span style={{ fontSize: 18 }}><Icon name={iconNameFor(h.icon)} size={18} /></span>
                     <div style={{ flex: 1 }}>
                       <div>{h.name}</div>
                       {alreadyAssigned && <div style={{ fontSize: 10, color: C.slateLight }}>Already has a tile · {tileLabel(h.tileUid)}</div>}
@@ -2152,7 +2147,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
           {assignedHabits.map(habit => (
             <div key={habit.id} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", border: `1px solid ${C.green}25` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 12, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{habit.icon}</div>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}><Icon name={iconNameFor(habit.icon)} size={22} /></div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{habit.name}</div>
                   <div style={{ fontSize: 11, color: C.slateLight }}><TileIcon size="11px" style={{ marginRight: 2 }} /> {tileLabel(habit.tileUid)}{habit.location ? ` · ${habit.location}` : ""}</div>
@@ -2174,7 +2169,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: C.sandDark, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10, marginTop: assignedHabits.length > 0 ? 20 : 0 }}>No Tile Yet</div>
           {unassignedHabits.map(habit => (
             <div key={habit.id} style={{ background: C.offwhite, borderRadius: 16, padding: 16, marginBottom: 8, border: `1px solid ${C.sand}`, display: "flex", alignItems: "center", gap: 12, opacity: 0.7 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{habit.icon}</div>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: `${habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}><Icon name={iconNameFor(habit.icon)} size={22} /></div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>{habit.name}</div>
                 <div style={{ fontSize: 11, color: C.slateLight }}>Tap a tile to assign it here</div>
@@ -2208,7 +2203,7 @@ function ManageTilesScreen({ habits, onAssignTile, onRemoveTile, onBack }) {
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>{category}</div>
                 {catHabits.map(h => (
                   <button key={h.id} onClick={() => doAssign(showHabitPicker.tileUID, h.id)} style={{ width: "100%", padding: "12px 14px", background: h.id === showHabitPicker.currentHabitId ? `${C.accent}15` : C.offwhite, border: "none", borderRadius: 12, marginBottom: 6, textAlign: "left", fontSize: 14, fontWeight: 500, color: C.slate, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 18 }}>{h.icon}</span>
+                    <span style={{ fontSize: 18 }}><Icon name={iconNameFor(h.icon)} size={18} /></span>
                     <div style={{ flex: 1 }}>
                       <div>{h.name}</div>
                       {h.tileUid && h.id !== showHabitPicker.currentHabitId && <div style={{ fontSize: 10, color: C.slateLight }}>Currently assigned · {tileLabel(h.tileUid)}</div>}
@@ -2276,7 +2271,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
     <div style={{ padding: "0 20px 140px" }}>
       <button onClick={() => setEditing(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-        <div style={{ width: 44, height: 44, borderRadius: 13, background: `${editing.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{editing.icon}</div>
+        <div style={{ width: 44, height: 44, borderRadius: 13, background: `${editing.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}><Icon name={iconNameFor(editing.icon)} size={22} /></div>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif" }}>Edit Habit</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -2309,7 +2304,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
           {/* Everyone checkbox */}
           <div onClick={() => setForm(f => ({ ...f, assignedMemberIds: null, isShared: true }))} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: !form.assignedMemberIds ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${!form.assignedMemberIds ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!form.assignedMemberIds ? C.accent : C.sandDark}`, background: !form.assignedMemberIds ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{!form.assignedMemberIds && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!form.assignedMemberIds ? C.accent : C.sandDark}`, background: !form.assignedMemberIds ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{!form.assignedMemberIds && <span style={{ color: C.white, display: "flex" }}><Icon name="check" size={11} strokeWidth={2.5} /></span>}</div>
             Everyone in the family
           </div>
           {/* Individual member checkboxes */}
@@ -2328,7 +2323,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
                 const everyone = next.length === 0 || next.length === (family?.members?.length || 0);
                 setForm(f => ({ ...f, assignedMemberIds: everyone ? null : next, isShared: everyone }));
               }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: isSelected && form.assignedMemberIds ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${isSelected && form.assignedMemberIds ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected && form.assignedMemberIds ? C.accent : C.sandDark}`, background: isSelected && form.assignedMemberIds ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && form.assignedMemberIds && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected && form.assignedMemberIds ? C.accent : C.sandDark}`, background: isSelected && form.assignedMemberIds ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && form.assignedMemberIds && <span style={{ color: C.white, display: "flex" }}><Icon name="check" size={11} strokeWidth={2.5} /></span>}</div>
                 <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
                 {m.name}
               </div>
@@ -2488,7 +2483,7 @@ function ManageHabitsScreen({ habits, family, currentMember, onEditHabit, onDele
         </div>
       ) : Array.from(new Map(habits.map(h => [h.id, h])).values()).map(h => (
         <div key={h.id} onClick={() => { setEditing(h); setForm({ name: h.name, location: h.location || "", target: h.target || 1, isShared: h.isShared ?? true, assignedMemberIds: h.assignedMemberIds || null, daysActive: h.daysActive || null, completionType: h.completionType || 'individual', points: h.points || 10, reminderTime: h.reminderTime || null }); }} style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 12, background: `${h.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{h.icon}</div>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: `${h.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}><Icon name={iconNameFor(h.icon)} size={20} /></div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{h.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>
@@ -2558,12 +2553,12 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>Choose an icon</div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: `${cat.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>{customEmoji}</div>
+            <div style={{ width: 56, height: 56, borderRadius: 16, background: `${cat.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}><Icon name={iconNameFor(customEmoji)} size={26} /></div>
             <div style={{ fontSize: 13, color: C.slateLight }}>Selected icon</div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6 }}>
-            {CUSTOM_EMOJIS.map(e => (
-              <div key={e} onClick={() => setCustomEmoji(e)} style={{ height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, cursor: "pointer", background: customEmoji === e ? `${C.accent}20` : C.offwhite, border: customEmoji === e ? `2px solid ${C.accent}` : "2px solid transparent" }}>{e}</div>
+            {CUSTOM_EMOJIS.filter((e, i, arr) => arr.findIndex(x => iconNameFor(x) === iconNameFor(e)) === i).map(e => (
+              <div key={e} onClick={() => setCustomEmoji(e)} style={{ height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, cursor: "pointer", background: customEmoji === e ? T.actSoft : C.offwhite, border: customEmoji === e ? `2px solid ${C.accent}` : "2px solid transparent" }}><Icon name={iconNameFor(e)} size={20} /></div>
             ))}
           </div>
         </div>
@@ -2601,7 +2596,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {CATEGORIES.map(c => (
               <div key={c.id} onClick={() => setCustomCatId(c.id)} style={{ padding: "10px 12px", borderRadius: 12, cursor: "pointer", background: customCatId === c.id ? `${c.color}20` : C.offwhite, border: customCatId === c.id ? `2px solid ${c.color}` : "2px solid transparent", display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 16 }}>{c.icon}</span>
+                <span style={{ fontSize: 16 }}><Icon name={iconNameFor(c.icon)} size={16} /></span>
                 <span style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{c.name.split(" ")[0]}</span>
               </div>
             ))}
@@ -2611,7 +2606,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
           <div onClick={() => { setCustomSelectedMembers([]); setCustomIsShared(true); }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: customSelectedMembers.length === 0 ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${customSelectedMembers.length === 0 ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${customSelectedMembers.length === 0 ? C.accent : C.sandDark}`, background: customSelectedMembers.length === 0 ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{customSelectedMembers.length === 0 && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${customSelectedMembers.length === 0 ? C.accent : C.sandDark}`, background: customSelectedMembers.length === 0 ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{customSelectedMembers.length === 0 && <span style={{ color: C.white, display: "flex" }}><Icon name="check" size={11} strokeWidth={2.5} /></span>}</div>
             Everyone in the family
           </div>
           {(family.members || []).map(m => {
@@ -2625,7 +2620,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
                 setCustomSelectedMembers(everyone ? [] : next);
                 setCustomIsShared(everyone);
               }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: isSelected ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${isSelected ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected ? C.accent : C.sandDark}`, background: isSelected ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected ? C.accent : C.sandDark}`, background: isSelected ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && <span style={{ color: C.white, display: "flex" }}><Icon name="check" size={11} strokeWidth={2.5} /></span>}</div>
                 <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
                 {m.name}
               </div>
@@ -2728,12 +2723,12 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       </div>
       <div style={{ display: "flex", gap: 10 }}>
         <div onClick={() => setView("habits")} style={{ flex: 1, background: C.white, borderRadius: 20, padding: 20, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>📚</div>
+          <div style={{ marginBottom: 10 }}><Icon name="book" size={30} color={T.ink2} /></div>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Browse Templates</div>
           <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>Choose from pre-made habits</div>
         </div>
         <div onClick={() => setView("custom")} style={{ flex: 1, background: C.white, borderRadius: 20, padding: 20, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>✨</div>
+          <div style={{ marginBottom: 10 }}><Icon name="spark" size={30} color={T.ink2} /></div>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Create Custom</div>
           <div style={{ fontSize: 11, color: C.slateLight, marginTop: 4 }}>Design your own habit</div>
         </div>
@@ -2745,10 +2740,10 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
     <div style={{ padding: "0 20px 140px" }}>
       <div style={{ fontSize: 13, color: C.slateLight, marginBottom: 24 }}>What would you like to set up?</div>
       {[
-        { id: "addRitual", icon: "◈", label: "Add a Ritual", desc: "Browse templates or create your own", color: C.slate },
-        !soloMode ? { id: "rewards", icon: "🎁", label: "Manage Rewards", desc: "Set up points rewards for your family", color: C.accent } : null,
+        { id: "addRitual", icon: <Icon name="diamond" size={24} />, label: "Add a Ritual", desc: "Browse templates or create your own", color: C.slate },
+        !soloMode ? { id: "rewards", icon: <Icon name="gift" size={24} />, label: "Manage Rewards", desc: "Set up points rewards for your family", color: C.accent } : null,
         { id: "tile", icon: <TileIcon size="24px" />, label: "Manage Tiles", desc: "Assign tiles to habits, detect new tiles", color: C.kidsBlue },
-        { id: "habitsManage", icon: "✏️", label: "Manage Habits", desc: "Edit names, locations, targets or delete", color: C.slateLight },
+        { id: "habitsManage", icon: <Icon name="edit" size={24} />, label: "Manage Habits", desc: "Edit names, locations, targets or delete", color: C.slateLight },
       ].filter(Boolean).map(item => (
         <div key={item.id} onClick={() => setView(item.id)} style={{ background: C.white, borderRadius: 20, padding: 20, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)", cursor: "pointer", border: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ width: 50, height: 50, borderRadius: 15, background: `${item.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{item.icon}</div>
@@ -2769,7 +2764,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         {CATEGORIES.map(cat => (
           <div key={cat.id} onClick={() => { setSelectedCat(cat); setView("category"); }} style={{ background: cat.isKids ? `linear-gradient(135deg, ${C.kids}15, ${C.kidsLight}10)` : C.white, borderRadius: 20, padding: 18, cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", border: cat.isKids ? `1.5px solid ${C.kids}30` : "1px solid rgba(0,0,0,0.05)" }}>
-            <div style={{ width: 42, height: 42, borderRadius: 13, background: `${cat.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, marginBottom: 10 }}>{cat.icon}</div>
+            <div style={{ width: 42, height: 42, borderRadius: 13, background: `${cat.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, marginBottom: 10 }}><Icon name={iconNameFor(cat.icon)} size={22} /></div>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, lineHeight: 1.3 }}>{cat.name}</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginTop: 3 }}>{cat.habits.length} habits</div>
             {cat.isKids && <div style={{ marginTop: 8, fontSize: 10, color: C.kids, fontWeight: 700 }}>Kids Special</div>}
@@ -2783,7 +2778,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
     <div style={{ padding: "0 20px 140px" }}>
       <button onClick={() => setView("habits")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 16 }}>← Back</button>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <div style={{ fontSize: 28 }}>{selectedCat.icon}</div>
+        <div style={{ fontSize: 28 }}><Icon name={iconNameFor(selectedCat.icon)} size={26} /></div>
         <div>
           <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif" }}>{selectedCat.name}</div>
           <div style={{ fontSize: 12, color: C.slateLight }}>{selectedCat.description}</div>
@@ -2792,7 +2787,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {selectedCat.habits.map((h, i) => (
           <div key={i} onClick={() => { setSelectedHabit({ ...h, categoryId: selectedCat.id, category: selectedCat.name, color: selectedCat.color, isKid: selectedCat.isKids }); setTargetCount(h.target || 1); setView("setTarget"); }} style={{ background: C.white, borderRadius: 16, padding: 16, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: `${selectedCat.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{h.icon}</div>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: `${selectedCat.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}><Icon name={iconNameFor(h.icon)} size={20} /></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>{h.name}</div>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>Tile at: {h.location}</div>
@@ -2808,7 +2803,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
     <div style={{ padding: "0 20px 140px" }}>
       <button onClick={() => setView("category")} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 13, marginBottom: 20 }}>← Back</button>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-        <div style={{ width: 48, height: 48, borderRadius: 14, background: `${selectedHabit.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{selectedHabit.icon}</div>
+        <div style={{ width: 48, height: 48, borderRadius: 14, background: `${selectedHabit.color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}><Icon name={iconNameFor(selectedHabit.icon)} size={24} /></div>
         <div>
           <div style={{ fontSize: 18, fontWeight: 700, color: C.slate, fontFamily: "'DM Serif Display', serif" }}>{selectedHabit.name}</div>
           <div style={{ fontSize: 12, color: C.slateLight }}>Tile at: {selectedHabit.location}</div>
@@ -2827,7 +2822,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
             letterSpacing: 0.5, color: C.green, marginBottom: 8,
             display: "flex", alignItems: "center", gap: 6,
           }}>
-            🔬 Why this habit matters
+            <Icon name="science" size={13} style={{ marginRight: 4 }} /> Why this habit matters
           </div>
           <div style={{ fontSize: 13, color: C.slateDark, lineHeight: 1.55 }}>
             {selectedHabit.science.claim}
@@ -2860,7 +2855,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
       <div style={{ background: C.white, borderRadius: 20, padding: 16, marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 10 }}>Who is this for?</div>
         <div onClick={() => { setHabitSelectedMembers([]); setHabitIsShared(true); }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: habitSelectedMembers.length === 0 ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${habitSelectedMembers.length === 0 ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${habitSelectedMembers.length === 0 ? C.accent : C.sandDark}`, background: habitSelectedMembers.length === 0 ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{habitSelectedMembers.length === 0 && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+          <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${habitSelectedMembers.length === 0 ? C.accent : C.sandDark}`, background: habitSelectedMembers.length === 0 ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{habitSelectedMembers.length === 0 && <span style={{ color: C.white, display: "flex" }}><Icon name="check" size={11} strokeWidth={2.5} /></span>}</div>
           Everyone in the family
         </div>
         {(family.members || []).map(m => {
@@ -2874,7 +2869,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
               setHabitSelectedMembers(everyone ? [] : next);
               setHabitIsShared(everyone);
             }} style={{ padding: "10px 14px", borderRadius: 12, marginBottom: 6, cursor: "pointer", background: isSelected ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${isSelected ? C.accent : "transparent"}`, fontSize: 13, fontWeight: 500, color: C.slate, display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected ? C.accent : C.sandDark}`, background: isSelected ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && <span style={{ color: C.white, fontSize: 11, lineHeight: 1 }}>✓</span>}</div>
+              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected ? C.accent : C.sandDark}`, background: isSelected ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isSelected && <span style={{ color: C.white, display: "flex" }}><Icon name="check" size={11} strokeWidth={2.5} /></span>}</div>
               <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
               {m.name}
             </div>
@@ -2974,7 +2969,7 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               {REWARD_TEMPLATES.map((t, i) => (
                 <div key={i} onClick={() => setRewardForm(f => ({ ...f, name: t.name, icon: t.icon, points: t.points, who: t.who }))} style={{ background: rewardForm.name === t.name && rewardForm.icon === t.icon ? `${C.accent}15` : C.offwhite, border: `1.5px solid ${rewardForm.name === t.name && rewardForm.icon === t.icon ? C.accent : "transparent"}`, borderRadius: 14, padding: "10px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 22 }}>{t.icon}</span>
+                  <span style={{ fontSize: 22 }}><Icon name={iconNameFor(t.icon)} size={20} /></span>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{t.name}</div>
                     <div style={{ fontSize: 11, color: C.slateLight }}>{t.points} pts</div>
@@ -2989,8 +2984,8 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         <div style={{ background: C.white, borderRadius: 20, padding: 18, marginBottom: 16, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.slate, marginBottom: 12 }}>{editingReward ? "Edit Reward" : "Add New Reward"}</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-            {REWARD_EMOJIS.map(e => (
-              <div key={e} onClick={() => setRewardForm(f => ({ ...f, icon: e }))} style={{ width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, cursor: "pointer", background: rewardForm.icon === e ? `${C.accent}20` : C.offwhite, border: `2px solid ${rewardForm.icon === e ? C.accent : "transparent"}` }}>{e}</div>
+            {REWARD_EMOJIS.filter((e, i, arr) => arr.findIndex(x => iconNameFor(x) === iconNameFor(e)) === i).map(e => (
+              <div key={e} onClick={() => setRewardForm(f => ({ ...f, icon: e }))} style={{ width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, cursor: "pointer", background: rewardForm.icon === e ? T.actSoft : C.offwhite, border: `2px solid ${rewardForm.icon === e ? C.accent : "transparent"}` }}><Icon name={iconNameFor(e)} size={18} /></div>
             ))}
           </div>
           <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Reward name (e.g. Movie night)" value={rewardForm.name} onChange={e => setRewardForm(f => ({ ...f, name: e.target.value }))} />
@@ -3024,18 +3019,18 @@ function AddScreen({ family, currentMember, onAddHabit, habits, onAssignTile, on
         )}
         {activeRewards.map((r, i) => (
           <div key={r.id || i} style={{ background: C.white, borderRadius: 16, padding: 14, marginBottom: 8, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-            <div style={{ fontSize: 26 }}>{r.icon}</div>
+            <div style={{ fontSize: 26 }}><Icon name={iconNameFor(r.icon)} size={22} /></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>{r.name}</div>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{r.who === "Kids" ? "Kids only" : "Everyone"} · {r.points} pts</div>
             </div>
-            <button onClick={() => { setEditingReward(r); setRewardForm({ name: r.name, icon: r.icon, points: r.points, who: r.who || "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, fontSize: 16, padding: 4 }}>✎</button>
-            <button onClick={() => { if (window.confirm(`Delete "${r.name}"?`)) onDeleteReward(r.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: `${C.error}80`, fontSize: 16, padding: 4 }}>✕</button>
+            <button onClick={() => { setEditingReward(r); setRewardForm({ name: r.name, icon: r.icon, points: r.points, who: r.who || "Everyone" }); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, padding: 4, display: "flex" }}><Icon name="edit" size={15} /></button>
+            <button onClick={() => { if (window.confirm(`Delete "${r.name}"?`)) onDeleteReward(r.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: `${C.error}80`, padding: 4, display: "flex" }}><Icon name="close" size={15} /></button>
           </div>
         ))}
         {activeRewards.length === 0 && (
           <div style={{ background: C.white, borderRadius: 20, padding: 24, textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>🎁</div>
+            <div style={{ marginBottom: 10 }}><Icon name="gift" size={32} color={T.ink2} /></div>
             <div style={{ fontSize: 13, color: C.slateLight }}>No rewards yet — add your first one above</div>
           </div>
         )}
@@ -3353,7 +3348,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
   const cardHeader = (icon, title, color = C.slate) => (
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-      <div style={{ width: 32, height: 32, borderRadius: 10, background: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{icon}</div>
+      <div style={{ width: 32, height: 32, borderRadius: 10, background: T.iconBg, color: T.ink, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
       <div style={{ fontSize: 13, fontWeight: 700, color: C.slate, letterSpacing: 0.3 }}>{title}</div>
     </div>
   );
@@ -3369,7 +3364,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
   const loadingSkeleton = (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {[70, 85, 60].map((w, i) => (
-        <div key={i} style={{ height: 14, borderRadius: 7, background: C.sandLight, width: `${w}%`, animation: "pulse 1.5s ease-in-out infinite" }} />
+        <div key={i} style={{ height: 14, borderRadius: 7, background: C.sand, width: `${w}%`, animation: "pulse 1.5s ease-in-out infinite" }} />
       ))}
       <div style={{ fontSize: 11, color: C.sandDark, marginTop: 4 }}>Loading analytics…</div>
     </div>
@@ -3396,7 +3391,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 0. Your Weekly Summary (My Stats only) */}
       {!showingFamily && currentMember && weeklySummary && insightCard(<>
-        {cardHeader("📊", "Your Weekly Summary", C.accent)}
+        {cardHeader(<Icon name="chart" size={16} />, "Your Weekly Summary", C.accent)}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, color: C.slateLight }}>Habits completed this week</span>
@@ -3407,7 +3402,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, color: C.slateLight }}>Current streak</span>
-            <span style={{ fontWeight: 700, fontSize: 16, color: T.ink }}>🔥 {weeklySummary.streak} days</span>
+            <span style={{ fontWeight: 700, fontSize: 16, color: T.ink }}><Icon name="flame" size={14} color={T.pts} style={{ marginRight: 3 }} /> {weeklySummary.streak} days</span>
           </div>
           {/* Seven-day strip: green = day with completions, dashed orange = today (still open), grey = missed */}
           <div style={{ display: "flex", gap: 5, margin: "2px 0" }}>
@@ -3453,13 +3448,13 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 13, color: C.slateLight }}>Best habit this week</span>
               <span style={{ fontWeight: 600, fontSize: 13, color: C.green }}>
-                {weeklySummary.bestHabit.icon} {weeklySummary.bestHabit.name} ({weeklySummary.bestHabit.rate}%)
+                {weeklySummary.bestHabit.name} ({weeklySummary.bestHabit.rate}%)
               </span>
             </div>
           )}
           {weeklySummary.completed === 0 && (
             <div style={{ fontSize: 13, color: C.slateLight, fontStyle: "italic" }}>
-              No completions yet this week — let's get started! 🌟
+              No completions yet this week — let's get started!
             </div>
           )}
         </div>
@@ -3467,7 +3462,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* Kids: Weekly Tree Strip */}
       {!showingFamily && getProgressVisual(currentMember) === 'tree' && insightCard(<>
-        {cardHeader("🌱", "This Week's Growth", C.accent)}
+        {cardHeader(<Icon name="seedling" size={16} />, "This Week's Growth", C.accent)}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
           {getWeekDates().map((date, i) => {
             const dayIdx = i; // Mon=0 … Sun=6
@@ -3506,16 +3501,16 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 1. Family Highlights (Family view only) */}
       {!soloMode && showingFamily && insightCard(<>
-        {cardHeader("🏆", "Family Highlights", C.warm)}
+        {cardHeader(<Icon name="trophy" size={16} />, "Family Highlights", C.warm)}
         {!hasWeekData ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>Complete some habits this week to see highlights!</div>
         ) : <>
-          {highlightRow("🥇", "Household Hero", highlights.hero ? `${highlights.hero.member.avatar} ${highlights.hero.member.name} (${highlights.hero.count} completions)` : null, C.accent)}
-          {highlightRow("🔥", "Streak Champion", highlights.streakChamp ? `${highlights.streakChamp.member.avatar} ${highlights.streakChamp.member.name} (${highlights.streakChamp.streak} days)` : null, C.accent)}
-          {highlightRow("📅", "Best Day", highlights.bestDay ? `${highlights.bestDay.dayName} (${highlights.bestDay.count} completion${highlights.bestDay.count !== 1 ? 's' : ''})` : null, C.green)}
-          {highlights.weakestDay && highlights.weakestDay.count >= 0 && highlightRow("💪", "Needs Work", `${highlights.weakestDay.dayName} (${highlights.weakestDay.count} completion${highlights.weakestDay.count !== 1 ? 's' : ''})`, C.slateLight)}
-          {highlightRow("🤝", "Shared Task MVP", highlights.sharedMVP ? `${highlights.sharedMVP.member.avatar} ${highlights.sharedMVP.member.name} (${highlights.sharedMVP.count} shared)` : null, C.warm)}
-          {highlightRow("📅", "Most Consistent", highlights.consistency ? `${highlights.consistency.member.avatar} ${highlights.consistency.member.name} (${highlights.consistency.days} days active)` : null, C.green)}
+          {highlightRow(<Icon name="medal" size={16} color={T.pts} />, "Household Hero", highlights.hero ? `${highlights.hero.member.avatar} ${highlights.hero.member.name} (${highlights.hero.count} completions)` : null, C.accent)}
+          {highlightRow(<Icon name="flame" size={16} color={T.pts} />, "Streak Champion", highlights.streakChamp ? `${highlights.streakChamp.member.avatar} ${highlights.streakChamp.member.name} (${highlights.streakChamp.streak} days)` : null, C.accent)}
+          {highlightRow(<Icon name="calendar" size={16} />, "Best Day", highlights.bestDay ? `${highlights.bestDay.dayName} (${highlights.bestDay.count} completion${highlights.bestDay.count !== 1 ? 's' : ''})` : null, C.green)}
+          {highlights.weakestDay && highlights.weakestDay.count >= 0 && highlightRow(<Icon name="muscle" size={16} />, "Needs Work", `${highlights.weakestDay.dayName} (${highlights.weakestDay.count} completion${highlights.weakestDay.count !== 1 ? 's' : ''})`, C.slateLight)}
+          {highlightRow(<Icon name="users" size={16} />, "Shared Task MVP", highlights.sharedMVP ? `${highlights.sharedMVP.member.avatar} ${highlights.sharedMVP.member.name} (${highlights.sharedMVP.count} shared)` : null, C.warm)}
+          {highlightRow(<Icon name="calendar" size={16} />, "Most Consistent", highlights.consistency ? `${highlights.consistency.member.avatar} ${highlights.consistency.member.name} (${highlights.consistency.days} days active)` : null, C.green)}
           {!highlights.hero && !highlights.streakChamp && (
             <div style={{ fontSize: 13, color: C.slateLight }}>Tap some habits to start earning highlights!</div>
           )}
@@ -3529,10 +3524,10 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
           : streakWatch.filter(x => x.member.id === currentMember?.id);
         if (toShow.length === 0) return null;
         return insightCard(<>
-          {cardHeader("🔥", showingFamily ? "Everyone's Streaks" : "Your Streaks", C.accent)}
+          {cardHeader(<Icon name="flame" size={16} color={T.pts} />, showingFamily ? "Everyone's Streaks" : "Your Streaks", C.accent)}
           {toShow.map((x, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < toShow.length - 1 ? 10 : 0 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: `${C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{x.member.avatar}</div>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: T.iconBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{x.member.avatar}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{x.member.name}</div>
                 <div style={{ fontSize: 11, color: C.slateLight }}>
@@ -3551,11 +3546,11 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 2b. Habit Strength (My Stats only) */}
       {!showingFamily && habitFormation && habitFormation.length > 0 && insightCard(<>
-        {cardHeader("🌱", "Habit Strength", C.green)}
+        {cardHeader(<Icon name="seedling" size={16} />, "Habit Strength", C.green)}
         <div style={{ fontSize: 11, color: C.slateLight, marginTop: -8, marginBottom: 12 }}>Research shows habits take ~66 days to become automatic</div>
         {habitFormation.map((x, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < habitFormation.length - 1 ? 10 : 0 }}>
-            <div style={{ width: 30, height: 30, borderRadius: 8, background: `${C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{x.habitIcon}</div>
+            <div style={{ width: 30, height: 30, borderRadius: 8, background: T.iconBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}><Icon name={iconNameFor(x.habitIcon)} size={16} /></div>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{x.habitName}</span>
@@ -3571,22 +3566,22 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 3. Habit Health */}
       {insightCard(<>
-        {cardHeader("📊", "Habit Health", C.green)}
+        {cardHeader(<Icon name="chart" size={16} />, "Habit Health", C.green)}
         {!filteredAnalytics ? loadingSkeleton : habitHealth && habitHealth.length > 0 ? (
           habitHealth.map((x, i) => {
-            let icon = "🎯", label = "Locked in", color = C.green;
-            if (x.twPct === 100 && x.thisWeekDays >= 5) { icon = "🎯"; label = "100% this week!"; color = C.green; }
-            else if (x.delta !== null && x.delta >= 15) { icon = "📈"; label = `+${x.delta}% vs last week`; color = C.green; }
-            else if (x.delta !== null && x.delta <= -15) { icon = "📉"; label = `${x.delta}% vs last week`; color = C.error; }
-            else if (x.thisWeekDays <= 1 && x.lastWeekDays >= 4 && x.daysElapsed >= 3) { icon = "⚠️"; label = "Needs attention"; color = C.warm; }
-            else { icon = "✓"; label = `${x.thisWeekDays} of ${x.daysElapsed} days`; color = C.slateLight; }
+            let icon = "target", label = "Locked in", color = C.green;
+            if (x.twPct === 100 && x.thisWeekDays >= 5) { icon = "target"; label = "100% this week!"; color = C.green; }
+            else if (x.delta !== null && x.delta >= 15) { icon = "trendup"; label = `+${x.delta}% vs last week`; color = C.green; }
+            else if (x.delta !== null && x.delta <= -15) { icon = "trenddown"; label = `${x.delta}% vs last week`; color = C.error; }
+            else if (x.thisWeekDays <= 1 && x.lastWeekDays >= 4 && x.daysElapsed >= 3) { icon = "warning"; label = "Needs attention"; color = C.warm; }
+            else { icon = "check"; label = `${x.thisWeekDays} of ${x.daysElapsed} days`; color = C.slateLight; }
             return (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < habitHealth.length - 1 ? 10 : 0 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 10, background: `${x.habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{x.habit.icon}</div>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: `${x.habit.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}><Icon name={iconNameFor(x.habit.icon)} size={18} /></div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{x.habit.name}</div>
-                  <div style={{ fontSize: 11, color }}>
-                    {icon} {label}
+                  <div style={{ fontSize: 11, color, display: "flex", alignItems: "center", gap: 4 }}>
+                    <Icon name={icon} size={12} /> {label}
                   </div>
                 </div>
               </div>
@@ -3601,20 +3596,20 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 5. Kids Leaderboard (Family view only) */}
       {!soloMode && showingFamily && kidsBoard && insightCard(<>
-        {cardHeader("🏆", "Kids Leaderboard", C.kids)}
+        {cardHeader(<Icon name="trophy" size={16} />, "Kids Leaderboard", C.kids)}
         {kidsBoard.every(k => k.taps === 0) ? (
           <div style={{ fontSize: 13, color: C.slateLight }}>No completions this week yet — let's go!</div>
         ) : (
           kidsBoard.map((k, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: i < kidsBoard.length - 1 ? 10 : 0 }}>
-              <div style={{ fontSize: 22, width: 28, textAlign: "center", flexShrink: 0 }}>{["🥇","🥈","🥉"][i] || "▫️"}</div>
+              <div style={{ width: 28, textAlign: "center", flexShrink: 0 }}><Icon name="medal" size={20} color={[T.pts, T.mute, T.ptsDeep][i] || T.line} /></div>
               <div style={{ width: 36, height: 36, borderRadius: 10, background: `${k.member.color}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>{k.member.avatar}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{k.member.name}</div>
                 <div style={{ fontSize: 11, color: C.slateLight }}>{k.taps} completion{k.taps !== 1 ? "s" : ""} this week</div>
               </div>
               {k.liveStreak > 0 && (
-                <div style={{ fontSize: 11, color: T.ptsDeep, fontWeight: 600, padding: "3px 8px", borderRadius: 10, background: T.ptsSoft }}>🔥 {k.liveStreak}</div>
+                <div style={{ fontSize: 11, color: T.ptsDeep, fontWeight: 600, padding: "3px 8px", borderRadius: 10, background: T.ptsSoft }}><Icon name="flame" size={12} color={T.pts} style={{ marginRight: 3 }} /> {k.liveStreak}</div>
               )}
             </div>
           ))
@@ -3623,7 +3618,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
       {/* 6. Personal Bests */}
       {currentMember && insightCard(<>
-        {cardHeader("🎉", showingFamily ? "Family Records" : "Personal Bests", C.accent)}
+        {cardHeader(<Icon name="party" size={16} />, showingFamily ? "Family Records" : "Personal Bests", C.accent)}
         {!filteredAnalytics ? loadingSkeleton : personalBests ? (
           <div>
             {personalBests.isNewRecord && (
@@ -3642,9 +3637,9 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
             )}
             {personalBests.habitStreaks.map((x, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                <span style={{ fontSize: 16 }}>{x.habit.icon}</span>
+                <span style={{ fontSize: 16 }}><Icon name={iconNameFor(x.habit.icon)} size={14} /></span>
                 <span style={{ fontSize: 12, color: C.slate, flex: 1 }}>{x.habit.name}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: T.ptsDeep }}>🔥 {x.streak} day streak</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.ptsDeep }}><Icon name="flame" size={12} color={T.pts} style={{ marginRight: 3 }} /> {x.streak} day streak</span>
               </div>
             ))}
             {personalBests.thisWeekCount === 0 && personalBests.habitStreaks.length === 0 && (
@@ -3677,7 +3672,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>{m.points || 0} pts</div>
                     </div>
                     {topReward && (
-                      <div style={{ fontSize: 11, color: C.slateLight }}>Can redeem: {topReward.icon} {topReward.name}</div>
+                      <div style={{ fontSize: 11, color: C.slateLight }}>Can redeem: {topReward.name}</div>
                     )}
                   </div>
                 </div>
@@ -3692,7 +3687,7 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
               const affordable = (family.members || []).filter(m => (m.points || 0) >= r.points);
               return (
                 <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.sandLight}` }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 12, background: `${r.color || C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{r.icon}</div>
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: `${r.color || C.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}><Icon name={iconNameFor(r.icon)} size={22} /></div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: C.slate }}>{r.name}</div>
                     <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2 }}>{r.points} pts · {r.who || "Everyone"}</div>
@@ -3714,14 +3709,14 @@ function InsightsScreen({ habits, family, weekCompletions = [], currentMember, a
 
 // ─── HELP TOPICS (module-level so ManageScreen can also reference them) ──────
 const HELP_TOPICS = [
-    { id: "add-first", icon: "⊕", title: "Add a habit before anything else", content: `Your tiles don't do anything until you've connected them to a habit. Think of the tile as the button — but first you need to tell Ritual what that button does. Start simple: go to the Manage tab, pick a category, choose one habit, and save it. Then connect a tile. That's it — you're ready to go. Don't overthink your first habit. Pick something you already do most days and make it official.` },
-    { id: "how-to-tap", icon: "◻", title: "How to tap a tile", content: `This trips people up the first time, so here's exactly what to do:\n\n1. Unlock your phone first — it won't work on a locked screen\n2. Hold the back of your phone near the tile — the reader sits near your camera\n3. Hold still for 1–2 seconds — don't wave it, just hold it close\n4. On iPhone: a small banner appears at the top — tap it\n5. On Android: a notification appears — tap it\n\nDoesn't work? Try moving your phone slightly up or down — every phone model is a little different. Make sure you're using the back of the phone, not the front.` },
+    { id: "add-first", icon: <Icon name="plus" size={16} />, title: "Add a habit before anything else", content: `Your tiles don't do anything until you've connected them to a habit. Think of the tile as the button — but first you need to tell Ritual what that button does. Start simple: go to the Manage tab, pick a category, choose one habit, and save it. Then connect a tile. That's it — you're ready to go. Don't overthink your first habit. Pick something you already do most days and make it official.` },
+    { id: "how-to-tap", icon: <Icon name="phone" size={16} />, title: "How to tap a tile", content: `This trips people up the first time, so here's exactly what to do:\n\n1. Unlock your phone first — it won't work on a locked screen\n2. Hold the back of your phone near the tile — the reader sits near your camera\n3. Hold still for 1–2 seconds — don't wave it, just hold it close\n4. On iPhone: a small banner appears at the top — tap it\n5. On Android: a notification appears — tap it\n\nDoesn't work? Try moving your phone slightly up or down — every phone model is a little different. Make sure you're using the back of the phone, not the front.` },
     { id: "what-are-tiles", icon: <TileIcon size="16px" />, title: "What are Ritual tiles?", content: `Ritual tiles use the same technology as tap-to-pay — the kind you use when you tap your card or phone at a checkout, or hold a key card to a hotel door. It's been around for years and is used billions of times every day around the world.\n\nThe tile itself does absolutely nothing on its own. No signal, no emission, nothing at all. It only activates for the one second your phone is held next to it. No batteries. No charging. Ever.\n\nAnd if you want to move a tile from one habit to another, you can — they're completely reusable.\n\nIs it safe? Completely. The tile is passive — it has no power source and emits nothing. It simply waits. That's actually what makes tiles such a clever and perfect fit for Ritual — safe enough to place anywhere in your home, yet reliable enough to work every single time.\n\nOne practical note: tiles come with adhesive backing and should be secured to a surface — a wall, door frame, or shelf works well. Keep them out of reach of young children who may want to put them in their mouths.\n\nWant to know more? Reach out to us at support@ritualhabits.com.au` },
-    { id: "why-tiles", icon: "◈", title: "Why tiles work better than buttons", content: `Let's be honest — most habit apps don't work. You download them full of good intentions, tap a button for a few days, and then forget they exist.\n\nThe problem isn't you. It's that a button on a screen is easy to ignore. Physical objects are different.\n\nHabit researchers have found that things in specific places are among the most powerful triggers for automatic behaviour. When something exists in your space, your brain starts connecting "I'm here" with "I do this." That's the whole idea behind Ritual's tiles.\n\nPut the tile where the habit happens — by the bathroom sink, on the fridge, at the front door. Tap it every day and within a few weeks, the location itself becomes the reminder.\n\nResearch shows that people who linked habits to physical cues in their environment had 58% higher success rates than those who relied on app reminders alone. Your phone notification is easy to swipe away. A tile on your bathroom mirror is a lot harder to ignore.` },
-    { id: "individual-vs-family", icon: "◉", title: "Individual vs family habits", content: `When you create a habit, you choose how it gets tracked.\n\nIndividual means each person tracks it separately. Good for personal habits where it matters who did it, not just that it got done. Example: Homework. One child finishing their homework doesn't count for another child. They each need their own completion.\n\nFamily/shared means one completion counts for everyone assigned. Good for household tasks where it doesn't matter who does it — just that it happened. Example: Feeding the dog. If one person feeds the dog, that counts for the whole family. You don't need everyone else to feed the dog again just to tick their box.\n\nWhen in doubt: if the habit is personal to one person, use Individual. If it's a household job anyone can do, use Family.` },
-    { id: "kids", icon: "✦", title: "How kids work in Ritual", content: `Kids earn points the same way adults do — complete a habit, earn points. The main difference is with rewards.\n\nWhen a child redeems a reward, it doesn't just happen — it creates a request that a parent needs to fulfil.\n\nExample: Your child earns enough points for "Choose a movie night." They tap redeem on Friday morning. Their points are set aside straight away — they can't spend them on anything else. When Friday night comes, a parent opens the Family tab and marks it as fulfilled. Done.\n\nThis keeps parents in the loop and means kids can't redeem rewards without it actually happening in real life.\n\nOne other thing — when a tile is tapped on a habit that belongs to a child, the app asks "Who did this?" This is because kids often share devices, so Ritual checks rather than assumes.` },
-    { id: "fixing-mistakes", icon: "↩", title: "Fixing mistakes", content: `Tapped by accident? Hold your finger on the completed habit card — a progress bar fills up and it undoes the tap.\n\nMissed a tap and not near your tile? Tap on the habit card to expand it, then look for "Don't have your tile with you?" and hold the button to complete it manually. We make this slightly inconvenient on purpose — the tile tap is the whole point — but life happens.\n\nWrong person got the credit? Undo the completion first (hold the habit card), then complete it again and select the right person.` },
-    { id: "managing-tiles", icon: "↻", title: "Managing your tiles", content: `Each tile can only be connected to one habit at a time — but you can reassign them whenever you want.\n\nTo move a tile to a different habit: go to Manage → Manage Tiles, remove it from the current habit, then assign it to a new one. Takes about 30 seconds.\n\nTiles work permanently — no batteries, no Wi-Fi, no setup beyond the first tap. They're completely reusable, so if a habit changes, the tile changes with it. Look after them and they'll last for years.` },
+    { id: "why-tiles", icon: <Icon name="diamond" size={16} />, title: "Why tiles work better than buttons", content: `Let's be honest — most habit apps don't work. You download them full of good intentions, tap a button for a few days, and then forget they exist.\n\nThe problem isn't you. It's that a button on a screen is easy to ignore. Physical objects are different.\n\nHabit researchers have found that things in specific places are among the most powerful triggers for automatic behaviour. When something exists in your space, your brain starts connecting "I'm here" with "I do this." That's the whole idea behind Ritual's tiles.\n\nPut the tile where the habit happens — by the bathroom sink, on the fridge, at the front door. Tap it every day and within a few weeks, the location itself becomes the reminder.\n\nResearch shows that people who linked habits to physical cues in their environment had 58% higher success rates than those who relied on app reminders alone. Your phone notification is easy to swipe away. A tile on your bathroom mirror is a lot harder to ignore.` },
+    { id: "individual-vs-family", icon: <Icon name="users" size={16} />, title: "Individual vs family habits", content: `When you create a habit, you choose how it gets tracked.\n\nIndividual means each person tracks it separately. Good for personal habits where it matters who did it, not just that it got done. Example: Homework. One child finishing their homework doesn't count for another child. They each need their own completion.\n\nFamily/shared means one completion counts for everyone assigned. Good for household tasks where it doesn't matter who does it — just that it happened. Example: Feeding the dog. If one person feeds the dog, that counts for the whole family. You don't need everyone else to feed the dog again just to tick their box.\n\nWhen in doubt: if the habit is personal to one person, use Individual. If it's a household job anyone can do, use Family.` },
+    { id: "kids", icon: <Icon name="spark" size={16} />, title: "How kids work in Ritual", content: `Kids earn points the same way adults do — complete a habit, earn points. The main difference is with rewards.\n\nWhen a child redeems a reward, it doesn't just happen — it creates a request that a parent needs to fulfil.\n\nExample: Your child earns enough points for "Choose a movie night." They tap redeem on Friday morning. Their points are set aside straight away — they can't spend them on anything else. When Friday night comes, a parent opens the Family tab and marks it as fulfilled. Done.\n\nThis keeps parents in the loop and means kids can't redeem rewards without it actually happening in real life.\n\nOne other thing — when a tile is tapped on a habit that belongs to a child, the app asks "Who did this?" This is because kids often share devices, so Ritual checks rather than assumes.` },
+    { id: "fixing-mistakes", icon: <Icon name="undo" size={16} />, title: "Fixing mistakes", content: `Tapped by accident? Hold your finger on the completed habit card — a progress bar fills up and it undoes the tap.\n\nMissed a tap and not near your tile? Tap on the habit card to expand it, then look for "Don't have your tile with you?" and hold the button to complete it manually. We make this slightly inconvenient on purpose — the tile tap is the whole point — but life happens.\n\nWrong person got the credit? Undo the completion first (hold the habit card), then complete it again and select the right person.` },
+    { id: "managing-tiles", icon: <Icon name="refresh" size={16} />, title: "Managing your tiles", content: `Each tile can only be connected to one habit at a time — but you can reassign them whenever you want.\n\nTo move a tile to a different habit: go to Manage → Manage Tiles, remove it from the current habit, then assign it to a new one. Takes about 30 seconds.\n\nTiles work permanently — no batteries, no Wi-Fi, no setup beyond the first tap. They're completely reusable, so if a habit changes, the tile changes with it. Look after them and they'll last for years.` },
 ];
 
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────
@@ -3817,14 +3812,14 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 32, height: 32, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{m.name}{idx === 0 ? " 👑" : ""}</div>
+                  <div style={{ fontSize: 14, color: C.slate, fontWeight: 500 }}>{m.name}{idx === 0 ? <Icon name="crown" size={13} color={T.pts} style={{ marginLeft: 5 }} /> : null}</div>
                   <div style={{ fontSize: 11, color: C.slateLight }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · {m.streak || 0} day streak</div>
                 </div>
                 {isAdmin && (
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => startEdit(m)} style={{ background: "none", border: "none", padding: "4px 6px", cursor: "pointer", fontSize: 14, color: C.slateLight, lineHeight: 1 }} title="Edit">✏️</button>
+                    <button onClick={() => startEdit(m)} style={{ background: "none", border: "none", padding: "4px 6px", cursor: "pointer", color: C.slateLight, lineHeight: 1, display: "flex" }} title="Edit"><Icon name="edit" size={14} /></button>
                     {idx !== 0 && (
-                      <button onClick={() => confirmDelete(m.id)} style={{ background: "none", border: "none", padding: "4px 6px", cursor: "pointer", fontSize: 14, color: `${C.error}99`, lineHeight: 1 }} title="Remove">🗑</button>
+                      <button onClick={() => confirmDelete(m.id)} style={{ background: "none", border: "none", padding: "4px 6px", cursor: "pointer", fontSize: 14, color: `${C.error}99`, lineHeight: 1, display: "flex" }} title="Remove"><Icon name="trash" size={14} /></button>
                     )}
                   </div>
                 )}
@@ -3855,11 +3850,11 @@ function SettingsScreen({ family, currentMember, onLogout, onRefresh, onManageTi
           <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>Progress Visual</div>
           <div style={{ fontSize: 11, color: C.slateLight, marginTop: 2, marginBottom: 10 }}>Choose how your daily progress looks</div>
           <div style={{ display: "flex", gap: 8 }}>
-            {[{ value: 'tree', label: 'Growing Tree', icon: '\uD83C\uDF33' }, { value: 'streak', label: 'Streak Counter', icon: '\uD83D\uDD25' }].map(opt => {
+            {[{ value: 'tree', label: 'Growing Tree', icon: 'tree' }, { value: 'streak', label: 'Streak Counter', icon: 'flame' }].map(opt => {
               const active = getProgressVisual(currentMember) === opt.value;
               return (
                 <button key={opt.value} onClick={() => onEditMember(currentMember.id, { progressVisual: opt.value })} style={{ flex: 1, padding: "10px 8px", borderRadius: 12, border: active ? `2px solid ${C.accent}` : `1.5px solid ${C.sandDark}`, background: active ? `${C.accent}10` : C.white, color: active ? C.accent : C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s ease" }}>
-                  <span style={{ fontSize: 18, display: "block", marginBottom: 2 }}>{opt.icon}</span>{opt.label}
+                  <span style={{ display: "block", marginBottom: 2 }}><Icon name={opt.icon} size={18} /></span>{opt.label}
                 </button>
               );
             })}
@@ -4113,12 +4108,12 @@ function ManageScreen({
             <div style={{ fontSize: 14, fontWeight: 500, color: C.slate, marginBottom: 4 }}>Progress Visual</div>
             <div style={{ fontSize: 11, color: C.slateLight, marginBottom: 10 }}>Choose how daily progress looks</div>
             <div style={{ display: "flex", gap: 8 }}>
-              {[{ value: 'tree', label: 'Growing Tree', icon: '\uD83C\uDF33' }, { value: 'streak', label: 'Streak Counter', icon: '\uD83D\uDD25' }].map(opt => {
+              {[{ value: 'tree', label: 'Growing Tree', icon: 'tree' }, { value: 'streak', label: 'Streak Counter', icon: 'flame' }].map(opt => {
                 const m = family.members.find(x => x.id === editingMemberId);
                 const active = getProgressVisual(m) === opt.value;
                 return (
                   <button key={opt.value} onClick={async () => { await onEditMember(editingMemberId, { progressVisual: opt.value }); onToast("Visual updated"); }} style={{ flex: 1, padding: "10px 8px", borderRadius: 12, border: active ? `2px solid ${C.accent}` : `1.5px solid ${C.sandDark}`, background: active ? `${C.accent}10` : C.white, color: active ? C.accent : C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s ease" }}>
-                    <span style={{ fontSize: 18, display: "block", marginBottom: 2 }}>{opt.icon}</span>{opt.label}
+                    <span style={{ display: "block", marginBottom: 2 }}><Icon name={opt.icon} size={18} /></span>{opt.label}
                   </button>
                 );
               })}
@@ -4211,8 +4206,8 @@ function ManageScreen({
       {/* RITUALS */}
       {sectionLabel("RITUALS")}
       {card(<>
-        {settingsRow("◈", `${C.slate}20`, "Add a ritual", "Browse templates or create your own", () => setActiveSubView("addRitual"))}
-        {settingsRow("✏️", `${C.slateLight}20`, "Manage habits", "Edit names, locations, targets or delete", () => setActiveSubView("habitsManage"), { last: true })}
+        {settingsRow(<Icon name="diamond" size={15} />, `${C.slate}20`, "Add a ritual", "Browse templates or create your own", () => setActiveSubView("addRitual"))}
+        {settingsRow(<Icon name="edit" size={15} />, `${C.slateLight}20`, "Manage habits", "Edit names, locations, targets or delete", () => setActiveSubView("habitsManage"), { last: true })}
       </>)}
 
       {/* TILES */}
@@ -4225,7 +4220,7 @@ function ManageScreen({
       {!soloMode && <>
         {sectionLabel("REWARDS")}
         {card(<>
-          {settingsRow("🎁", `${C.accent}20`, "Manage rewards", "Set up points rewards for your family", () => setActiveSubView("manageRewards"), { last: true })}
+          {settingsRow(<Icon name="gift" size={15} />, `${C.accent}20`, "Manage rewards", "Set up points rewards for your family", () => setActiveSubView("manageRewards"), { last: true })}
         </>)}
       </>}
 
@@ -4243,7 +4238,7 @@ function ManageScreen({
           <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: `1px solid ${C.sandLight}` }}>
             <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: C.white, flexShrink: 0 }}>{m.avatar}</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>{m.name}{idx === 0 ? " 👑" : ""}</div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: C.slate }}>{m.name}{idx === 0 ? <Icon name="crown" size={13} color={T.pts} style={{ marginLeft: 5 }} /> : null}</div>
               <div style={{ fontSize: 11, color: C.slateLight, marginTop: 1 }}>{m.isKid ? "Kid" : "Adult"} · {m.points || 0} pts · {m.streak || 0} day streak</div>
             </div>
             {isAdmin && (
@@ -4261,7 +4256,7 @@ function ManageScreen({
               width: 36, height: 36, borderRadius: '50%',
               background: T.line, display: 'flex', alignItems: 'center',
               justifyContent: 'center', fontSize: 16
-            }}>👥</div>
+            }}><Icon name="users" size={16} color={T.ink2} /></div>
             <div>
               <div style={{ fontWeight: 500, fontSize: 14, color: T.ink2 }}>Add family members</div>
               <div style={{ fontSize: 12, color: T.mute }}>Contact us for family upgrade options</div>
@@ -4274,7 +4269,7 @@ function ManageScreen({
       {sectionLabel("PREFERENCES")}
       {card(<>
         <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 0" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: `${C.green}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🔊</div>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: `${C.green}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon name="sound" size={15} /></div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Sound effects</div>
             <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>Play sounds on habit completion</div>
@@ -4285,25 +4280,25 @@ function ManageScreen({
         </div>
         <div style={{ padding: "13px 0", borderTop: `1px solid ${C.sandLight}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 9, background: `${C.accent}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🎨</div>
+            <div style={{ width: 32, height: 32, borderRadius: 9, background: `${C.accent}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon name="palette" size={15} /></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Progress visual</div>
               <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>Choose how your daily progress looks</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginLeft: 46 }}>
-            {[{ value: 'tree', label: 'Growing Tree', icon: '🌳' }, { value: 'streak', label: 'Streak Counter', icon: '🔥' }].map(opt => {
+            {[{ value: 'tree', label: 'Growing Tree', icon: 'tree' }, { value: 'streak', label: 'Streak Counter', icon: 'flame' }].map(opt => {
               const active = getProgressVisual(currentMember) === opt.value;
               return (
                 <button key={opt.value} onClick={() => onEditMember(currentMember.id, { progressVisual: opt.value })} style={{ flex: 1, padding: "10px 8px", borderRadius: 12, border: active ? `2px solid ${C.accent}` : `1.5px solid ${C.sandDark}`, background: active ? `${C.accent}10` : C.white, color: active ? C.accent : C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s ease" }}>
-                  <span style={{ fontSize: 18, display: "block", marginBottom: 2 }}>{opt.icon}</span>{opt.label}
+                  <span style={{ display: "block", marginBottom: 2 }}><Icon name={opt.icon} size={18} /></span>{opt.label}
                 </button>
               );
             })}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 0", borderTop: `1px solid ${C.sandLight}` }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: C.sandLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🔔</div>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: C.sandLight, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon name="bell" size={15} /></div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.slate }}>Push notifications</div>
             <div style={{ fontSize: 12, color: C.slateLight, marginTop: 2 }}>Reminders and alerts</div>
@@ -4315,11 +4310,11 @@ function ManageScreen({
       {/* ACCOUNT */}
       {sectionLabel("ACCOUNT")}
       {card(<>
-        {authedUserEmail && settingsRow("✉", `${C.accent}20`, "Email", authedUserEmail, () => { setNewEmail(authedUserEmail); setEmailError(""); setShowEditEmail(true); })}
-        {authedUserEmail && settingsRow("🔑", `${C.accent}20`, "Change password", null, () => { setPwCurrent(""); setPwNew(""); setPwConfirm(""); setPwError(""); setShowChangePassword(true); })}
-        {settingsRow("↺", `${C.green}20`, "Refresh data", "Sync latest data from server", async () => { try { await onRefresh(); } catch (e) {} })}
+        {authedUserEmail && settingsRow(<Icon name="mail" size={15} />, `${C.accent}20`, "Email", authedUserEmail, () => { setNewEmail(authedUserEmail); setEmailError(""); setShowEditEmail(true); })}
+        {authedUserEmail && settingsRow(<Icon name="key" size={15} />, `${C.accent}20`, "Change password", null, () => { setPwCurrent(""); setPwNew(""); setPwConfirm(""); setPwError(""); setShowChangePassword(true); })}
+        {settingsRow(<Icon name="refresh" size={15} />, `${C.green}20`, "Refresh data", "Sync latest data from server", async () => { try { await onRefresh(); } catch (e) {} })}
         {settingsRow("→", `${C.error}15`, "Sign out", null, () => { if (window.confirm("Sign out? You'll need to sign in again to come back.")) onLogout(); }, { danger: true })}
-        {settingsRow("⚠", `${C.error}15`, "Reset all points & streaks", "Cannot be undone — affects all members", async () => {
+        {settingsRow(<Icon name="warning" size={15} />, `${C.error}15`, "Reset all points & streaks", "Cannot be undone — affects all members", async () => {
           if (!window.confirm("Reset all points and streaks to zero?\n\nThis will:\n- Set everyone's points to 0\n- Set all streaks to 0\n- Cannot be undone\n\nAre you sure?")) return;
           try {
             await supabase.from("members").update({ points: 0, streak: 0 }).eq('family_id', family.id);
@@ -4328,7 +4323,7 @@ function ManageScreen({
             onToast("Points and streaks reset to zero");
           } catch (err) { onToast("Reset failed", "error"); }
         }, { last: !window.location.hostname.includes('localhost') && !window.location.search.includes('debug=true'), danger: true })}
-        {(window.location.hostname === 'localhost' || window.location.search.includes('debug=true')) && settingsRow("🧹", `${C.error}15`, "Clear all data & sign out", null, () => {
+        {(window.location.hostname === 'localhost' || window.location.search.includes('debug=true')) && settingsRow(<Icon name="broom" size={15} />, `${C.error}15`, "Clear all data & sign out", null, () => {
           localStorage.removeItem("ritual_savedPin"); localStorage.removeItem("ritual_savedFamilyName");
           localStorage.removeItem("ritual_currentMemberId"); localStorage.removeItem("ritual_soloMode");
           localStorage.removeItem("ritual_soundEnabled"); window.location.reload();
@@ -4338,16 +4333,16 @@ function ManageScreen({
       {/* HELP */}
       {sectionLabel("HELP")}
       {card(<>
-        {settingsRow("◉", `${C.warm}20`, "How it works", "Guides and FAQs", () => setActiveSubView("howItWorks"), { last: !isAdmin })}
+        {settingsRow(<Icon name="rings" size={15} />, `${C.warm}20`, "How it works", "Guides and FAQs", () => setActiveSubView("howItWorks"), { last: !isAdmin })}
         {isAdmin && settingsRow("▷", `${C.slateLight}20`, "Replay onboarding", "Walk through the intro again", onReplayOnboarding, { last: true })}
       </>)}
 
       {/* ABOUT */}
       {sectionLabel("ABOUT")}
       {card(<>
-        {settingsRow("🔒", `${C.slateLight}20`, "Privacy Policy", null, async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/privacy" }); } catch { window.open("https://ritualhabits.com.au/privacy", "_blank"); } })}
-        {settingsRow("📄", `${C.slateLight}20`, "Terms of Use", null, async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } })}
-        {settingsRow("✉️", `${C.accent}20`, "Contact Us", "hello@ritualhabits.com.au", () => { window.location.href = "mailto:hello@ritualhabits.com.au"; }, { last: true })}
+        {settingsRow(<Icon name="lock" size={15} />, `${C.slateLight}20`, "Privacy Policy", null, async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/privacy" }); } catch { window.open("https://ritualhabits.com.au/privacy", "_blank"); } })}
+        {settingsRow(<Icon name="document" size={15} />, `${C.slateLight}20`, "Terms of Use", null, async () => { try { await Browser.open({ url: "https://ritualhabits.com.au/terms" }); } catch { window.open("https://ritualhabits.com.au/terms", "_blank"); } })}
+        {settingsRow(<Icon name="mail" size={15} />, `${C.accent}20`, "Contact Us", "hello@ritualhabits.com.au", () => { window.location.href = "mailto:hello@ritualhabits.com.au"; }, { last: true })}
       </>)}
       <div style={{ textAlign: "center", marginTop: 24, padding: "0 16px" }}>
         <p style={{ fontSize: 11, color: C.slateLight, lineHeight: 1.5, margin: 0 }}>
@@ -4478,7 +4473,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
   const adultSlides = [
     // Slide 0 — Entry point: two paths
     <div key="a0" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
-      <div key={`a0i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
+      <div key={`a0i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1 }}><Icon name="spark" size={56} color={T.white} /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>Welcome to Ritual</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode ? "Your habits. Your pace. Your ritual." : "Habit tracking for the whole family"}</div>
@@ -4490,7 +4485,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
     </div>,
     // Slide 1 — Welcome
     <div key="a1" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 28 }}>
-      <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>◈</div>
+      <div key={`a1i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1 }}><Icon name="diamond" size={56} color={T.white} /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>{soloMode ? "Build habits that stick" : "Build habits as a family"}</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode
@@ -4510,7 +4505,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Every habit has a tile you place where it happens — by the bed, at the front door, in the kitchen. Tap your phone to it and the habit logs instantly.</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
-        {[[<TileIcon size="13px" />, "tile"], ["📱", "tap"], ["✦", "logged"]].map(([icon, label], i) => (
+        {[[<TileIcon size="13px" />, "tile"], [<Icon name="phone" size={13} />, "tap"], [<Icon name="spark" size={13} />, "logged"]].map(([icon, label], i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ padding: "8px 14px", borderRadius: 20, background: C.offwhite, fontSize: 13, color: C.slate, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
               <span>{icon}</span><span>{label}</span>
@@ -4525,13 +4520,13 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
     </div>,
     // Slide 3 — NEW: Let's build your first habit
     <div key="a3" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
-      <div key={`a3i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}>🛏️</div>
+      <div key={`a3i-${navCount}`} style={{ fontSize: 64, animation: "popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)", lineHeight: 1 }}><Icon name="bed" size={56} color={T.white} /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>Let's build your first habit</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>Pick something small — something you already do — and make it official. Here's an easy one to start with:</div>
       </div>
       <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: 20, padding: "14px 18px", width: "100%", display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>🛏️</div>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.white }}><Icon name="bed" size={20} /></div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.white, fontFamily: "'DM Sans', sans-serif" }}>Make your bed</div>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: "'DM Sans', sans-serif", marginTop: 2 }}>Bedroom · 10 pts</div>
@@ -4568,7 +4563,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
           "No tile yet? You can skip this and add one later"
         ].map((text, i) => (
           <div key={i} style={{ background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
-            <span style={{ color: C.accentLight, fontSize: 14, flexShrink: 0 }}>✦</span>
+            <span style={{ color: T.pts, flexShrink: 0, display: "flex" }}><Icon name="spark" size={14} /></span>
             <span style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.4 }}>{text}</span>
           </div>
         ))}
@@ -4579,7 +4574,7 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
     </div>,
     // Slide 5 — NEW: You're ready (final slide with CTA)
     <div key="a5" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "0 32px", textAlign: "center", gap: 24 }}>
-      <div key={`a5i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1, color: C.white }}>✦</div>
+      <div key={`a5i-${navCount}`} style={{ fontSize: 64, animation: "pulse 2.5s ease-in-out infinite", lineHeight: 1 }}><Icon name="spark" size={56} color={T.white} /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: C.white, fontFamily: D.fontHeading, lineHeight: 1.2, letterSpacing: "-0.03em" }}>You're all set</div>
         <div style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{soloMode
@@ -4587,14 +4582,14 @@ function OnboardingFlow({ currentMember, onComplete, soloMode }) {
           : "When someone taps a tile, you'll see who did it, their streak, and their points. The whole family in one place."}</div>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-        {[["🔥", "Streaks"], ["⭐", "Points"]].map(([icon, label], i) => (
+        {[[<Icon name="flame" size={13} color={T.pts} />, "Streaks"], [<Icon name="star" size={13} color={T.pts} />, "Points"]].map(([icon, label], i) => (
           <div key={i} style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.white, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
             <span>{icon}</span><span>{label}</span>
           </div>
         ))}
         {!soloMode && (
           <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.white, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 5 }}>
-            <span>👨‍👩‍👧</span><span>Family</span>
+            <span style={{ display: "flex" }}><Icon name="users" size={13} /></span><span>Family</span>
           </div>
         )}
       </div>
@@ -6244,6 +6239,22 @@ export default function RitualApp() {
     }
   }, [family, mounted, habitsWithTaps, deepLinkTileUID]);
 
+  // DEV ONLY: ?fixture=tree renders a GrowingTree contact sheet (all stages,
+  // fruit counts, bird) for design review and screenshots.
+  if (process.env.NODE_ENV === 'development' && new URLSearchParams(window.location.search).get('fixture') === 'tree') {
+    const cell = { background: T.card, borderRadius: 16, padding: 12, textAlign: "center" };
+    const label = { fontFamily: FONTS.body, fontSize: 12, color: T.ink2, marginTop: 4 };
+    return (
+      <div style={{ background: T.bg, minHeight: "100vh", padding: 20, display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+        {[0, 1, 2, 3].map(s => (
+          <div key={s} style={cell}><GrowingTree stage={s} size={150} /><div style={label}>stage {s}</div></div>
+        ))}
+        <div style={cell}><GrowingTree stage={4} fruit={3} size={150} /><div style={label}>stage 4 · 3 fruit · bird</div></div>
+        <div style={cell}><GrowingTree stage={4} fruit={6} size={150} /><div style={label}>stage 4 · 6 fruit · bird</div></div>
+      </div>
+    );
+  }
+
   if (!mounted) return (
     <div style={{ minHeight: "100vh", background: C.sandLight, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
       <div style={{ fontSize: 40, color: C.sandDark, opacity: 0.5, animation: "pulse 1.5s ease-in-out infinite" }}>◈</div>
@@ -6352,10 +6363,10 @@ export default function RitualApp() {
   if (!family) return <LoginScreen onLogin={handleLogin} initialAuthFamily={pendingAuthFamily} onAuthFamilyReady={handleAuthFamilyReady} />;
 
   const TABS = [
-    { id: "today", icon: "◈", label: "Today" },
-    ...(!soloMode ? [{ id: "family", icon: "◉", label: "Family" }] : []),
-    { id: "insights", icon: "◎", label: "Insights" },
-    { id: "manage", icon: "⚙", label: "Manage" },
+    { id: "today", icon: "diamond", label: "Today" },
+    ...(!soloMode ? [{ id: "family", icon: "circle", label: "Family" }] : []),
+    { id: "insights", icon: "rings", label: "Insights" },
+    { id: "manage", icon: "gear", label: "Manage" },
   ];
 
   const headings = {
@@ -6583,8 +6594,8 @@ export default function RitualApp() {
                 setTab(t.id);
               }
             }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 12px" }}>
-              <div style={{ fontSize: 20, color: tab === t.id ? C.accent : C.sandDark, transition: "all 0.2s ease", transform: tab === t.id ? "scale(1.2)" : "scale(1)", display: "flex", alignItems: "center", justifyContent: "center", height: 24, width: 24 }}>
-                {t.id === "manage" ? <GearIcon color={tab === t.id ? C.accent : C.sandDark} size={20} /> : t.icon}
+              <div style={{ color: tab === t.id ? C.accent : C.sandDark, transition: "all 0.2s ease", transform: tab === t.id ? "scale(1.2)" : "scale(1)", display: "flex", alignItems: "center", justifyContent: "center", height: 24, width: 24 }}>
+                <Icon name={t.icon} size={19} strokeWidth={1.6} />
               </div>
               <div style={{ fontSize: 9, letterSpacing: 1.2, color: tab === t.id ? C.accent : C.sandDark, fontWeight: tab === t.id ? 700 : 400, textTransform: "uppercase" }}>{t.label}</div>
             </button>
