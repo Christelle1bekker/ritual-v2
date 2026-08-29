@@ -4909,37 +4909,30 @@ export default function RitualApp() {
       await handleDeepLinkUrl(event.url);
     }); } catch (e) { console.warn('[Capgo] appUrlOpen listener failed:', e); }
 
-    // ANDROID COLD LAUNCH — the tile-tap gap appUrlOpen cannot cover.
+    // ANDROID COLD LAUNCH — deliberately NO getLaunchUrl() call here.
     //
-    // @capacitor/app fires appUrlOpen from handleOnNewIntent ONLY, i.e. for
-    // WARM intents. When an ACTION_VIEW intent starts the process from cold,
-    // the activity is created with that intent and onNewIntent never runs, so
-    // no appUrlOpen is ever emitted and a tile tap that launches the app is a
-    // silent no-op. The URL is only reachable via App.getLaunchUrl(), which
-    // returns Bridge.getIntentUri() — the launching intent.
+    // Reading AppPlugin.java alone suggests cold launches need it: the plugin
+    // only fires appUrlOpen from handleOnNewIntent, and a cold ACTION_VIEW
+    // intent never reaches onNewIntent. But Capacitor 8's BridgeActivity.load()
+    // ends with this.onNewIntent(getIntent()) (BridgeActivity.java:51), which
+    // routes the LAUNCHING intent through every plugin's handleOnNewIntent —
+    // so a cold tile tap emits a retained appUrlOpen after all, and the
+    // listener above receives it once JS attaches. Verified on the API 36
+    // emulator 2026-08-29: a force-stopped app launched via
+    // `am start -a android.intent.action.VIEW -d "https://app.ritualhabits.com.au?tile=04A32B"`
+    // logs [appUrlOpen] received URL + [TILE TAP] extracted tile_uid.
     //
-    // ANDROID-ONLY BY NECESSITY: on iOS a cold-launch universal link IS
-    // delivered as a retained appUrlOpen, so calling getLaunchUrl() there too
-    // would hand the same URL to the handler twice (double auth exchange, or a
-    // tile completion counted twice). The platform check is the de-duplication.
+    // Adding getLaunchUrl() on top (tried first) double-delivers the same URL:
+    // harmless for tiles (same-tick setDeepLinkTileUID with an identical
+    // string) but a second exchangeCodeForSession for auth links, which fails
+    // noisily on the consumed code. If appUrlOpen-on-cold-launch ever breaks
+    // (a Capacitor major could change BridgeActivity.load()), reinstate
+    // getLaunchUrl() WITH a handled-URL dedupe, not bare.
     //
     // Stale-intent safety lives in MainActivity.onCreate: a recents relaunch
-    // redelivers the last ACTION_VIEW intent with FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY,
-    // and its data URI is stripped there before the Bridge can see it — so
-    // getLaunchUrl() returns nothing for those and cannot replay an old tap.
-    if (Capacitor.getPlatform() === 'android') {
-      // try/catch as well as .catch(): same rule as every other native call in
-      // this effect — a deep-link lookup failing must never take the app down.
-      try {
-        CapApp.getLaunchUrl()
-          .then((result) => {
-            const launchUrl = result?.url;
-            if (!launchUrl) return; // ordinary launcher-icon start
-            handleDeepLinkUrl(launchUrl, 'getLaunchUrl');
-          })
-          .catch((e) => console.warn('[getLaunchUrl] cold-launch URL lookup failed:', e));
-      } catch (e) { console.warn('[getLaunchUrl] cold-launch URL lookup threw:', e); }
-    }
+    // redelivers the last ACTION_VIEW intent with
+    // FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY, and its data URI is stripped there
+    // before the Bridge can replay it through this listener.
 
     // Push Notifications: request permission and register (wrapped in try/catch — must not crash app)
     // ANDROID v1 RULING (2026-08-29, docs/android/ASSESSMENT.md §10a): push is

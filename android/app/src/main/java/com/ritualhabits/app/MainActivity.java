@@ -33,10 +33,11 @@ public class MainActivity extends BridgeActivity {
      * its action and extras; only the deep-link payload is removed, which is
      * the single thing that must not be replayed.
      *
-     * This is also what makes the cold-launch handler in App.js safe:
-     * App.getLaunchUrl() just returns Bridge.getIntentUri(), i.e. the very
-     * intent cleaned here, so the JS side needs no history check of its own —
-     * and could not perform one anyway, as the flags never reach JS.
+     * This guard also covers the cold-launch delivery path: Capacitor 8's
+     * BridgeActivity.load() replays getIntent() through onNewIntent, which is
+     * how a cold tile tap reaches the JS appUrlOpen listener at all — and that
+     * replay happens after this cleaning, so JS needs no history check of its
+     * own (and could not perform one anyway; the flags never reach JS).
      */
     @Override
     public void onCreate(Bundle savedInstanceState) {
